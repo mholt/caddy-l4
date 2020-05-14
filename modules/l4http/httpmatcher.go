@@ -85,5 +85,10 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	return m.matcherSets.AnyMatch(req), nil
 }
 
-// Interface guard
-var _ layer4.ConnMatcher = (*MatchHTTP)(nil)
+// Interface guards
+var (
+	_ layer4.ConnMatcher = (*MatchHTTP)(nil)
+	_ caddy.Provisioner  = (*MatchHTTP)(nil)
+	_ json.Marshaler     = (*MatchHTTP)(nil)
+	_ json.Unmarshaler   = (*MatchHTTP)(nil)
+)

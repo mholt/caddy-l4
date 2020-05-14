@@ -193,3 +193,7 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 	}
 }
 ```
+
+## Developing
+
+Since this repo is currently private, the easiest way to hack on this code is to clone it yourself, then use [`xcaddy`](https://github.com/caddyserver/caddy) (or just plug it in yourself and set a `replace` in your go.mod to reference the local copy).

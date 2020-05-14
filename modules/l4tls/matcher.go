@@ -69,33 +69,37 @@ func (m *MatchTLS) Provision(ctx caddy.Context) error {
 
 // Match returns true if the connection is a TLS handshake.
 func (m MatchTLS) Match(cx *layer4.Connection) (bool, error) {
-	// read the header bytes
-	const recordHeaderLen = 5
-	hdr := make([]byte, recordHeaderLen)
-	_, err := io.ReadFull(cx.Conn, hdr)
-	if err != nil {
-		return false, err
+	// TODO: do we need a more standardized way to amortize matchers? or at least to remember decoded results from previous matchers?
+	chi, ok := cx.GetVar("tls_client_hello").(ClientHelloInfo)
+	if !ok {
+		// read the header bytes
+		const recordHeaderLen = 5
+		hdr := make([]byte, recordHeaderLen)
+		_, err := io.ReadFull(cx.Conn, hdr)
+		if err != nil {
+			return false, err
+		}
+
+		const recordTypeHandshake = 0x16
+		if hdr[0] != recordTypeHandshake {
+			return false, nil
+		}
+
+		// get length of the ClientHello message and read it
+		length := int(uint16(hdr[3])<<8 | uint16(hdr[4])) // ignoring version in hdr[1:3] - like https://github.com/inetaf/tcpproxy/blob/master/sni.go#L170
+		rawHello := make([]byte, length)
+		_, err = io.ReadFull(cx.Conn, rawHello)
+		if err != nil {
+			return false, err
+		}
+
+		// parse the ClientHello and store it in the map
+		chi = parseRawClientHello(rawHello)
+		chi.Conn = cx.Conn
+
+		// remember this so future handlers can use it
+		cx.SetVar("tls_client_hello", chi)
 	}
-
-	const recordTypeHandshake = 0x16
-	if hdr[0] != recordTypeHandshake {
-		return false, nil
-	}
-
-	// get length of the ClientHello message and read it
-	length := int(uint16(hdr[3])<<8 | uint16(hdr[4])) // ignoring version in hdr[1:3] - like https://github.com/inetaf/tcpproxy/blob/master/sni.go#L170
-	rawHello := make([]byte, length)
-	_, err = io.ReadFull(cx.Conn, rawHello)
-	if err != nil {
-		return false, err
-	}
-
-	// parse the ClientHello and store it in the map
-	chi := parseRawClientHello(rawHello)
-	chi.Conn = cx.Conn
-
-	// remember this so future handlers can use it
-	cx.SetVar("tls_client_hello", chi)
 
 	for _, matcher := range m.matchers {
 		// TODO: even though we have more data than the standard lib's
@@ -112,5 +116,10 @@ func (m MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
-// Interface guard
-var _ layer4.ConnMatcher = (*MatchTLS)(nil)
+// Interface guards
+var (
+	_ layer4.ConnMatcher = (*MatchTLS)(nil)
+	_ caddy.Provisioner  = (*MatchTLS)(nil)
+	_ json.Marshaler     = (*MatchTLS)(nil)
+	_ json.Unmarshaler   = (*MatchTLS)(nil)
+)
