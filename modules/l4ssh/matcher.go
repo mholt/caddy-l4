@@ -44,9 +44,6 @@ func (m MatchSSH) Match(cx *layer4.Connection) (bool, error) {
 	if err != nil || n < len(sshPrefix) {
 		return false, nil
 	}
-	if n < len(sshPrefix) {
-		return false, nil
-	}
 	return bytes.Equal(p, sshPrefix), nil
 }
 
