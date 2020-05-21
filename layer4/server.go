@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -84,13 +85,22 @@ func (s Server) handle(conn net.Conn) {
 		Context: ctx,
 		buf:     buf,
 	}
-	cx.Conn = &recordableConn{
+	rc := &recordableConn{
 		Conn: conn,
 		cx:   cx,
 	}
+	cx.Conn = rc
 
+	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
+	duration := time.Since(start)
 	if err != nil {
 		s.logger.Error("handling connection", zap.Error(err))
 	}
+
+	s.logger.Debug("connection stats",
+		zap.Uint64("read", rc.bytesRead),
+		zap.Uint64("written", rc.bytesWritten),
+		zap.Duration("duration", duration),
+	)
 }

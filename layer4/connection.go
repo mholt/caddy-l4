@@ -46,6 +46,8 @@ type Connection struct {
 type recordableConn struct {
 	net.Conn
 	cx *Connection
+
+	bytesRead, bytesWritten uint64
 }
 
 // Read implements io.Reader in such a way that reads first
@@ -68,6 +70,7 @@ func (rc *recordableConn) Read(p []byte) (n int, err error) {
 	// buffer has been "depleted" so read from
 	// underlying connection
 	n, err = rc.Conn.Read(p)
+	rc.bytesRead += uint64(n)
 
 	if !rc.cx.recording {
 		return
@@ -82,6 +85,12 @@ func (rc *recordableConn) Read(p []byte) (n int, err error) {
 		}
 	}
 
+	return
+}
+
+func (rc *recordableConn) Write(p []byte) (n int, err error) {
+	n, err = rc.Conn.Write(p)
+	rc.bytesWritten += uint64(n)
 	return
 }
 
