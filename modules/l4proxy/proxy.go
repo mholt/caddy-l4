@@ -42,8 +42,11 @@ type Handler struct {
 
 // Upstream represents a proxy upstream.
 type Upstream struct {
-	Dial []string                `json:"dial,omitempty"`
-	TLS  *reverseproxy.TLSConfig `json:"tls,omitempty"` // TODO: kind of a weird import but ok
+	// The network address to dial. Supports placeholders; does not support port ranges.
+	Dial []string `json:"dial,omitempty"`
+
+	// Set this field to enable TLS to the upstream.
+	TLS *reverseproxy.TLSConfig `json:"tls,omitempty"` // TODO: kind of a weird import but ok
 
 	peers     []*peer
 	tlsConfig *tls.Config
@@ -111,6 +114,8 @@ func (p *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the downstream connection.
 func (p Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
+	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+
 	// TODO: get next upstream from LB policy
 	upstream := p.Upstreams[0]
 
@@ -120,8 +125,9 @@ func (p Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 		var up net.Conn
 		var err error
 
+		hostPort := repl.ReplaceAll(peer.address.JoinHostPort(0), "")
 		if upstream.TLS == nil {
-			up, err = net.Dial(peer.address.Network, peer.address.JoinHostPort(0))
+			up, err = net.Dial(peer.address.Network, hostPort)
 		} else {
 			// the prepared config could be nil if user enabled but did not customize TLS,
 			// in which case we adopt the downstream client's TLS ClientHello for ours;
@@ -133,7 +139,7 @@ func (p Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 					chi.FillTLSClientConfig(tlsCfg)
 				}
 			}
-			up, err = tls.Dial(peer.address.Network, peer.address.JoinHostPort(0), tlsCfg)
+			up, err = tls.Dial(peer.address.Network, hostPort, tlsCfg)
 		}
 		if err != nil {
 			return err

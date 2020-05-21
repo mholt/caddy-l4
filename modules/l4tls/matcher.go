@@ -99,6 +99,11 @@ func (m MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 
 		// remember this so future handlers can use it
 		cx.SetVar("tls_client_hello", chi)
+
+		// also add values to the replacer
+		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+		repl.Set("l4.tls.server_name", chi.ClientHelloInfo.ServerName)
+		repl.Set("l4.tls.version", chi.Version)
 	}
 
 	for _, matcher := range m.matchers {

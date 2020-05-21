@@ -121,9 +121,14 @@ func (cx Connection) GetVar(key string) interface{} {
 	return varMap[key]
 }
 
-// VarsCtxKey is the key used to store the variables table
-// in a Connection's context.
-var VarsCtxKey caddy.CtxKey = "vars"
+var (
+	// VarsCtxKey is the key used to store the variables table
+	// in a Connection's context.
+	VarsCtxKey caddy.CtxKey = "vars"
+
+	// ReplacerCtxKey is the key used to store the replacer.
+	ReplacerCtxKey caddy.CtxKey = "replacer"
+)
 
 var bufPool = sync.Pool{
 	New: func() interface{} {

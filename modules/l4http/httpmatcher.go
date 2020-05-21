@@ -70,15 +70,26 @@ func (m *MatchHTTP) Provision(ctx caddy.Context) error {
 
 // Match returns true if the conn starts with an HTTP request.
 func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
-	r := bufio.NewReader(cx.Conn)
-	req, err := http.ReadRequest(r)
-	if err != nil {
-		// TODO: find a way to distinguish actual errors from mismatches
-		return false, nil
-	}
+	// TODO: do we need a more standardized way to amortize matchers? or at least to remember decoded results from previous matchers?
+	req, ok := cx.GetVar("http_request").(*http.Request)
+	if !ok {
+		var err error
+		req, err = http.ReadRequest(bufio.NewReader(cx.Conn))
+		if err != nil {
+			// TODO: find a way to distinguish actual errors from mismatches
+			return false, nil
+		}
 
-	// in order to use request matchers, we have to populate the request context
-	req = caddyhttp.PrepareRequest(req, caddy.NewReplacer(), nil, nil)
+		// in order to use request matchers, we have to populate the request context
+		req = caddyhttp.PrepareRequest(req, caddy.NewReplacer(), nil, nil)
+
+		// remember this for future use
+		cx.SetVar("http_request", req)
+
+		// also add values to the replacer (TODO: we could probably find a way to use the http app's replacer values)
+		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+		repl.Set("l4.http.host", req.Host)
+	}
 
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured

@@ -68,8 +68,13 @@ func (s Server) serve(ln net.Listener) error {
 func (s Server) handle(conn net.Conn) {
 	defer conn.Close()
 
+	repl := caddy.NewReplacer()
+	repl.Set("l4.conn.remote_addr", conn.RemoteAddr())
+	repl.Set("l4.conn.local_addr", conn.LocalAddr())
+
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
+	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
