@@ -16,9 +16,15 @@ package layer4
 
 import (
 	"fmt"
+	"net"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 )
+
+func init() {
+	caddy.RegisterModule(MatchIP{})
+}
 
 // ConnMatcher is a type that can match a connection.
 type ConnMatcher interface {
@@ -85,3 +91,78 @@ func (mss *MatcherSets) FromInterface(matcherSets interface{}) error {
 	}
 	return nil
 }
+
+// MatchIP matches requests by remote IP (or CIDR range).
+type MatchIP struct {
+	Ranges []string `json:"ranges,omitempty"`
+
+	cidrs []*net.IPNet
+}
+
+// CaddyModule returns the Caddy module information.
+func (MatchIP) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.ip",
+		New: func() caddy.Module { return new(MatchIP) },
+	}
+}
+
+// Provision parses m's IP ranges, either from IP or CIDR expressions.
+func (m *MatchIP) Provision(ctx caddy.Context) error {
+	for _, str := range m.Ranges {
+		if strings.Contains(str, "/") {
+			_, ipNet, err := net.ParseCIDR(str)
+			if err != nil {
+				return fmt.Errorf("parsing CIDR expression: %v", err)
+			}
+			m.cidrs = append(m.cidrs, ipNet)
+		} else {
+			ip := net.ParseIP(str)
+			if ip == nil {
+				return fmt.Errorf("invalid IP address: %s", str)
+			}
+			mask := len(ip) * 8
+			m.cidrs = append(m.cidrs, &net.IPNet{
+				IP:   ip,
+				Mask: net.CIDRMask(mask, mask),
+			})
+		}
+	}
+	return nil
+}
+
+// Match returns true if the connection is from one of the designated IP ranges.
+func (m MatchIP) Match(cx *Connection) (bool, error) {
+	clientIP, err := m.getClientIP(cx)
+	if err != nil {
+		return false, fmt.Errorf("getting client IP: %v", err)
+	}
+	for _, ipRange := range m.cidrs {
+		if ipRange.Contains(clientIP) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m MatchIP) getClientIP(cx *Connection) (net.IP, error) {
+	remote := cx.Conn.RemoteAddr().String()
+
+	ipStr, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		ipStr = remote // OK; probably didn't have a port
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid client IP address: %s", ipStr)
+	}
+
+	return ip, nil
+}
+
+// Interface guards
+var (
+	_ ConnMatcher       = (*MatchIP)(nil)
+	_ caddy.Provisioner = (*MatchIP)(nil)
+)
