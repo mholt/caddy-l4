@@ -31,14 +31,15 @@ func init() {
 // Handler is a layer4 handler that replicates a connection so
 // that a branch of handlers can concurrently handle it. Reads
 // happen in lock-step with all concurrent branches so as to
-// avoid buffering. If one of the branches (including the main
+// avoid buffering: if one of the branches (including the main
 // handler chain) stops reading from the connection, it will
 // block all branches.
 type Handler struct {
 	// Handlers is the list of handlers that constitute this
 	// concurrent branch. Any handlers that do connection
 	// matching (which involves recording and rewinding the
-	// stream) are unsafe to tee.
+	// stream) are unsafe to tee, so do all connection
+	// matching before teeing.
 	HandlersRaw []json.RawMessage `json:"branch,omitempty" caddy:"namespace=layer4.handlers inline_key=handler"`
 
 	compiledChain layer4.Handler
