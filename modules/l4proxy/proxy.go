@@ -290,7 +290,9 @@ func (h *Handler) countFailure(p *peer) {
 func (h *Handler) Cleanup() error {
 	// remove hosts from our config from the pool
 	for _, upstream := range h.Upstreams {
-		peers.Delete(upstream.Dial)
+		for _, dialvalue := range upstream.Dial {
+			peers.Delete(dialvalue)
+		}
 	}
 	return nil
 }
