@@ -38,6 +38,7 @@ Current handlers:
 - **layer4.handlers.echo** - An echo server.
 - **layer4.handlers.proxy** - Powerful layer 4 proxy, capable of multiple upstreams (with load balancing and health checks) and establishing new TLS connections to backends.
 - **layer4.handlers.tee** - Branches the handling of a connection into a concurrent handler chain.
+- **layer4.handlers.throttle** - Throttle connections to simulate slowness and latency.
 - **layer4.handlers.tls** - TLS termination.
 
 Like the `http` app, some handlers are "terminal" meaning that they don't call the next handler in the chain. For example: `echo` and `proxy` are terminal handlers because they consume the client's input.
