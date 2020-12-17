@@ -22,5 +22,6 @@ import (
 	_ "github.com/mholt/caddy-l4/modules/l4proxy"
 	_ "github.com/mholt/caddy-l4/modules/l4ssh"
 	_ "github.com/mholt/caddy-l4/modules/l4tee"
+	_ "github.com/mholt/caddy-l4/modules/l4throttle"
 	_ "github.com/mholt/caddy-l4/modules/l4tls"
 )
