@@ -17,6 +17,7 @@ package layer4
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -30,8 +31,9 @@ func init() {
 type App struct {
 	Servers map[string]*Server `json:"servers,omitempty"`
 
-	listeners []net.Listener
-	logger    *zap.Logger
+	listeners   []net.Listener
+	packetConns []net.PacketConn
+	logger      *zap.Logger
 }
 
 // CaddyModule returns the Caddy module information.
@@ -61,14 +63,25 @@ func (a *App) Start() error {
 	for _, s := range a.Servers {
 		for _, addr := range s.listenAddrs {
 			for i := uint(0); i < addr.PortRangeSize(); i++ {
-				ln, err := caddy.Listen(addr.Network, addr.JoinHostPort(i))
-				if err != nil {
-					return err
+				var lnAddr string
+				if strings.Contains(addr.Network, "udp") {
+					pc, err := caddy.ListenPacket(addr.Network, addr.JoinHostPort(i))
+					if err != nil {
+						return err
+					}
+					a.packetConns = append(a.packetConns, pc)
+					lnAddr = pc.LocalAddr().String()
+					go s.servePacket(pc)
+				} else {
+					ln, err := caddy.Listen(addr.Network, addr.JoinHostPort(i))
+					if err != nil {
+						return err
+					}
+					a.listeners = append(a.listeners, ln)
+					go s.serve(ln)
 				}
-				a.listeners = append(a.listeners, ln)
 				s.logger.Debug("listening "+addr.Network,
-					zap.String("address", ln.Addr().String()))
-				go s.serve(ln)
+					zap.String("address", lnAddr))
 			}
 		}
 	}
@@ -77,6 +90,15 @@ func (a *App) Start() error {
 
 // Stop stops the servers and closes all listeners.
 func (a App) Stop() error {
+	for _, pc := range a.packetConns {
+		err := pc.Close()
+		if err != nil {
+			a.logger.Error("closing packet listener",
+				zap.String("network", pc.LocalAddr().Network()),
+				zap.String("address", pc.LocalAddr().String()),
+				zap.Error(err))
+		}
+	}
 	for _, ln := range a.listeners {
 		err := ln.Close()
 		if err != nil {

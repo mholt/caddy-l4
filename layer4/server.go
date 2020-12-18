@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -60,9 +61,27 @@ func (s Server) serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			return err // TODO: lol, this isn't good (I think)
+			return err
 		}
 		go s.handle(conn)
+	}
+}
+
+func (s Server) servePacket(pc net.PacketConn) error {
+	for {
+		buf := udpBufPool.Get().([]byte)
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil {
+			return err
+		}
+		go func(buf []byte, n int, addr net.Addr) {
+			defer udpBufPool.Put(buf)
+			s.handle(packetConn{
+				PacketConn: pc,
+				buf:        bytes.NewBuffer(buf[:n]),
+				addr:       addr,
+			})
+		}(buf, n, addr)
 	}
 }
 
@@ -103,4 +122,28 @@ func (s Server) handle(conn net.Conn) {
 		zap.Uint64("written", rc.bytesWritten),
 		zap.Duration("duration", duration),
 	)
+}
+
+type packetConn struct {
+	net.PacketConn
+	buf  *bytes.Buffer
+	addr net.Addr
+}
+
+func (pc packetConn) Read(b []byte) (n int, err error) {
+	return pc.buf.Read(b)
+}
+
+func (pc packetConn) Write(b []byte) (n int, err error) {
+	return pc.PacketConn.WriteTo(b, pc.addr)
+}
+
+func (pc packetConn) RemoteAddr() net.Addr { return pc.addr }
+
+func (packetConn) Close() error { return nil }
+
+var udpBufPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 1024)
+	},
 }
