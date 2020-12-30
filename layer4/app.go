@@ -78,6 +78,7 @@ func (a *App) Start() error {
 						return err
 					}
 					a.listeners = append(a.listeners, ln)
+					lnAddr = ln.Addr().Network() + "/" + ln.Addr().String()
 					go s.serve(ln)
 				}
 				s.logger.Debug("listening "+addr.Network,
