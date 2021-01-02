@@ -36,7 +36,7 @@ Current matchers:
 Current handlers:
 
 - **layer4.handlers.echo** - An echo server.
-- **layer4.handlers.proxy** - Powerful layer 4 proxy, capable of multiple upstreams (with load balancing and health checks) and establishing new TLS connections to backends.
+- **layer4.handlers.proxy** - Powerful layer 4 proxy, capable of multiple upstreams (with load balancing and health checks) and establishing new TLS connections to backends. Optionally supports [HAProxy proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.handlers.tee** - Branches the handling of a connection into a concurrent handler chain.
 - **layer4.handlers.throttle** - Throttle connections to simulate slowness and latency.
 - **layer4.handlers.tls** - TLS termination.
@@ -121,6 +121,54 @@ A simple echo server with TLS termination that uses a self-signed cert for `loca
 						"issuer": {"module": "internal"}
 					}
 				]
+			}
+		}
+	}
+}
+```
+
+A simple TCP reverse proxy with SSL termination on port 993 and proxy protocol to upstreams:
+
+```json
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"imap-example": {
+					"listen": ["0.0.0.0:993"],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "tls",
+								},
+								{
+									"handler": "proxy",
+									"proxy_header": "v1",
+									"upstreams": [
+										{"dial": ["localhost:1143"]}
+									]
+								}
+							]
+						}
+					]
+				},
+				"imaps-example": {
+					"listen": ["0.0.0.0:143"],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"proxy_header": "v2",
+									"upstreams": [
+										{"dial": ["localhost:143"]}
+									]
+								}
+							]
+						}
+					]
+				}
 			}
 		}
 	}
