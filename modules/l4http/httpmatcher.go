@@ -74,7 +74,7 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	req, ok := cx.GetVar("http_request").(*http.Request)
 	if !ok {
 		var err error
-		req, err = http.ReadRequest(bufio.NewReader(cx.Conn))
+		req, err = http.ReadRequest(bufio.NewReader(cx))
 		if err != nil {
 			// TODO: find a way to distinguish actual errors from mismatches
 			return false, nil

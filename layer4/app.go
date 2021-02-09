@@ -70,7 +70,7 @@ func (a *App) Start() error {
 						return err
 					}
 					a.packetConns = append(a.packetConns, pc)
-					lnAddr = pc.LocalAddr().String()
+					lnAddr = pc.LocalAddr().Network() + "/" + pc.LocalAddr().String()
 					go s.servePacket(pc)
 				} else {
 					ln, err := caddy.Listen(addr.Network, addr.JoinHostPort(i))
@@ -81,8 +81,7 @@ func (a *App) Start() error {
 					lnAddr = ln.Addr().Network() + "/" + ln.Addr().String()
 					go s.serve(ln)
 				}
-				s.logger.Debug("listening "+addr.Network,
-					zap.String("address", lnAddr))
+				s.logger.Debug("listening", zap.String("address", lnAddr))
 			}
 		}
 	}

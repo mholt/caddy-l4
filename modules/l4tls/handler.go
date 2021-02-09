@@ -21,6 +21,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -33,6 +34,7 @@ type Handler struct {
 
 	config *tls.Config
 	ctx    caddy.Context
+	logger *zap.Logger
 }
 
 // CaddyModule returns the Caddy module information.
@@ -46,6 +48,7 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the module.
 func (t *Handler) Provision(ctx caddy.Context) error {
 	t.ctx = ctx
+	t.logger = ctx.Logger(t)
 
 	// ensure there is at least one policy, which will act as default
 	if len(t.ConnectionPolicies) == 0 {
@@ -65,29 +68,23 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// get the TLS config to use for this connection
 	tlsCfg := t.ConnectionPolicies.TLSConfig(t.ctx)
 
-	// if no prior matcher or handler read the ClientHello
-	// yet, we'll prepare to do so
-	clientHello, haveClientHello := cx.GetVar("tls_client_hello").(ClientHelloInfo)
-	if !haveClientHello {
-		underlyingGetConfigForClient := tlsCfg.GetConfigForClient
-		tlsCfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			clientHello.ClientHelloInfo = *hello
-			return underlyingGetConfigForClient(hello)
-		}
+	// capture the ClientHello info when the handshake is performed
+	var clientHello ClientHelloInfo
+	underlyingGetConfigForClient := tlsCfg.GetConfigForClient
+	tlsCfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		clientHello.ClientHelloInfo = *hello
+		return underlyingGetConfigForClient(hello)
 	}
 
 	// terminate TLS by performing the handshake
 	tlsConn := tls.Server(cx.Conn, tlsCfg)
-	if !haveClientHello {
-		err := tlsConn.Handshake()
-		if err != nil {
-			return err
-		}
-		cx.SetVar("tls_client_hello", clientHello)
+	err := tlsConn.Handshake()
+	if err != nil {
+		return err
 	}
+	t.logger.Debug("terminated TLS", zap.String("server_name", clientHello.ServerName))
 
-	// now all future reads/writes will be
-	// decrypted/encrypted at this point
+	// now all future reads/writes will be decrypted/encrypted
 	cx.Conn = tlsConn
 
 	return next.Handle(cx)

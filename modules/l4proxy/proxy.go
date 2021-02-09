@@ -198,6 +198,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			}
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
+		h.logger.Debug("dial upstream", zap.String("address", hostPort), zap.Error(err))
 		if err != nil {
 			h.countFailure(p)
 			for _, conn := range upConns {
@@ -217,7 +218,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	// every time we read from downstream, we write
 	// the same to each upstream; this is half of
 	// the proxy duplex
-	var downTee io.Reader = down.Conn
+	var downTee io.Reader = down
 	for _, up := range upConns {
 		downTee = io.TeeReader(downTee, up)
 	}
@@ -228,7 +229,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 
 	for _, up := range upConns {
 		go func(up net.Conn) {
-			_, err := io.Copy(down.Conn, up)
+			_, err := io.Copy(down, up)
 			if err != nil && atomic.LoadInt32(&done) == 0 {
 				h.logger.Error("upstream connection",
 					zap.String("local_address", up.LocalAddr().String()),

@@ -87,15 +87,15 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// otherwise we'll leak the goroutine, yikes!)
 	nextc := *cx
 	nextc.Conn = nextConn{
-		Conn:   cx.Conn,
-		Reader: io.TeeReader(cx.Conn, pw),
+		Conn:   cx,
+		Reader: io.TeeReader(cx, pw),
 		pipe:   pw,
 	}
 
 	// this is the conn we pass to the branch
 	branchc := *cx
 	branchc.Conn = teeConn{
-		Conn:   cx.Conn,
+		Conn:   cx,
 		Reader: pr,
 	}
 

@@ -38,7 +38,7 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 
 // Handle handles the connection.
 func (Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
-	_, err := io.Copy(cx.Conn, cx.Conn)
+	_, err := io.Copy(cx, cx)
 	return err
 }
 

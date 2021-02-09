@@ -101,14 +101,10 @@ func (s Server) handle(conn net.Conn) {
 	defer bufPool.Put(buf)
 
 	cx := &Connection{
+		Conn:    conn,
 		Context: ctx,
 		buf:     buf,
 	}
-	rc := &recordableConn{
-		Conn: conn,
-		cx:   cx,
-	}
-	cx.Conn = rc
 
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
@@ -118,8 +114,8 @@ func (s Server) handle(conn net.Conn) {
 	}
 
 	s.logger.Debug("connection stats",
-		zap.Uint64("read", rc.bytesRead),
-		zap.Uint64("written", rc.bytesWritten),
+		zap.Uint64("read", cx.bytesRead),
+		zap.Uint64("written", cx.bytesWritten),
 		zap.Duration("duration", duration),
 	)
 }
