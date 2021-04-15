@@ -228,3 +228,59 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 	}
 }
 ```
+
+Unwrap PROXY protocol, and forward the traffic to upstream if PROXY protocol matched, else forward the traffic to another http backend.
+
+```json
+{
+    "apps": {
+        "layer4": {
+            "servers": {
+                "example": {
+                    "listen": ["0.0.0.0:5000"],
+                    "routes": [
+                        {
+                            "match": [
+                                {
+                                    "proxyprotocol": {
+                                        "allowed_ranges": [
+                                            "127.0.0.0/8",
+                                            "10.144.0.0/16"
+                                        ]
+                                    }
+                                }
+                            ],
+                            "handle": [
+                                {
+                                    "handler": "proxyprotocol"
+                                },
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        { "dial": ["localhost:8080"] }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "match": [
+                                {
+                                    "http": []
+                                }
+                            ],
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        { "dial": ["localhost:8000"] }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
+```

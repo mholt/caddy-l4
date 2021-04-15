@@ -17,7 +17,6 @@ package layer4
 import (
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 )
@@ -109,31 +108,17 @@ func (MatchIP) CaddyModule() caddy.ModuleInfo {
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
 func (m *MatchIP) Provision(ctx caddy.Context) error {
-	for _, str := range m.Ranges {
-		if strings.Contains(str, "/") {
-			_, ipNet, err := net.ParseCIDR(str)
-			if err != nil {
-				return fmt.Errorf("parsing CIDR expression: %v", err)
-			}
-			m.cidrs = append(m.cidrs, ipNet)
-		} else {
-			ip := net.ParseIP(str)
-			if ip == nil {
-				return fmt.Errorf("invalid IP address: %s", str)
-			}
-			mask := len(ip) * 8
-			m.cidrs = append(m.cidrs, &net.IPNet{
-				IP:   ip,
-				Mask: net.CIDRMask(mask, mask),
-			})
-		}
+	cidrs, err := GetCIDRsFromStrings(m.Ranges)
+	if err != nil {
+		return err
 	}
+	m.cidrs = cidrs
 	return nil
 }
 
 // Match returns true if the connection is from one of the designated IP ranges.
 func (m MatchIP) Match(cx *Connection) (bool, error) {
-	clientIP, err := m.getClientIP(cx)
+	clientIP, err := GetClientIP(cx)
 	if err != nil {
 		return false, fmt.Errorf("getting client IP: %v", err)
 	}
@@ -143,22 +128,6 @@ func (m MatchIP) Match(cx *Connection) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func (m MatchIP) getClientIP(cx *Connection) (net.IP, error) {
-	remote := cx.Conn.RemoteAddr().String()
-
-	ipStr, _, err := net.SplitHostPort(remote)
-	if err != nil {
-		ipStr = remote // OK; probably didn't have a port
-	}
-
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return nil, fmt.Errorf("invalid client IP address: %s", ipStr)
-	}
-
-	return ip, nil
 }
 
 // Interface guards
