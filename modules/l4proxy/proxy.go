@@ -192,8 +192,8 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			tlsCfg := upstream.tlsConfig
 			if tlsCfg == nil {
 				tlsCfg = new(tls.Config)
-				if chi, ok := down.GetVar("tls_client_hello").(l4tls.ClientHelloInfo); ok {
-					chi.FillTLSClientConfig(tlsCfg)
+				if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
+					hellos[0].FillTLSClientConfig(tlsCfg)
 				}
 			}
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)

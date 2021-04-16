@@ -24,6 +24,27 @@ import (
 	"github.com/caddyserver/caddy/v2"
 )
 
+// WrapConnection wraps an underlying connection into a layer4 connection that
+// supports recording and rewinding, as well as adding context with a replacer
+// and variable table. This function is intended for use at the start of a
+// connection handler chain where the underlying connection is not yet a layer4
+// Connection value.
+func WrapConnection(underlying net.Conn, buf *bytes.Buffer) *Connection {
+	repl := caddy.NewReplacer()
+	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
+	repl.Set("l4.underlying.local_addr", underlying.LocalAddr())
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
+	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
+
+	return &Connection{
+		Conn:    underlying,
+		Context: ctx,
+		buf:     buf,
+	}
+}
+
 // Connection contains information about the connection as it
 // passes through various handlers. It also has the capability
 // of recording and rewinding when necessary.
@@ -90,6 +111,18 @@ func (cx *Connection) Write(p []byte) (n int, err error) {
 	n, err = cx.Conn.Write(p)
 	cx.bytesWritten += uint64(n)
 	return
+}
+
+// Wrap wraps conn in a new Connection based on cx (reusing
+// cx's existing buffer and context). This is useful after
+// a connection is wrapped by a package that does not support
+// our Connection type (for example, `tls.Server()`).
+func (cx *Connection) Wrap(conn net.Conn) *Connection {
+	return &Connection{
+		Conn:    conn,
+		Context: cx.Context,
+		buf:     cx.buf,
+	}
 }
 
 // record starts recording the stream into cx.buf.

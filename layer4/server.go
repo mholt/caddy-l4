@@ -16,7 +16,6 @@ package layer4
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -88,23 +87,11 @@ func (s Server) servePacket(pc net.PacketConn) error {
 func (s Server) handle(conn net.Conn) {
 	defer conn.Close()
 
-	repl := caddy.NewReplacer()
-	repl.Set("l4.conn.remote_addr", conn.RemoteAddr())
-	repl.Set("l4.conn.local_addr", conn.LocalAddr())
-
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
-	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
-
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer bufPool.Put(buf)
 
-	cx := &Connection{
-		Conn:    conn,
-		Context: ctx,
-		buf:     buf,
-	}
+	cx := WrapConnection(conn, buf)
 
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
@@ -135,8 +122,6 @@ func (pc packetConn) Write(b []byte) (n int, err error) {
 }
 
 func (pc packetConn) RemoteAddr() net.Addr { return pc.addr }
-
-func (packetConn) Close() error { return nil }
 
 var udpBufPool = sync.Pool{
 	New: func() interface{} {

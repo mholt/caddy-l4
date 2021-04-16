@@ -32,7 +32,6 @@ func init() {
 type Handler struct {
 	ConnectionPolicies caddytls.ConnectionPolicies `json:"connection_policies,omitempty"`
 
-	config *tls.Config
 	ctx    caddy.Context
 	logger *zap.Logger
 }
@@ -76,18 +75,44 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 		return underlyingGetConfigForClient(hello)
 	}
 
-	// terminate TLS by performing the handshake
-	tlsConn := tls.Server(cx.Conn, tlsCfg)
+	// terminate TLS by performing the handshake (note that we pass
+	// in cx, not cx.Conn; this is because we must read from the
+	// connection to perform the handshake, and cx might have some
+	// bytes already buffered need to be read first)
+	tlsConn := tls.Server(cx, tlsCfg)
 	err := tlsConn.Handshake()
 	if err != nil {
 		return err
 	}
 	t.logger.Debug("terminated TLS", zap.String("server_name", clientHello.ServerName))
 
-	// now all future reads/writes will be decrypted/encrypted
-	cx.Conn = tlsConn
+	// preserve this ClientHello info for later, if needed
+	appendClientHello(cx, clientHello)
 
-	return next.Handle(cx)
+	// all future reads/writes will now be decrypted/encrypted
+	// (tlsConn, which wraps cx, is wrapped into a new cx so
+	// that future I/O succeeds... if we use the same cx, it'd
+	// be wrapping itself, and we'd have nested read calls out
+	// to the kernel, which creates a deadlock/hang; see #18)
+	return next.Handle(cx.Wrap(tlsConn))
+}
+
+func appendClientHello(cx *layer4.Connection, chi ClientHelloInfo) {
+	var clientHellos []ClientHelloInfo
+	if val := cx.GetVar("tls_client_hellos"); val != nil {
+		clientHellos = val.([]ClientHelloInfo)
+	}
+	clientHellos = append(clientHellos, chi)
+	cx.SetVar("tls_client_hellos", clientHellos)
+}
+
+// GetClientHelloInfos gets ClientHello information for all the terminated TLS connections.
+func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
+	var clientHellos []ClientHelloInfo
+	if val := cx.GetVar("tls_client_hellos"); val != nil {
+		clientHellos = val.([]ClientHelloInfo)
+	}
+	return clientHellos
 }
 
 // Interface guards
