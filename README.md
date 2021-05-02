@@ -144,7 +144,7 @@ A simple TCP reverse proxy with SSL termination on port 993 and proxy protocol t
 								},
 								{
 									"handler": "proxy",
-									"proxy_header": "v1",
+									"proxy_protocol": "v1",
 									"upstreams": [
 										{"dial": ["localhost:1143"]}
 									]
@@ -160,7 +160,7 @@ A simple TCP reverse proxy with SSL termination on port 993 and proxy protocol t
 							"handle": [
 								{
 									"handler": "proxy",
-									"proxy_header": "v2",
+									"proxy_protocol": "v2",
 									"upstreams": [
 										{"dial": ["localhost:143"]}
 									]

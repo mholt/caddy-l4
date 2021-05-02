@@ -48,8 +48,9 @@ type Handler struct {
 	// Load balancing distributes load/connections between backends.
 	LoadBalancing *LoadBalancing `json:"load_balancing,omitempty"`
 
-	// Add HAPRoxy Proxy protocol header
-	ProxyHeader string `json:"proxy_header,omitempty"`
+	// Specifies the version of the Proxy Protocol header to add, either "v1" or "v2".
+	// Ref: https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+	ProxyProtocol string `json:"proxy_protocol,omitempty"`
 
 	ctx    caddy.Context
 	logger *zap.Logger
@@ -77,8 +78,8 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.LoadBalancing.SelectionPolicy = mod.(Selector)
 	}
 
-	if h.ProxyHeader != "" && h.ProxyHeader != "v1" && h.ProxyHeader != "v2" {
-		return fmt.Errorf("proxy_header: \"%s\" should be empty or one of \"v1\" \"v2\"", h.ProxyHeader)
+	if h.ProxyProtocol != "" && h.ProxyProtocol != "v1" && h.ProxyProtocol != "v2" {
+		return fmt.Errorf("proxy_protocol: \"%s\" should be empty, or one of \"v1\" \"v2\"", h.ProxyProtocol)
 	}
 
 	// prepare upstreams
@@ -209,11 +210,11 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		h.logger.Debug("dial upstream", zap.String("address", hostPort), zap.Error(err))
 
 		// Add Proxy header
-		if err == nil && h.ProxyHeader == "v1" {
+		if err == nil && h.ProxyProtocol == "v1" {
 			var h proxyprotocol.HeaderV1
 			h.FromConn(down.Conn, false)
 			_, err = h.WriteTo(up)
-		} else if err == nil && h.ProxyHeader == "v2" {
+		} else if err == nil && h.ProxyProtocol == "v2" {
 			var h proxyprotocol.HeaderV2
 			h.FromConn(down.Conn, false)
 			_, err = h.WriteTo(up)
