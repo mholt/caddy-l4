@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/mastercactapus/proxyprotocol"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4tls"
 	"go.uber.org/zap"
@@ -46,6 +47,10 @@ type Handler struct {
 
 	// Load balancing distributes load/connections between backends.
 	LoadBalancing *LoadBalancing `json:"load_balancing,omitempty"`
+
+	// Specifies the version of the Proxy Protocol header to add, either "v1" or "v2".
+	// Ref: https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+	ProxyProtocol string `json:"proxy_protocol,omitempty"`
 
 	ctx    caddy.Context
 	logger *zap.Logger
@@ -71,6 +76,10 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			return fmt.Errorf("loading load balancing selection policy: %s", err)
 		}
 		h.LoadBalancing.SelectionPolicy = mod.(Selector)
+	}
+
+	if h.ProxyProtocol != "" && h.ProxyProtocol != "v1" && h.ProxyProtocol != "v2" {
+		return fmt.Errorf("proxy_protocol: \"%s\" should be empty, or one of \"v1\" \"v2\"", h.ProxyProtocol)
 	}
 
 	// prepare upstreams
@@ -199,6 +208,18 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream", zap.String("address", hostPort), zap.Error(err))
+
+		// Add Proxy header
+		if err == nil && h.ProxyProtocol == "v1" {
+			var h proxyprotocol.HeaderV1
+			h.FromConn(down.Conn, false)
+			_, err = h.WriteTo(up)
+		} else if err == nil && h.ProxyProtocol == "v2" {
+			var h proxyprotocol.HeaderV2
+			h.FromConn(down.Conn, false)
+			_, err = h.WriteTo(up)
+		}
+
 		if err != nil {
 			h.countFailure(p)
 			for _, conn := range upConns {
