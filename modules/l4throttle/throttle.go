@@ -153,6 +153,7 @@ func (tc throttledConn) Read(p []byte) (int, error) {
 	n, err := tc.Conn.Read(p[:batchSize])
 
 	tc.logger.Debug("read",
+		zap.String("remote", tc.RemoteAddr().String()),
 		zap.Int("batch_size", batchSize),
 		zap.Int("bytes_read", n),
 		zap.Error(err))

@@ -59,6 +59,10 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 func (s Server) serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
+		if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
+			s.logger.Error("accepting connection: temporary error", zap.Error(err))
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -101,6 +105,7 @@ func (s Server) handle(conn net.Conn) {
 	}
 
 	s.logger.Debug("connection stats",
+		zap.String("remote", cx.RemoteAddr().String()),
 		zap.Uint64("read", cx.bytesRead),
 		zap.Uint64("written", cx.bytesWritten),
 		zap.Duration("duration", duration),

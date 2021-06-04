@@ -84,7 +84,10 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	if err != nil {
 		return err
 	}
-	t.logger.Debug("terminated TLS", zap.String("server_name", clientHello.ServerName))
+	t.logger.Debug("terminated TLS",
+		zap.String("remote", cx.RemoteAddr().String()),
+		zap.String("server_name", clientHello.ServerName),
+	)
 
 	// preserve this ClientHello info for later, if needed
 	appendClientHello(cx, clientHello)

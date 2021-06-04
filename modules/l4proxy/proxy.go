@@ -207,7 +207,10 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			}
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
-		h.logger.Debug("dial upstream", zap.String("address", hostPort), zap.Error(err))
+		h.logger.Debug("dial upstream",
+			zap.String("remote", down.RemoteAddr().String()),
+			zap.String("upstream", hostPort),
+			zap.Error(err))
 
 		// Add Proxy header
 		if err == nil && h.ProxyProtocol == "v1" {

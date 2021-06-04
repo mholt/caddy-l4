@@ -32,7 +32,7 @@ import (
 func WrapConnection(underlying net.Conn, buf *bytes.Buffer) *Connection {
 	repl := caddy.NewReplacer()
 	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
-	repl.Set("l4.underlying.local_addr", underlying.LocalAddr())
+	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
