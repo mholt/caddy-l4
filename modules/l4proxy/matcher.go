@@ -15,11 +15,17 @@
 package l4proxy
 
 import (
-	"bufio"
+	"bytes"
+	"io"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mastercactapus/proxyprotocol"
 	"github.com/mholt/caddy-l4/layer4"
+)
+
+// https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
+var (
+	headerV1Prefix = []byte("PROXY")
+	headerV2Prefix = []byte{0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A}
 )
 
 func init() {
@@ -31,18 +37,37 @@ type MatchPROXY struct{}
 // CaddyModule returns the Caddy module information.
 func (MatchPROXY) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.PROXY",
+		ID:  "layer4.matchers.ProxyProtocol",
 		New: func() caddy.Module { return new(MatchPROXY) },
 	}
 }
 
-// Match returns true if the connection looks like SSH.
+// Match returns true if the connection looks like it is using the Proxy Protocol.
 func (m MatchPROXY) Match(cx *layer4.Connection) (bool, error) {
-	_, err := proxyprotocol.Parse(bufio.NewReader(cx))
+	p := make([]byte, 5)
+	_, err := io.ReadFull(cx, p)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	if bytes.Equal(p, headerV1Prefix) {
+		return true, nil
+	}
+
+	buf := p[:]
+	// read 7 more bytes and append to buf
+	// to match against v2 header which starts with a 12 byte block
+	p = make([]byte, 7)
+	_, err = io.ReadFull(cx, p)
+	if err != nil {
+		return false, err
+	}
+	buf = append(buf, p...)
+
+	if bytes.Equal(buf, headerV2Prefix) {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // Interface guard
