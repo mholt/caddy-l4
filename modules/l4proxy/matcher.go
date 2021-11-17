@@ -31,21 +31,21 @@ var (
 )
 
 func init() {
-	caddy.RegisterModule(MatchPROXY{})
+	caddy.RegisterModule(MatchProxyProtocol{})
 }
 
-type MatchPROXY struct{}
+type MatchProxyProtocol struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchPROXY) CaddyModule() caddy.ModuleInfo {
+func (MatchProxyProtocol) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.ProxyProtocol",
-		New: func() caddy.Module { return new(MatchPROXY) },
+		ID:  "layer4.matchers.proxy_protocol",
+		New: func() caddy.Module { return new(MatchProxyProtocol) },
 	}
 }
 
 // Match returns true if the connection looks like it is using the Proxy Protocol.
-func (m MatchPROXY) Match(cx *layer4.Connection) (bool, error) {
+func (m MatchProxyProtocol) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, 4)
 	_, err := io.ReadFull(cx, p)
 	if err != nil {
@@ -87,4 +87,4 @@ func (m MatchPROXY) Match(cx *layer4.Connection) (bool, error) {
 }
 
 // Interface guard
-var _ layer4.ConnMatcher = (*MatchPROXY)(nil)
+var _ layer4.ConnMatcher = (*MatchProxyProtocol)(nil)
