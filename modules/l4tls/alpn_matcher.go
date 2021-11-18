@@ -1,4 +1,4 @@
-// Copyright
+// Copyright 2020 Matthew Holt
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 package l4tls
 
 import (
-  "crypto/tls"
+	"crypto/tls"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
@@ -36,21 +36,18 @@ func (MatchALPN) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
-  clientProtocols := hello.SupportedProtos
-  if len(clientProtocols) == 0 {
-    return false
-  }
+	clientProtocols := hello.SupportedProtos
 	for _, alpn := range m {
 		for _, clientProtocol := range clientProtocols {
-      if alpn == string(clientProtocol) {
-        return true
-      }
-    }
+			if alpn == string(clientProtocol) {
+				return true
+			}
+		}
 	}
 	return false
 }
 
 // Interface guards
 var (
-  _ caddytls.ConnectionMatcher = (*MatchALPN)(nil)
+	_ caddytls.ConnectionMatcher = (*MatchALPN)(nil)
 )

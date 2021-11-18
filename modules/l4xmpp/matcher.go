@@ -41,7 +41,7 @@ func (MatchXMPP) CaddyModule() caddy.ModuleInfo {
 func (m MatchXMPP) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, minXmppLength)
 	n, err := io.ReadFull(cx, p)
-	if err != nil || n < minXmppLength {	// needs at least 50 (fix for adium/pidgin)
+	if err != nil || n < minXmppLength { // needs at least 50 (fix for adium/pidgin)
 		return false, nil
 	}
 	return strings.Contains(string(p), xmppWord), nil
