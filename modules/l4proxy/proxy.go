@@ -22,7 +22,7 @@ import (
 	"log"
 	"net"
 	"runtime/debug"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -247,14 +247,16 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 		downTee = io.TeeReader(downTee, up)
 	}
 
-	// when we are done and have closed connections, set this
-	// flag to 1 so that we don't report errors unnecessarily
-	var done int32
+	var wg sync.WaitGroup
 
 	for _, up := range upConns {
+		wg.Add(1)
+
 		go func(up net.Conn) {
+			defer wg.Done()
+
 			_, err := io.Copy(down, up)
-			if err != nil && atomic.LoadInt32(&done) == 0 {
+			if err != nil {
 				h.logger.Error("upstream connection",
 					zap.String("local_address", up.LocalAddr().String()),
 					zap.String("remote_address", up.RemoteAddr().String()),
@@ -267,7 +269,17 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	// read from downstream until connection is closed;
 	// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
 	io.Copy(ioutil.Discard, downTee)
-	atomic.StoreInt32(&done, 1)
+
+	// shut down the writing side of all upstream connections (issue #40)
+	for _, up := range upConns {
+		// only doable for a TCP connection
+		if conn, ok := up.(*net.TCPConn); ok {
+			_ = conn.CloseWrite()
+		}
+	}
+
+	// wait for reading from all upstream connections
+	wg.Wait()
 }
 
 // countFailure is used with passive health checks. It
