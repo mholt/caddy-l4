@@ -28,6 +28,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mastercactapus/proxyprotocol"
 	"github.com/mholt/caddy-l4/layer4"
+	"github.com/mholt/caddy-l4/modules/l4proxyprotocol"
 	"github.com/mholt/caddy-l4/modules/l4tls"
 	"go.uber.org/zap"
 )
@@ -212,15 +213,19 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			zap.String("upstream", hostPort),
 			zap.Error(err))
 
-		// Add Proxy header
-		if err == nil && h.ProxyProtocol == "v1" {
-			var h proxyprotocol.HeaderV1
-			h.FromConn(down.Conn, false)
-			_, err = h.WriteTo(up)
-		} else if err == nil && h.ProxyProtocol == "v2" {
-			var h proxyprotocol.HeaderV2
-			h.FromConn(down.Conn, false)
-			_, err = h.WriteTo(up)
+		// Send the PROXY protocol header.
+		if err == nil {
+			downConn := l4proxyprotocol.GetConn(down)
+			switch h.ProxyProtocol {
+			case "v1":
+				var h proxyprotocol.HeaderV1
+				h.FromConn(downConn, false)
+				_, err = h.WriteTo(up)
+			case "v2":
+				var h proxyprotocol.HeaderV2
+				h.FromConn(downConn, false)
+				_, err = h.WriteTo(up)
+			}
 		}
 
 		if err != nil {
