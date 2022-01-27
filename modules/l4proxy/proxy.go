@@ -260,8 +260,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 		go func(up net.Conn) {
 			defer wg.Done()
 
-			_, err := io.Copy(down, up)
-			if err != nil {
+			if _, err := io.Copy(down, up); err != nil {
 				h.logger.Error("upstream connection",
 					zap.String("local_address", up.LocalAddr().String()),
 					zap.String("remote_address", up.RemoteAddr().String()),
@@ -271,20 +270,35 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 		}(up)
 	}
 
-	// read from downstream until connection is closed;
-	// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
-	io.Copy(ioutil.Discard, downTee)
+	downConnClosedCh := make(chan struct{}, 1)
 
-	// shut down the writing side of all upstream connections (issue #40)
-	for _, up := range upConns {
-		// only doable for a TCP connection
-		if conn, ok := up.(*net.TCPConn); ok {
-			_ = conn.CloseWrite()
+	go func() {
+		// read from downstream until connection is closed;
+		// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
+		io.Copy(ioutil.Discard, downTee)
+		downConnClosedCh <- struct{}{}
+
+		// Shut down the writing side of all upstream connections, in case
+		// that the downstream connection is half closed. (issue #40)
+		for _, up := range upConns {
+			// only doable for a TCP connection
+			if conn, ok := up.(*net.TCPConn); ok {
+				_ = conn.CloseWrite()
+			}
 		}
-	}
+	}()
 
 	// wait for reading from all upstream connections
 	wg.Wait()
+
+	// Shut down the writing side of the downstream connection, in case that
+	// the upstream connections are all half closed.
+	if downConn, ok := down.Conn.(*net.TCPConn); ok {
+		_ = downConn.CloseWrite()
+	}
+
+	// Wait for reading from the downstream connection, if possible.
+	<-downConnClosedCh
 }
 
 // countFailure is used with passive health checks. It
