@@ -27,7 +27,12 @@ import (
 
 // Server represents a Caddy layer4 server.
 type Server struct {
-	Listen []string  `json:"listen,omitempty"`
+	// The network address to bind to. Any Caddy network address
+	// is an acceptable value:
+	// https://caddyserver.com/docs/conventions#network-addresses
+	Listen []string `json:"listen,omitempty"`
+
+	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
 	logger        *zap.Logger
