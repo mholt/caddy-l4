@@ -119,7 +119,7 @@ A simple echo server with TLS termination that uses a self-signed cert for `loca
 			"automation": {
 				"policies": [
 					{
-						"issuer": {"module": "internal"}
+						"issuers": [{"module": "internal"}]
 					}
 				]
 			}
@@ -227,7 +227,69 @@ A multiplexer that proxies HTTP to one backend, and TLS to another (without term
 }
 ```
 
+Same as previous, but only applies to HTTP requests with specific hosts:
 
+```json
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"example": {
+					"listen": ["127.0.0.1:5000"],
+					"routes": [
+						{
+							"match": [
+								{
+									"http": [
+										{"host": ["example.com"]}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"match": [
+												{
+													"http": []
+												}
+											],
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{"dial": ["localhost:80"]}
+													]
+												}
+											]
+										},
+										{
+											"match": [
+												{
+													"tls": {}
+												}
+											],
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{"dial": ["localhost:443"]}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
+```
 
 Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerName:
 
