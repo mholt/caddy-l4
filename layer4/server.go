@@ -131,6 +131,11 @@ func (pc packetConn) Write(b []byte) (n int, err error) {
 	return pc.PacketConn.WriteTo(b, pc.addr)
 }
 
+func (pc packetConn) Close() error {
+	// Do nothing, we don't want to close the UDP server
+	return nil
+}
+
 func (pc packetConn) RemoteAddr() net.Addr { return pc.addr }
 
 var udpBufPool = sync.Pool{
