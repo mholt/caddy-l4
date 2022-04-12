@@ -92,6 +92,12 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	cx.bytesRead += uint64(n)
 
 	if !cx.recording {
+		// We read past buf and are not recording,
+		// which means cx.buf is now invalid and should be emptied for a clean next recording.
+		// Otherwise, there will be a gap in the data. Also see issue 55.
+		if cx.buf.Len() > 0 {
+			cx.buf.Reset()
+		}
 		return
 	}
 
