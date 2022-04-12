@@ -125,9 +125,13 @@ func (cx *Connection) Write(p []byte) (n int, err error) {
 // our Connection type (for example, `tls.Server()`).
 func (cx *Connection) Wrap(conn net.Conn) *Connection {
 	return &Connection{
-		Conn:    conn,
-		Context: cx.Context,
-		buf:     cx.buf,
+		Conn:         conn,
+		Context:      cx.Context,
+		buf:          cx.buf,
+		bufReader:    cx.bufReader,
+		recording:    cx.recording,
+		bytesRead:    cx.bytesRead,
+		bytesWritten: cx.bytesWritten,
 	}
 }
 
