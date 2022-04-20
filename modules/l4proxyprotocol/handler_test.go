@@ -7,10 +7,8 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
-	"reflect"
 	"sync"
 	"testing"
-	"unsafe"
 )
 
 func assertString(t *testing.T, expected string, value string) {
@@ -18,14 +16,6 @@ func assertString(t *testing.T, expected string, value string) {
 	if value != expected {
 		t.Fatalf("Expected '%s' but got '%s'\n", expected, value)
 	}
-}
-
-func injectConfig(ctx *caddy.Context, cfg *caddy.Config) {
-	mutable := reflect.ValueOf(ctx).Elem()
-	field := mutable.FieldByName("cfg")
-	unsafePtrToField := unsafe.Pointer(field.UnsafeAddr())
-	ptrToField := (**caddy.Config)(unsafePtrToField)
-	*ptrToField = cfg
 }
 
 func TestProxyProtocolHandleV1(t *testing.T) {
@@ -44,7 +34,6 @@ func TestProxyProtocolHandleV1(t *testing.T) {
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	injectConfig(&ctx, &caddy.Config{Logging: &caddy.Logging{}})
 
 	handler := Handler{}
 	err := handler.Provision(ctx)
@@ -83,7 +72,6 @@ func TestProxyProtocolHandleV2(t *testing.T) {
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	injectConfig(&ctx, &caddy.Config{Logging: &caddy.Logging{}})
 
 	handler := Handler{}
 	err := handler.Provision(ctx)
@@ -122,7 +110,6 @@ func TestProxyProtocolHandleGarbage(t *testing.T) {
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	injectConfig(&ctx, &caddy.Config{Logging: &caddy.Logging{}})
 
 	handler := Handler{}
 	err := handler.Provision(ctx)
