@@ -92,12 +92,6 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	cx.bytesRead += uint64(n)
 
 	if !cx.recording {
-		// We read past buf and are not recording,
-		// which means cx.buf is now invalid and should be emptied for a clean next recording.
-		// Otherwise, there will be a gap in the data. Also see issue 55.
-		if cx.buf.Len() > 0 {
-			cx.buf.Reset()
-		}
 		return
 	}
 
@@ -135,9 +129,11 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 	}
 }
 
-// record starts recording the stream into cx.buf.
+// record starts recording the stream into cx.buf. It also creates a reader
+// to read from the buffer but not to discard any byte.
 func (cx *Connection) record() {
 	cx.recording = true
+	cx.bufReader = bytes.NewReader(cx.buf.Bytes()) // Don't discard bytes.
 }
 
 // rewind stops recording and creates a reader for the
@@ -146,7 +142,7 @@ func (cx *Connection) record() {
 // continue with the underlying conn.
 func (cx *Connection) rewind() {
 	cx.recording = false
-	cx.bufReader = bytes.NewReader(cx.buf.Bytes())
+	cx.bufReader = cx.buf // Actually consume bytes.
 }
 
 // SetVar sets a value in the context's variable table with
