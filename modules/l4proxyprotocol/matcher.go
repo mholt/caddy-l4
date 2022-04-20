@@ -44,13 +44,13 @@ func (MatchProxyProtocol) CaddyModule() caddy.ModuleInfo {
 
 // Match returns true if the connection looks like it is using the Proxy Protocol.
 func (m MatchProxyProtocol) Match(cx *layer4.Connection) (bool, error) {
-	buf := make([]byte, 12) // len(headerV2Prefix)
+	buf := make([]byte, len(headerV2Prefix))
 	_, err := io.ReadFull(cx, buf)
 	if err != nil {
 		return false, err
 	}
 
-	if bytes.Equal(buf[:5], headerV1Prefix) {
+	if bytes.HasPrefix(buf, headerV1Prefix) {
 		return true, nil
 	}
 	if bytes.Equal(buf, headerV2Prefix) {
