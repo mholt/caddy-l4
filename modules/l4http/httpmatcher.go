@@ -18,11 +18,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net/http"
-
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
+	"io"
+	"net/http"
+	"net/url"
 )
 
 func init() {
@@ -74,10 +77,17 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	req, ok := cx.GetVar("http_request").(*http.Request)
 	if !ok {
 		var err error
-		req, err = http.ReadRequest(bufio.NewReader(cx))
+		bufReader := bufio.NewReader(cx)
+		req, err = http.ReadRequest(bufReader)
 		if err != nil {
 			// TODO: find a way to distinguish actual errors from mismatches
 			return false, nil
+		}
+
+		// check if req is a http2 request made with prior knowledge and if so parse it
+		err = m.handleHttp2WithPriorKnowledge(bufReader, req)
+		if err != nil {
+			return false, err
 		}
 
 		// in order to use request matchers, we have to populate the request context
@@ -94,6 +104,80 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured
 	return m.matcherSets.AnyMatch(req), nil
+}
+
+// Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
+func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Request) error {
+	// Does req contain a valid http2 magic?
+	// https://github.com/golang/net/blob/a630d4f3e7a22f21271532b4b88e1693824a838f/http2/h2c/h2c.go#L74
+	if req.Method != "PRI" || len(req.Header) != 0 || req.URL.Path != "*" || req.Proto != "HTTP/2.0" {
+		return nil
+	}
+
+	const expectedBody = "SM\r\n\r\n"
+
+	body := make([]byte, len(expectedBody))
+	n, err := io.ReadFull(reader, body)
+	if err != nil {
+		return err
+	}
+
+	if string(body[:n]) != expectedBody {
+		return nil
+	}
+
+	framer := http2.NewFramer(io.Discard, reader)
+
+	// read the first 3 frames until we get a headers frame (skipping settings & window update frames)
+	var frame http2.Frame
+	for i := 0; i < 3; i++ {
+		frame, err = framer.ReadFrame()
+		if err != nil {
+			return err
+		}
+		if frame.Header().Type == http2.FrameHeaders {
+			break
+		}
+	}
+
+	if frame.Header().Type != http2.FrameHeaders {
+		return fmt.Errorf("failed to read a http2 headers frame after 3 attemps")
+	}
+
+	decoder := hpack.NewDecoder(4096, nil) // max table size 4096 from http2.initialHeaderTableSize
+	headers, err := decoder.DecodeFull((frame.(*http2.HeadersFrame)).HeaderBlockFragment())
+	if err != nil {
+		return err
+	}
+
+	var scheme string
+	var authority string
+	var path string
+
+	for _, h := range headers {
+		if h.Name == ":method" {
+			req.Method = h.Value
+		} else if h.Name == ":path" {
+			path = h.Value
+			req.RequestURI = h.Value
+		} else if h.Name == ":scheme" {
+			scheme = h.Value
+		} else if h.Name == ":authority" {
+			authority = h.Value
+			req.Host = h.Value
+		} else {
+			req.Header.Add(h.Name, h.Value)
+		}
+	}
+
+	// According to http.Request.URL docs it only contains the value of RequestURI (so path only),
+	// but we can fill in more information
+	req.URL, err = url.Parse(fmt.Sprintf("%s://%s%s", scheme, authority, path))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Interface guards
