@@ -3,6 +3,7 @@ package l4http
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"github.com/caddyserver/caddy/v2"
@@ -56,8 +57,7 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 }
 
 func TestHttp1Matching(t *testing.T) {
-	http1RequestExample, err := base64.StdEncoding.DecodeString("R0VUIC9mb28vYmFyP2FhYT1iYmIgSFRUUC8xLjENCkhvc3Q6IGxvY2FsaG9zdDoxMDQ0Mw0KVXNlci1BZ2VudDogY3VybC83LjgyLjANCkFjY2VwdDogKi8qDQoNCg==")
-	assertNoError(t, err)
+	http1RequestExample := []byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\nUser-Agent: curl/7.82.0\nAccept: */*\n\n")
 
 	for _, tc := range []struct {
 		name        string
@@ -87,6 +87,11 @@ func TestHttp1Matching(t *testing.T) {
 		{
 			name:        "match-by-header",
 			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"header": json.RawMessage("{\"user-agent\":[\"curl*\"]}")}},
+			data:        http1RequestExample,
+		},
+		{
+			name:        "match-by-protocol",
+			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
 			data:        http1RequestExample,
 		},
 	} {
@@ -138,6 +143,12 @@ func TestHttp2Matching(t *testing.T) {
 			data:        http2PriorKnowledgeRequestExample,
 		},
 		{
+			name:        "match-by-protocol",
+			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
+			data:        http2PriorKnowledgeRequestExample,
+		},
+
+		{
 			name:        "upgrade-match-by-host",
 			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"host": json.RawMessage("[\"localhost\"]")}},
 			data:        http2UpgradeRequestExample,
@@ -162,6 +173,11 @@ func TestHttp2Matching(t *testing.T) {
 			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"header": json.RawMessage("{\"user-agent\":[\"curl*\"]}")}},
 			data:        http2UpgradeRequestExample,
 		},
+		{
+			name:        "upgrade-match-by-protocol",
+			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
+			data:        http2UpgradeRequestExample,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			matched, err := httpMatchTester(t, tc.matcherSets, tc.data)
@@ -171,6 +187,47 @@ func TestHttp2Matching(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
+	matcherSets := caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"https\"")}}
+
+	wg := &sync.WaitGroup{}
+	in, out := net.Pipe()
+	defer func() {
+		wg.Wait()
+		_ = in.Close()
+		_ = out.Close()
+	}()
+
+	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	go func() {
+		wg.Add(1)
+		defer func() {
+			wg.Done()
+			_ = out.Close()
+		}()
+		_, err := out.Write([]byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\n\n"))
+		assertNoError(t, err)
+	}()
+
+	// pretend the tls handler was executed before, not an ideal test setup but better then nothing
+	cx.SetVar("tls_connection_states", []*tls.ConnectionState{{ServerName: "localhost"}})
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	matcher := MatchHTTP{MatcherSetsRaw: matcherSets}
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+
+	matched, err := matcher.Match(cx)
+	assertNoError(t, err)
+	if !matched {
+		t.Fatalf("matcher did not match")
+	}
+
+	_, _ = io.Copy(io.Discard, in)
 }
 
 func TestHttpMatchingGarbage(t *testing.T) {

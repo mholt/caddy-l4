@@ -21,6 +21,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
+	"github.com/mholt/caddy-l4/modules/l4tls"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"io"
@@ -88,6 +89,12 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 		err = m.handleHttp2WithPriorKnowledge(bufReader, req)
 		if err != nil {
 			return false, err
+		}
+
+		// if the tls handler was used before fill in the TLS field of the request
+		// with the last aka innermost tls connection state
+		if connectionStates := l4tls.GetConnectionStates(cx); len(connectionStates) > 0 {
+			req.TLS = connectionStates[len(connectionStates)-1]
 		}
 
 		// in order to use request matchers, we have to populate the request context

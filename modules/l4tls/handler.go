@@ -92,6 +92,10 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// preserve this ClientHello info for later, if needed
 	appendClientHello(cx, clientHello)
 
+	// preserve the tls.ConnectionState for use in the http matcher
+	connectionState := tlsConn.ConnectionState()
+	appendConnectionState(cx, &connectionState)
+
 	// all future reads/writes will now be decrypted/encrypted
 	// (tlsConn, which wraps cx, is wrapped into a new cx so
 	// that future I/O succeeds... if we use the same cx, it'd
@@ -116,6 +120,24 @@ func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	return clientHellos
+}
+
+func appendConnectionState(cx *layer4.Connection, cs *tls.ConnectionState) {
+	var connectionStates []*tls.ConnectionState
+	if val := cx.GetVar("tls_connection_states"); val != nil {
+		connectionStates = val.([]*tls.ConnectionState)
+	}
+	connectionStates = append(connectionStates, cs)
+	cx.SetVar("tls_connection_states", connectionStates)
+}
+
+// GetConnectionStates gets the tls.ConnectionState for all the terminated TLS connections.
+func GetConnectionStates(cx *layer4.Connection) []*tls.ConnectionState {
+	var connectionStates []*tls.ConnectionState
+	if val := cx.GetVar("tls_connection_states"); val != nil {
+		connectionStates = val.([]*tls.ConnectionState)
+	}
+	return connectionStates
 }
 
 // Interface guards
