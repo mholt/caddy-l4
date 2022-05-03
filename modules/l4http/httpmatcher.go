@@ -180,11 +180,7 @@ func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Req
 	// According to http.Request.URL docs it only contains the value of RequestURI (so path only),
 	// but we can fill in more information
 	req.URL, err = url.Parse(fmt.Sprintf("%s://%s%s", scheme, authority, path))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // Interface guards
