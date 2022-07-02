@@ -135,9 +135,9 @@ func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Req
 
 	framer := http2.NewFramer(io.Discard, reader)
 
-	// read the first 3 frames until we get a headers frame (skipping settings & window update frames)
+	// read the first 10 frames until we get a headers frame (skipping settings, window update & priority frames)
 	var frame http2.Frame
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10; i++ {
 		frame, err = framer.ReadFrame()
 		if err != nil {
 			return err
@@ -148,7 +148,7 @@ func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Req
 	}
 
 	if frame.Header().Type != http2.FrameHeaders {
-		return fmt.Errorf("failed to read a http2 headers frame after 3 attemps")
+		return fmt.Errorf("failed to read a http2 headers frame after 10 attempts")
 	}
 
 	decoder := hpack.NewDecoder(4096, nil) // max table size 4096 from http2.initialHeaderTableSize
