@@ -120,12 +120,24 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 			expect: string(clientCert) + "\n", // returned value comes with a newline appended to it
 		},
 		{
+			input:  "{l4.tls.client.not_a_valid_key}",
+			expect: "<empty>",
+		},
+		{
 			input:  "{l4.tls.client.subject.common_name}",
 			expect: "client.localdomain",
 		},
 		{
+			input:  "{l4.tls.client.subject.not_a_valid_key}",
+			expect: "<empty>",
+		},
+		{
 			input:  "{l4.tls.client.issuer.common_name}",
 			expect: "Caddy Test CA",
+		},
+		{
+			input:  "{l4.tls.client.issuer.not_a_valid_key}",
+			expect: "<empty>",
 		},
 	} {
 		actual := repl.ReplaceAll(tc.input, "<empty>")
