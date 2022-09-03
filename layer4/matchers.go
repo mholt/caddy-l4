@@ -108,25 +108,10 @@ func (MatchIP) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
-func (m *MatchIP) Provision(ctx caddy.Context) error {
-	for _, str := range m.Ranges {
-		if strings.Contains(str, "/") {
-			_, ipNet, err := net.ParseCIDR(str)
-			if err != nil {
-				return fmt.Errorf("parsing CIDR expression: %v", err)
-			}
-			m.cidrs = append(m.cidrs, ipNet)
-		} else {
-			ip := net.ParseIP(str)
-			if ip == nil {
-				return fmt.Errorf("invalid IP address: %s", str)
-			}
-			mask := len(ip) * 8
-			m.cidrs = append(m.cidrs, &net.IPNet{
-				IP:   ip,
-				Mask: net.CIDRMask(mask, mask),
-			})
-		}
+func (m *MatchIP) Provision(_ caddy.Context) (err error) {
+	m.cidrs, err = ParseNetworks(m.Ranges)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -166,3 +151,26 @@ var (
 	_ ConnMatcher       = (*MatchIP)(nil)
 	_ caddy.Provisioner = (*MatchIP)(nil)
 )
+
+func ParseNetworks(networks []string) (ipNets []*net.IPNet, err error) {
+	for _, str := range networks {
+		if strings.Contains(str, "/") {
+			_, ipNet, err := net.ParseCIDR(str)
+			if err != nil {
+				return nil, fmt.Errorf("parsing CIDR expression: %v", err)
+			}
+			ipNets = append(ipNets, ipNet)
+		} else {
+			ip := net.ParseIP(str)
+			if ip == nil {
+				return ipNets, fmt.Errorf("invalid IP address: %s", str)
+			}
+			mask := len(ip) * 8
+			ipNets = append(ipNets, &net.IPNet{
+				IP:   ip,
+				Mask: net.CIDRMask(mask, mask),
+			})
+		}
+	}
+	return ipNets, nil
+}
