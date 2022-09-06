@@ -2,10 +2,12 @@ package l4socks
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
+	"strings"
 )
 
 func init() {
@@ -17,11 +19,12 @@ func init() {
 // To improve the matching use Commands, Ports and Networks to specify to which destinations you expect clients to connect to.
 // By default CONNECT & BIND commands are matched with any destination ip and port.
 type Socks4Matcher struct {
-	Commands []uint8  `json:"commands,omitempty"`
+	Commands []string `json:"commands,omitempty"`
 	Networks []string `json:"networks,omitempty"`
 	Ports    []uint16 `json:"ports,omitempty"`
 
-	cidrs []*net.IPNet
+	commands []uint8
+	cidrs    []*net.IPNet
 }
 
 func (m *Socks4Matcher) CaddyModule() caddy.ModuleInfo {
@@ -33,7 +36,18 @@ func (m *Socks4Matcher) CaddyModule() caddy.ModuleInfo {
 
 func (m *Socks4Matcher) Provision(_ caddy.Context) (err error) {
 	if len(m.Commands) == 0 {
-		m.Commands = []uint8{1, 2} // CONNECT & BIND
+		m.commands = []uint8{1, 2} // CONNECT & BIND
+	} else {
+		for _, c := range m.Commands {
+			switch strings.ToUpper(c) {
+			case "CONNECT":
+				m.commands = append(m.commands, 1)
+			case "BIND":
+				m.commands = append(m.commands, 2)
+			default:
+				return fmt.Errorf("unknown command \"%s\" has to be one of [\"CONNECT\", \"BIND\"]", c)
+			}
+		}
 	}
 	m.cidrs, err = layer4.ParseNetworks(m.Networks)
 	if err != nil {
@@ -56,7 +70,7 @@ func (m *Socks4Matcher) Match(cx *layer4.Connection) (bool, error) {
 
 	// match commands (CD)
 	commandMatched := false
-	for _, c := range m.Commands {
+	for _, c := range m.commands {
 		if c == buf[1] {
 			commandMatched = true
 			break

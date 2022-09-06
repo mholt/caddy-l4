@@ -39,8 +39,8 @@ func TestSocks4Matcher_Match(t *testing.T) {
 		{matcher: &Socks4Matcher{}, data: []byte("Hello World"), shouldMatch: false},
 
 		// match only BIND
-		{matcher: &Socks4Matcher{Commands: []uint8{2}}, data: curlSocks4Example1, shouldMatch: false},
-		{matcher: &Socks4Matcher{Commands: []uint8{2}}, data: curlSocks4aExample1, shouldMatch: false},
+		{matcher: &Socks4Matcher{Commands: []string{"BIND"}}, data: curlSocks4Example1, shouldMatch: false},
+		{matcher: &Socks4Matcher{Commands: []string{"BIND"}}, data: curlSocks4aExample1, shouldMatch: false},
 
 		// match destination ip
 		{matcher: &Socks4Matcher{Networks: []string{"127.0.0.1"}}, data: curlSocks4Example1, shouldMatch: false},
@@ -94,5 +94,17 @@ func TestSocks4Matcher_Match(t *testing.T) {
 				}
 			}
 		}()
+	}
+}
+
+func TestSocks4Matcher_InvalidCommand(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	handler := &Socks4Matcher{Commands: []string{"Foo"}}
+	err := handler.Provision(ctx)
+
+	if err == nil || err.Error() != "unknown command \"Foo\" has to be one of [\"CONNECT\", \"BIND\"]" {
+		t.Fatalf("Wrong error: %v\n", err)
 	}
 }
