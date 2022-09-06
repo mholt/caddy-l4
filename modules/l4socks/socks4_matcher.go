@@ -14,14 +14,17 @@ func init() {
 	caddy.RegisterModule(&Socks4Matcher{})
 }
 
-// Socks4Matcher matches SOCKSv4 connections.
+// Socks4Matcher matches SOCKSv4 connections according to https://www.openssh.com/txt/socks4.protocol.
 // Since the SOCKSv4 header is very short it could produce a lot of false positives.
 // To improve the matching use Commands, Ports and Networks to specify to which destinations you expect clients to connect to.
 // By default CONNECT & BIND commands are matched with any destination ip and port.
 type Socks4Matcher struct {
+	// Only match on these commands. Default: ["CONNECT", "BIND"]
 	Commands []string `json:"commands,omitempty"`
+	// Only match on requests to one of these destination networks (IP or CIDR). Default: all networks.
 	Networks []string `json:"networks,omitempty"`
-	Ports    []uint16 `json:"ports,omitempty"`
+	// Only match on requests to one of these destination ports. Default: all ports.
+	Ports []uint16 `json:"ports,omitempty"`
 
 	commands []uint8
 	cidrs    []*net.IPNet

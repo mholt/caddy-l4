@@ -16,8 +16,11 @@ func init() {
 
 // Socks5Handler is a connection handler that terminates SOCKSv5 connection.
 type Socks5Handler struct {
-	Commands    []string          `json:"commands,omitempty"`
-	BindIP      string            `json:"bind_ip,omitempty"` // is used for bind or udp associate
+	// Controls which socks5 methods are allowed. Possible values CONNECT, ASSOCIATE, BIND. Default: ["CONNECT", "ASSOCIATE"].
+	Commands []string `json:"commands,omitempty"`
+	// IP address used for bind during BIND or UDP ASSOCIATE.
+	BindIP string `json:"bind_ip,omitempty"`
+	// Map of username:password to active authentication. Default: no authentication.
 	Credentials map[string]string `json:"credentials,omitempty"`
 
 	server *socks5.Server
