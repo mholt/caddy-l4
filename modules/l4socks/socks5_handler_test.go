@@ -141,3 +141,15 @@ func TestSocks5Handler_Credentials(t *testing.T) {
 		{0x01, 0x01}, // <- reject user
 	})
 }
+
+func TestSocks5Handler_InvalidCommand(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	handler := &Socks5Handler{Commands: []string{"Foo"}}
+	err := handler.Provision(ctx)
+
+	if err == nil || err.Error() != "unknown command \"Foo\" has to be one of [\"CONNECT\", \"ASSOCIATE\", \"BIND\"]" {
+		t.Fatalf("Wrong error: %v\n", err)
+	}
+}

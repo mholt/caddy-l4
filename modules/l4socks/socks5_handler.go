@@ -45,6 +45,8 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 				rule.EnableAssociate = true
 			case "BIND":
 				rule.EnableBind = true
+			default:
+				return fmt.Errorf("unknown command \"%s\" has to be one of [\"CONNECT\", \"ASSOCIATE\", \"BIND\"]", c)
 			}
 		}
 	}
