@@ -7,7 +7,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(&Socks5Matcher{})
+	caddy.RegisterModule(Socks5Matcher{})
 }
 
 // Socks5Matcher matches SOCKSv5 connections according to RFC 1928 (https://www.rfc-editor.org/rfc/rfc1928.html).
@@ -18,7 +18,7 @@ type Socks5Matcher struct {
 	AuthMethods []uint8 `json:"auth_methods,omitempty"`
 }
 
-func (m *Socks5Matcher) CaddyModule() caddy.ModuleInfo {
+func (Socks5Matcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.socks5",
 		New: func() caddy.Module { return new(Socks5Matcher) },

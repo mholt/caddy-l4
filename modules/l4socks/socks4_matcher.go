@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(&Socks4Matcher{})
+	caddy.RegisterModule(Socks4Matcher{})
 }
 
 // Socks4Matcher matches SOCKSv4 connections according to https://www.openssh.com/txt/socks4.protocol.
@@ -30,7 +30,7 @@ type Socks4Matcher struct {
 	cidrs    []*net.IPNet
 }
 
-func (m *Socks4Matcher) CaddyModule() caddy.ModuleInfo {
+func (Socks4Matcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.socks4",
 		New: func() caddy.Module { return new(Socks4Matcher) },
