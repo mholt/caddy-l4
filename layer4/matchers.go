@@ -152,6 +152,8 @@ var (
 	_ caddy.Provisioner = (*MatchIP)(nil)
 )
 
+// ParseNetworks parses a list of string IP addresses or CDIR subnets into a slice of net.IPNet's.
+// It accepts for example ["127.0.0.1", "127.0.0.0/8", "::1", "2001:db8::/32"].
 func ParseNetworks(networks []string) (ipNets []*net.IPNet, err error) {
 	for _, str := range networks {
 		if strings.Contains(str, "/") {
