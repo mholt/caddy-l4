@@ -281,8 +281,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 		// Shut down the writing side of all upstream connections, in case
 		// that the downstream connection is half closed. (issue #40)
 		for _, up := range upConns {
-			// only doable for a TCP connection
-			if conn, ok := up.(*net.TCPConn); ok {
+			if conn, ok := up.(closeWriter); ok {
 				_ = conn.CloseWrite()
 			}
 		}
@@ -293,7 +292,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 
 	// Shut down the writing side of the downstream connection, in case that
 	// the upstream connections are all half closed.
-	if downConn, ok := down.Conn.(*net.TCPConn); ok {
+	if downConn, ok := down.Conn.(closeWriter); ok {
 		_ = downConn.CloseWrite()
 	}
 
@@ -364,4 +363,18 @@ var (
 	_ layer4.NextHandler = (*Handler)(nil)
 	_ caddy.Provisioner  = (*Handler)(nil)
 	_ caddy.CleanerUpper = (*Handler)(nil)
+)
+
+// Used to properly shutdown half-closed connections (see PR #73).
+// Implemented by net.TCPConn, net.UnixConn, tls.Conn, qtls.Conn.
+type closeWriter interface {
+	// CloseWrite shuts down the writing side of the connection.
+	CloseWrite() error
+}
+
+// Ensure we notice if CloseWrite changes for these important connections
+var (
+	_ closeWriter = (*net.TCPConn)(nil)
+	_ closeWriter = (*net.UnixConn)(nil)
+	_ closeWriter = (*tls.Conn)(nil)
 )
