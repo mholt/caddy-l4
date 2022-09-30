@@ -17,7 +17,6 @@ package layer4
 import (
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -37,6 +36,7 @@ type App struct {
 	listeners   []net.Listener
 	packetConns []net.PacketConn
 	logger      *zap.Logger
+	ctx         caddy.Context
 }
 
 // CaddyModule returns the Caddy module information.
@@ -49,7 +49,8 @@ func (App) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the app.
 func (a *App) Provision(ctx caddy.Context) error {
-	a.logger = ctx.Logger(a)
+	a.ctx = ctx
+	a.logger = ctx.Logger()
 
 	for srvName, srv := range a.Servers {
 		err := srv.Provision(ctx, a.logger)
@@ -65,24 +66,21 @@ func (a *App) Provision(ctx caddy.Context) error {
 func (a *App) Start() error {
 	for _, s := range a.Servers {
 		for _, addr := range s.listenAddrs {
-			for i := uint(0); i < addr.PortRangeSize(); i++ {
+			listeners, err := addr.ListenAll(a.ctx, net.ListenConfig{})
+			if err != nil {
+				return err
+			}
+			for _, lnAny := range listeners {
 				var lnAddr string
-				if strings.Contains(addr.Network, "udp") {
-					pc, err := caddy.ListenPacket(addr.Network, addr.JoinHostPort(i))
-					if err != nil {
-						return err
-					}
-					a.packetConns = append(a.packetConns, pc)
-					lnAddr = pc.LocalAddr().Network() + "/" + pc.LocalAddr().String()
-					go s.servePacket(pc)
-				} else {
-					ln, err := caddy.Listen(addr.Network, addr.JoinHostPort(i))
-					if err != nil {
-						return err
-					}
+				switch ln := lnAny.(type) {
+				case net.Listener:
 					a.listeners = append(a.listeners, ln)
-					lnAddr = ln.Addr().Network() + "/" + ln.Addr().String()
+					lnAddr = caddy.JoinNetworkAddress(ln.Addr().Network(), ln.Addr().String(), "")
 					go s.serve(ln)
+				case net.PacketConn:
+					a.packetConns = append(a.packetConns, ln)
+					lnAddr = caddy.JoinNetworkAddress(ln.LocalAddr().Network(), ln.LocalAddr().String(), "")
+					go s.servePacket(ln)
 				}
 				s.logger.Debug("listening", zap.String("address", lnAddr))
 			}
