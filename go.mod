@@ -5,7 +5,7 @@ go 1.18
 replace github.com/caddyserver/caddy/v2 => ../caddyserver/caddy
 
 require (
-	github.com/caddyserver/caddy/v2 v2.6.1-0.20220930193937-fe91de67b62c
+	github.com/caddyserver/caddy/v2 v2.6.2-0.20220930193937-fe91de67b62c
 	github.com/mastercactapus/proxyprotocol v0.0.3
 	go.uber.org/zap v1.23.0
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
