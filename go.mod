@@ -2,8 +2,6 @@ module github.com/mholt/caddy-l4
 
 go 1.18
 
-replace github.com/caddyserver/caddy/v2 => ../caddyserver/caddy
-
 require (
 	github.com/caddyserver/caddy/v2 v2.6.2-0.20220930193937-fe91de67b62c
 	github.com/mastercactapus/proxyprotocol v0.0.3
