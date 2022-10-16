@@ -64,8 +64,8 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 func (s Server) serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
-		if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
-			s.logger.Error("accepting connection: temporary error", zap.Error(err))
+		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+			s.logger.Error("timeout accepting connection", zap.Error(err))
 			continue
 		}
 		if err != nil {

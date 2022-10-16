@@ -35,7 +35,7 @@ func init() {
 
 // MatchHTTP is able to match HTTP connections. The auto-generated
 // documentation for this type is wrong; instead of an object, it
-// is an array of matcher set objects.
+// is [an array of matcher set objects](https://caddyserver.com/docs/json/apps/http/servers/routes/match/).
 type MatchHTTP struct {
 	MatcherSetsRaw caddyhttp.RawMatcherSets `json:"-" caddy:"namespace=http.matchers"`
 	matcherSets    caddyhttp.MatcherSets
