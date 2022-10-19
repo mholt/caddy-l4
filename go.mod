@@ -5,10 +5,11 @@ go 1.18
 require (
 	github.com/caddyserver/caddy/v2 v2.6.2
 	github.com/mastercactapus/proxyprotocol v0.0.3
+	github.com/things-go/go-socks5 v0.0.2
 	go.uber.org/zap v1.23.0
-	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
-	golang.org/x/net v0.0.0-20220812165438-1d4ff48094d1
-	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
+	golang.org/x/crypto v0.0.0-20221012134737-56aed061732a
+	golang.org/x/net v0.0.0-20221014081412-f15817d10f9b
+	golang.org/x/time v0.0.0-20220922220347-f3bd1da661af
 )
 
 require (
@@ -97,8 +98,8 @@ require (
 	go.step.sm/cli-utils v0.7.4 // indirect
 	go.step.sm/crypto v0.18.0 // indirect
 	go.step.sm/linkedca v0.18.0 // indirect
-	go.uber.org/atomic v1.9.0 // indirect
-	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/atomic v1.10.0 // indirect
+	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220106191415-9b9b3d81d5e3 // indirect
 	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10 // indirect

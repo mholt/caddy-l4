@@ -32,6 +32,9 @@ Current matchers:
 - **layer4.matchers.tls** - matches connections that start with TLS handshakes. In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
 - **layer4.matchers.ssh** - matches connections that look like SSH connections.
 - **layer4.matchers.ip** - matches connections based on remote IP (or CIDR range).
+- **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
+- **layer4.matchers.socks4** - matches connections that look like [SOCKSv4](https://www.openssh.com/txt/socks4.protocol).
+- **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
 
 Current handlers:
 
@@ -41,6 +44,7 @@ Current handlers:
 - **layer4.handlers.throttle** - Throttle connections to simulate slowness and latency.
 - **layer4.handlers.tls** - TLS termination.
 - **layer4.handlers.proxy_protocol** - Accepts the [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) on the receiving side.
+- **layer4.handlers.socks5** - Handles [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html) proxy protocol connections.
 
 Like the `http` app, some handlers are "terminal" meaning that they don't call the next handler in the chain. For example: `echo` and `proxy` are terminal handlers because they consume the client's input.
 
@@ -331,6 +335,57 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 									"handler": "proxy",
 									"upstreams": [
 										{"dial": ["localhost:443"]}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
+```
+
+
+Forwarding SOCKSv4 to a remote server and handling SOCKSv5 directly in caddy.  
+While only allowing connections from a specific network and requiring a username and password for SOCKSv5.
+
+```json
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"socks": {
+					"listen": ["0.0.0.0:1080"],
+					"routes": [
+						{
+							"match": [
+								{
+									"socks5": {},
+									"ip": {"ranges": ["10.0.0.0/24"]}
+								}
+							],
+							"handle": [
+								{
+									"handler": "socks5",
+									"credentials": {
+										"bob": "qHoEtVpGRM"
+									}
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"socks4": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{"dial": ["10.64.0.1:1080"]}
 									]
 								}
 							]
