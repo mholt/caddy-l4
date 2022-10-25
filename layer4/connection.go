@@ -174,6 +174,9 @@ var (
 
 	// ReplacerCtxKey is the key used to store the replacer.
 	ReplacerCtxKey caddy.CtxKey = "replacer"
+
+	// ListenerCtxKey is the key used to get the listener from a handler
+	ListenerCtxKey caddy.CtxKey = "listener"
 )
 
 var bufPool = sync.Pool{
