@@ -19,7 +19,6 @@ import (
 	_ "github.com/mholt/caddy-l4/layer4"
 	_ "github.com/mholt/caddy-l4/modules/l4echo"
 	_ "github.com/mholt/caddy-l4/modules/l4http"
-	_ "github.com/mholt/caddy-l4/modules/l4httplistener"
 	_ "github.com/mholt/caddy-l4/modules/l4proxy"
 	_ "github.com/mholt/caddy-l4/modules/l4proxyprotocol"
 	_ "github.com/mholt/caddy-l4/modules/l4ssh"

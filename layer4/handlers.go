@@ -74,3 +74,10 @@ func (h HandlerFunc) Handle(cx *Connection) error { return h(cx) }
 type nopHandler struct{}
 
 func (nopHandler) Handle(_ *Connection) error { return nil }
+
+// listenerHandler is a connection handler that pipe incoming connection to channel as a listener wrapper
+type listenerHandler struct{}
+
+func (listenerHandler) Handle(conn *Connection) error {
+	return conn.Context.Value(listenerCtxKey).(*listener).pipeConnection(conn)
+}

@@ -44,7 +44,7 @@ func (lw *ListenerWrapper) Provision(ctx caddy.Context) error {
 	if err != nil {
 		return err
 	}
-	lw.compiledRoute = lw.Routes.Compile(nopHandler{}, lw.logger)
+	lw.compiledRoute = lw.Routes.Compile(listenerHandler{}, lw.logger)
 
 	return nil
 }
@@ -53,27 +53,27 @@ func (lw *ListenerWrapper) WrapListener(l net.Listener) net.Listener {
 	// TODO make channel capacity configurable
 	connChan := make(chan net.Conn, runtime.GOMAXPROCS(0))
 	errChan := make(chan struct{})
-	li := &Listener{
+	li := &listener{
 		Listener:      l,
 		logger:        lw.logger,
 		compiledRoute: lw.compiledRoute,
-		ConnChan:      connChan,
-		ErrChan:       errChan,
+		connChan:      connChan,
+		errChan:       errChan,
 		wg:            new(sync.WaitGroup),
 	}
 	go li.loop()
 	return li
 }
 
-type Listener struct {
+type listener struct {
 	net.Listener
 	logger        *zap.Logger
 	compiledRoute Handler
 
-	ConnChan chan net.Conn
+	connChan chan net.Conn
 
 	// closed when there is a non-recoverable error
-	ErrChan chan struct{}
+	errChan chan struct{}
 	err     error
 
 	// count running handles
@@ -81,7 +81,7 @@ type Listener struct {
 }
 
 // loop accept connection from underlying listener and pipe the connection if there are any
-func (l *Listener) loop() {
+func (l *listener) loop() {
 	for {
 		conn, err := l.Listener.Accept()
 		if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
@@ -90,7 +90,7 @@ func (l *Listener) loop() {
 		}
 		if err != nil {
 			l.err = err
-			close(l.ErrChan)
+			close(l.errChan)
 			break
 		}
 
@@ -101,21 +101,21 @@ func (l *Listener) loop() {
 	// closing remaining conns in channel to release resources
 	go func() {
 		l.wg.Wait()
-		close(l.ConnChan)
+		close(l.connChan)
 	}()
-	for conn := range l.ConnChan {
+	for conn := range l.connChan {
 		conn.Close()
 	}
 }
 
-// ErrHijacked is used when a handler takes over the connection, it's lifetime is not managed by handle
-var ErrHijacked = errors.New("hijacked connection")
+// errHijacked is used when a handler takes over the connection, it's lifetime is not managed by handle
+var errHijacked = errors.New("hijacked connection")
 
-func (l *Listener) handle(conn net.Conn) {
+func (l *listener) handle(conn net.Conn) {
 	var err error
 	defer func() {
 		l.wg.Done()
-		if err != ErrHijacked {
+		if err != errHijacked {
 			conn.Close()
 		}
 	}()
@@ -125,12 +125,12 @@ func (l *Listener) handle(conn net.Conn) {
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf)
-	cx.Context = context.WithValue(cx.Context, ListenerCtxKey, l)
+	cx.Context = context.WithValue(cx.Context, listenerCtxKey, l)
 
 	start := time.Now()
 	err = l.compiledRoute.Handle(cx)
 	duration := time.Since(start)
-	if err != nil && err != ErrHijacked {
+	if err != nil && err != errHijacked {
 		l.logger.Error("handling connection", zap.Error(err))
 	}
 
@@ -142,12 +142,22 @@ func (l *Listener) handle(conn net.Conn) {
 	)
 }
 
-func (l *Listener) Accept() (net.Conn, error) {
+func (l *listener) Accept() (net.Conn, error) {
 	select {
-	case conn := <-l.ConnChan:
+	case conn := <-l.connChan:
 		return conn, nil
-	case <-l.ErrChan:
+	case <-l.errChan:
 		return nil, l.err
+	}
+}
+
+func (l *listener) pipeConnection(conn net.Conn) error {
+	select {
+	case l.connChan <- conn:
+		return errHijacked
+	// listener already stopped accepting
+	case <-l.errChan:
+		return nil
 	}
 }
 
