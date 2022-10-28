@@ -52,13 +52,11 @@ func (lw *ListenerWrapper) Provision(ctx caddy.Context) error {
 func (lw *ListenerWrapper) WrapListener(l net.Listener) net.Listener {
 	// TODO make channel capacity configurable
 	connChan := make(chan net.Conn, runtime.GOMAXPROCS(0))
-	errChan := make(chan struct{})
 	li := &listener{
 		Listener:      l,
 		logger:        lw.logger,
 		compiledRoute: lw.compiledRoute,
 		connChan:      connChan,
-		errChan:       errChan,
 		wg:            new(sync.WaitGroup),
 	}
 	go li.loop()
@@ -70,11 +68,9 @@ type listener struct {
 	logger        *zap.Logger
 	compiledRoute Handler
 
+	// closed when there is a non-recoverable error and all handle goroutines are done
 	connChan chan net.Conn
-
-	// closed when there is a non-recoverable error
-	errChan chan struct{}
-	err     error
+	err      error
 
 	// count running handles
 	wg *sync.WaitGroup
@@ -90,7 +86,6 @@ func (l *listener) loop() {
 		}
 		if err != nil {
 			l.err = err
-			close(l.errChan)
 			break
 		}
 
@@ -143,22 +138,16 @@ func (l *listener) handle(conn net.Conn) {
 }
 
 func (l *listener) Accept() (net.Conn, error) {
-	select {
-	case conn := <-l.connChan:
+	for conn := range l.connChan {
 		return conn, nil
-	case <-l.errChan:
-		return nil, l.err
 	}
+	return nil, l.err
+
 }
 
 func (l *listener) pipeConnection(conn net.Conn) error {
-	select {
-	case l.connChan <- conn:
-		return errHijacked
-	// listener already stopped accepting
-	case <-l.errChan:
-		return nil
-	}
+	l.connChan <- conn
+	return errHijacked
 }
 
 // Interface guards
