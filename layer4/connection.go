@@ -83,7 +83,10 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 			cx.bufReader = nil
 			err = nil
 		}
-		return
+		// prevent first read from returning 0 bytes because of empty bufReader
+		if !(n == 0 && err == nil) {
+			return
+		}
 	}
 
 	// buffer has been "depleted" so read from
