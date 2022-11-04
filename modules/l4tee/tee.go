@@ -103,7 +103,7 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	go func() {
 		err := t.compiledChain.Handle(&branchc)
 		if err != nil {
-			t.logger.Error("handling connection in branch", zap.Error(err))
+			t.logger.Error("handling connection in branch", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 		}
 	}()
 

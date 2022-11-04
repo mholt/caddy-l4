@@ -3,12 +3,14 @@ package l4proxyprotocol
 import (
 	"bytes"
 	"context"
-	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
 	"sync"
 	"testing"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func assertString(t *testing.T, expected string, value string) {
@@ -23,7 +25,7 @@ func TestProxyProtocolHandleV1(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -61,7 +63,7 @@ func TestProxyProtocolHandleV2(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -99,7 +101,7 @@ func TestProxyProtocolHandleGarbage(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()

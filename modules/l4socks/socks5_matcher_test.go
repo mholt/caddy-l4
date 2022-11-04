@@ -3,11 +3,13 @@ package l4socks
 import (
 	"bytes"
 	"context"
-	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
 	"testing"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func TestSocks5Matcher_Match(t *testing.T) {
@@ -53,7 +55,7 @@ func TestSocks5Matcher_Match(t *testing.T) {
 				_ = out.Close()
 			}()
 
-			cx := layer4.WrapConnection(out, &bytes.Buffer{})
+			cx := layer4.WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
 			go func() {
 				_, err := in.Write(tc.data)
 				assertNoError(t, err)

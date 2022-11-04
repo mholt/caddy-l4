@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -46,6 +47,18 @@ func (mset MatcherSet) Match(cx *Connection) (matched bool, err error) {
 		cx.record()
 		matched, err = m.Match(cx)
 		cx.rewind()
+		if cx.Logger.Core().Enabled(zap.DebugLevel) {
+			matcher := "unknown"
+			if cm, ok := m.(caddy.Module); ok {
+				matcher = cm.CaddyModule().String()
+			}
+			cx.Logger.Debug("matching",
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Error(err),
+				zap.String("matcher", matcher),
+				zap.Bool("matched", matched),
+			)
+		}
 		if !matched || err != nil {
 			return
 		}

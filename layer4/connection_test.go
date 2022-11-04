@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 func TestConnection_RecordAndRewind(t *testing.T) {
@@ -11,7 +13,7 @@ func TestConnection_RecordAndRewind(t *testing.T) {
 	defer in.Close()
 	defer out.Close()
 
-	cx := WrapConnection(out, &bytes.Buffer{})
+	cx := WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
 	defer cx.Close()
 
 	matcherData := []byte("foo")

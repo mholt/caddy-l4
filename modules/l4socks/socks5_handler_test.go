@@ -3,17 +3,19 @@ package l4socks
 import (
 	"bytes"
 	"context"
-	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
 	"testing"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func replay(t *testing.T, handler *Socks5Handler, expectedError string, messages [][]byte) {
 	t.Helper()
 	in, out := net.Pipe()
-	cx := layer4.WrapConnection(out, &bytes.Buffer{})
+	cx := layer4.WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
 	defer func() {
 		_ = in.Close()
 		_, _ = io.Copy(io.Discard, out)

@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
+	"go.uber.org/zap"
 )
 
 // WrapConnection wraps an underlying connection into a layer4 connection that
@@ -29,7 +30,7 @@ import (
 // and variable table. This function is intended for use at the start of a
 // connection handler chain where the underlying connection is not yet a layer4
 // Connection value.
-func WrapConnection(underlying net.Conn, buf *bytes.Buffer) *Connection {
+func WrapConnection(underlying net.Conn, buf *bytes.Buffer, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
 	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
 	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
@@ -41,6 +42,7 @@ func WrapConnection(underlying net.Conn, buf *bytes.Buffer) *Connection {
 	return &Connection{
 		Conn:    underlying,
 		Context: ctx,
+		Logger:  logger,
 		buf:     buf,
 	}
 }
@@ -61,6 +63,8 @@ type Connection struct {
 
 	// The context for the connection.
 	Context context.Context
+
+	Logger *zap.Logger
 
 	buf       *bytes.Buffer // stores recordings
 	bufReader io.Reader     // used to read buf so it doesn't discard bytes
@@ -124,6 +128,7 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 	return &Connection{
 		Conn:         conn,
 		Context:      cx.Context,
+		Logger:       cx.Logger,
 		buf:          cx.buf,
 		bufReader:    cx.bufReader,
 		recording:    cx.recording,

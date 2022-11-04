@@ -100,13 +100,13 @@ func (s Server) handle(conn net.Conn) {
 	buf.Reset()
 	defer bufPool.Put(buf)
 
-	cx := WrapConnection(conn, buf)
+	cx := WrapConnection(conn, buf, s.logger)
 
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
 	if err != nil {
-		s.logger.Error("handling connection", zap.Error(err))
+		s.logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 	}
 
 	s.logger.Debug("connection stats",

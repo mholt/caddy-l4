@@ -6,13 +6,15 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
 	"sync"
 	"testing"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func assertNoError(t *testing.T, err error) {
@@ -31,7 +33,7 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
@@ -200,7 +202,7 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
