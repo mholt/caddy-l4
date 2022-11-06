@@ -146,6 +146,10 @@ func wrapRoute(route *Route, logger *zap.Logger) Middleware {
 
 			// route must match at least one of the matcher sets
 			matched, err := route.matcherSets.AnyMatch(cx)
+			if err == ErrConsumedAllPrefetchedBytes {
+				matched = false
+				err = nil
+			}
 			if err != nil {
 				if errors.Is(err, os.ErrDeadlineExceeded) {
 					err = ErrMatchingTimeout

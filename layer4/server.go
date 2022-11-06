@@ -96,8 +96,8 @@ func (s Server) servePacket(pc net.PacketConn) error {
 func (s Server) handle(conn net.Conn) {
 	defer conn.Close()
 
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
+	buf := bufPool.Get().([]byte)
+	buf = buf[:0]
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf, s.logger)
