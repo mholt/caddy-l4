@@ -16,7 +16,10 @@ package layer4
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -38,6 +41,8 @@ type Route struct {
 	// Handlers define the behavior for handling the stream. They are
 	// executed in sequential order if the route's matchers match.
 	HandlersRaw []json.RawMessage `json:"handle,omitempty" caddy:"namespace=layer4.handlers inline_key=handler"`
+
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	matcherSets MatcherSets
 	middleware  []Middleware
@@ -66,6 +71,11 @@ func (r *Route) Provision(ctx caddy.Context) error {
 	}
 	for _, midhandler := range handlers {
 		r.middleware = append(r.middleware, wrapHandler(midhandler))
+	}
+
+	// timeouts
+	if r.MatchingTimeout == 0 {
+		r.MatchingTimeout = caddy.Duration(10 * time.Second)
 	}
 
 	return nil
@@ -104,6 +114,8 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger) Handler {
 	return stack
 }
 
+var ErrMatchingTimeout = errors.New("aborted matching according to timeout")
+
 // wrapRoute wraps route with a middleware and handler so that it can
 // be chained in and defer evaluation of its matchers to request-time.
 // Like wrapMiddleware, it is vital that this wrapping takes place in
@@ -124,14 +136,31 @@ func wrapRoute(route *Route, logger *zap.Logger) Middleware {
 			// but I just thought this made more sense
 			nextCopy := next
 
+			if route.MatchingTimeout > 0 {
+				// timeout matching to protect against malicious or very slow clients
+				err := cx.Conn.SetReadDeadline(time.Now().Add(time.Duration(route.MatchingTimeout)))
+				if err != nil {
+					return err
+				}
+			}
+
 			// route must match at least one of the matcher sets
 			matched, err := route.matcherSets.AnyMatch(cx)
 			if err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					err = ErrMatchingTimeout
+				}
 				logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 				return nil // return nil so the error does not get logged again
 			}
 			if !matched {
 				return nextCopy.Handle(cx)
+			}
+
+			// remove deadline after we matched
+			err = cx.Conn.SetReadDeadline(time.Time{})
+			if err != nil {
+				return err
 			}
 
 			// TODO: other routing features?
