@@ -127,7 +127,8 @@ func wrapRoute(route *Route, logger *zap.Logger) Middleware {
 			// route must match at least one of the matcher sets
 			matched, err := route.matcherSets.AnyMatch(cx)
 			if err != nil {
-				logger.Error("matching connection", zap.Error(err))
+				logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+				return nil // return nil so the error does not get logged again
 			}
 			if !matched {
 				return nextCopy.Handle(cx)

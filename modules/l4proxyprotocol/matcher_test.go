@@ -3,11 +3,13 @@ package l4proxyprotocol
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
 	"net"
 	"sync"
 	"testing"
+
+	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 var ProxyV1Example = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")
@@ -31,7 +33,7 @@ func TestProxyProtocolMatchV1(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -57,7 +59,7 @@ func TestProxyProtocolMatchV2(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -83,7 +85,7 @@ func TestProxyProtocolMatchGarbage(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{})
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
