@@ -23,6 +23,7 @@ jobs:
 
     - name: Set up xcaddy
       run: |
+        sudo apt-get update
         sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
         curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-xcaddy-archive-keyring.gpg
         curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-xcaddy.list
@@ -35,8 +36,9 @@ jobs:
 
     - name: Build
       run: |
-        xcaddy build master --output "${TEMP_DIR}/caddy-l4" --with github.com/mholt/caddy-l4
+        xcaddy build master --output "${TEMP_DIR}/caddy-l4" --with github.com/mholt/caddy-l4=./
 
     - name: Test
       run: |
         "${TEMP_DIR}/caddy-l4" list-modules
+        go test -v ./...
