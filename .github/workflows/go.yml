@@ -1,0 +1,42 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.18
+
+    - name: Set up xcaddy
+      run: |
+        sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+        curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-xcaddy-archive-keyring.gpg
+        curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-xcaddy.list
+        sudo apt-get update
+        sudo apt-get install -y xcaddy
+
+    - name: Set some variables
+      run: |
+        echo "TEMP_DIR=$(mktemp -d)" >> $GITHUB_ENV
+
+    - name: Build
+      run: |
+        xcaddy build master --output "${TEMP_DIR}/caddy-l4" --with github.com/mholt/caddy-l4
+
+    - name: Test
+      run: |
+        "${TEMP_DIR}/caddy-l4" list-modules
