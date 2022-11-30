@@ -3,8 +3,10 @@ package l4socks
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
@@ -57,11 +59,24 @@ func TestSocks5Handler_Defaults(t *testing.T) {
 	err := handler.Provision(ctx)
 	assertNoError(t, err)
 
+	// target for the socks handler to connect to (using free random port)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assertNoError(t, err)
+	defer listener.Close()
+
+	// transform random listening port into bytes
+	_, portStr, err := net.SplitHostPort(listener.Addr().String())
+	assertNoError(t, err)
+	port, err := strconv.ParseUint(portStr, 10, 16)
+	assertNoError(t, err)
+	portBytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(portBytes, uint16(port))
+
 	replay(t, handler, "", [][]byte{
 		{0x05, 0x01, 0x00}, // -> request no auth
 		{0x05, 0x00},       // <- accept no auth
-		{0x05, 0x01, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0xcd, 0x5a}, // -> CONNECT 127.0.0.1 48204
-		{0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // <- host unreachable
+		{0x05, 0x01, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, portBytes[0], portBytes[1]}, // -> CONNECT 127.0.0.1 [random port]
+		{0x05, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01},                             // <- success (ignoring last 2 bytes containing random port)
 	})
 
 	replay(t, handler, "", [][]byte{
