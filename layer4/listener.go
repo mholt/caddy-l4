@@ -119,7 +119,7 @@ func (l *listener) handle(conn net.Conn) {
 	buf.Reset()
 	defer bufPool.Put(buf)
 
-	cx := WrapConnection(conn, buf)
+	cx := WrapConnection(conn, buf, l.logger)
 	cx.Context = context.WithValue(cx.Context, listenerCtxKey, l)
 
 	start := time.Now()
