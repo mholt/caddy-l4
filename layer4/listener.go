@@ -1,15 +1,15 @@
 package layer4
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"github.com/caddyserver/caddy/v2"
-	"go.uber.org/zap"
 	"net"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/caddyserver/caddy/v2"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -115,8 +115,8 @@ func (l *listener) handle(conn net.Conn) {
 		}
 	}()
 
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
+	buf := bufPool.Get().([]byte)
+	buf = buf[:0]
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf, l.logger)

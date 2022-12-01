@@ -1,11 +1,11 @@
 package l4http
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -33,7 +33,7 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, make([]byte, 0, layer4.PrefetchChunkSize), zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
@@ -51,7 +51,8 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	matched, err := matcher.Match(cx)
+	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call record() before matching
+	matched, err := mset.Match(cx)
 
 	_, _ = io.Copy(io.Discard, in)
 
@@ -202,7 +203,7 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
@@ -223,7 +224,8 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	matched, err := matcher.Match(cx)
+	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call record() before matching
+	matched, err := mset.Match(cx)
 	assertNoError(t, err)
 	if !matched {
 		t.Fatalf("matcher did not match")
@@ -247,7 +249,7 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	if matched {
 		t.Fatalf("matcher did match")
 	}
-	if err == nil || err.Error() != "unexpected EOF" {
+	if !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
 		t.Fatalf("handler did not return an error or the wrong error -> %v", err)
 	}
 }

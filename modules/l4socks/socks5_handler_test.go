@@ -17,7 +17,7 @@ import (
 func replay(t *testing.T, handler *Socks5Handler, expectedError string, messages [][]byte) {
 	t.Helper()
 	in, out := net.Pipe()
-	cx := layer4.WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(out, []byte{}, zap.NewNop())
 	defer func() {
 		_ = in.Close()
 		_, _ = io.Copy(io.Discard, out)
