@@ -52,6 +52,9 @@ jobs:
     - name: Test
       run: |
         # TODO:
+        # github.com/mholt/caddy-l4,
+        # modules/l4echo,
+        # modules/l4proxy,
         # modules/l4ssh,
         # modules/l4subroute,
         # modules/l4tee,
