@@ -37,14 +37,21 @@ jobs:
     - name: Build
       run: |
         xcaddy build master --output "${TEMP_DIR}/caddy-l4" --with github.com/mholt/caddy-l4=./
+        # smoking test
+        echo
+        echo '########'
+        echo '# caddy list-modules'
+        "${TEMP_DIR}/caddy-l4" list-modules
+        echo '########'
+        echo
+        echo '########'
+        echo '# caddy build-info'
+        "${TEMP_DIR}/caddy-l4" build-info
+        echo '########'
 
     - name: Test
       run: |
-        "${TEMP_DIR}/caddy-l4" list-modules
-
         # TODO:
-        # modules/l4socks needs to be fixed.
-        #
         # modules/l4ssh,
         # modules/l4subroute,
         # modules/l4tee,
@@ -52,4 +59,4 @@ jobs:
         # modules/l4tls,
         # modules/l4xmpp needs their test files.
 
-        # go test -v ./...
+        go test -v ./...
