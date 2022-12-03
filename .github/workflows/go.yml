@@ -60,12 +60,12 @@ jobs:
       run: |
         xcaddy build master --output ${{ runner.temp }}/caddy --with github.com/mholt/caddy-l4=./
         # smoking test
-        echo
+        echo ''
         echo '########'
         echo '# caddy list-modules'
         ${{ runner.temp }}/caddy list-modules
         echo '########'
-        echo
+        echo ''
         echo '########'
         echo '# caddy build-info'
         ${{ runner.temp }}/caddy build-info
