@@ -11,35 +11,32 @@ on:
 
 jobs:
   build-test-check:
-    runs-on: ${{ matrix.config.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       # Default is true, cancels jobs for other platforms in the matrix if one fails
       fail-fast: false
       matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
         go-version: [ "1.18" ]
 
-        config:
-          - {
-              os: "ubuntu-latest",
-              urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_linux_amd64.tar.gz",
-              name: "xcaddy",
-              pathInArchive: "xcaddy"
-              not_engineerd_configurator__caddy_file_name: "caddy"
-            }
-          - {
-              os: "macos-latest",
-              urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_mac_amd64.tar.gz",
-              name: "xcaddy",
-              pathInArchive: "xcaddy"
-              not_engineerd_configurator__caddy_file_name: "caddy"
-            }
-          - {
-              os: "windows-latest",
-              urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_windows_amd64.zip",
-              name: "xcaddy.exe",
-              pathInArchive: "xcaddy.exe"
-              not_engineerd_configurator__caddy_file_name: "caddy.exe"
-            }
+        include:
+          - os: ubuntu-latest
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_linux_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+            not_engineerd_configurator__caddy_file_name: "caddy"
+
+          - os: "macos-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_mac_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+            not_engineerd_configurator__caddy_file_name: "caddy"
+
+          - os: "windows-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_windows_amd64.zip"
+            name: "xcaddy.exe"
+            pathInArchive: "xcaddy.exe"
+            not_engineerd_configurator__caddy_file_name: "caddy.exe"
 
     steps:
     - uses: actions/checkout@v3
@@ -54,27 +51,27 @@ jobs:
     - name: Set up xcaddy
       uses: engineerd/configurator@v0.0.8
       with:
-        name: ${{ matrix.config.name }}
-        pathInArchive: ${{ matrix.config.pathInArchive }}
+        name: ${{ matrix.name }}
+        pathInArchive: ${{ matrix.pathInArchive }}
         fromGitHubReleases: "true"
         repo: "caddyserver/xcaddy"
         version: "latest"
-        urlTemplate: ${{ matrix.config.urlTemplate }}
+        urlTemplate: ${{ matrix.urlTemplate }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build
       run: |
-        xcaddy build master --output "${{ matrix.config.not_engineerd_configurator__caddy_file_name }}" --with github.com/mholt/caddy-l4=./
+        xcaddy build master --output "${{ matrix.not_engineerd_configurator__caddy_file_name }}" --with github.com/mholt/caddy-l4=./
         # smoking test
         echo
         echo '########'
         echo '# caddy list-modules'
-        "${{ matrix.config.not_engineerd_configurator__caddy_file_name }}" list-modules
+        "${{ matrix.not_engineerd_configurator__caddy_file_name }}" list-modules
         echo '########'
         echo
         echo '########'
         echo '# caddy build-info'
-        "${{ matrix.config.not_engineerd_configurator__caddy_file_name }}" build-info
+        "${{ matrix.not_engineerd_configurator__caddy_file_name }}" build-info
         echo '########'
 
     - name: Test
