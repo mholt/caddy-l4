@@ -10,41 +10,73 @@ on:
     branches: [ "master" ]
 
 jobs:
+  build-test-check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Default is true, cancels jobs for other platforms in the matrix if one fails
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        go-version: [ "1.18" ]
 
-  build:
-    runs-on: ubuntu-latest
+        include:
+          - os: ubuntu-latest
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_linux_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+
+          - os: "macos-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_mac_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+
+          - os: "windows-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_windows_amd64.zip"
+            name: "xcaddy.exe"
+            pathInArchive: "xcaddy.exe"
+
     steps:
     - uses: actions/checkout@v3
 
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.18
+        check-latest: true
+        cache: true
+        go-version: ${{ matrix.go-version }}
 
     - name: Set up xcaddy
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-        curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-xcaddy-archive-keyring.gpg
-        curl -sSL --fail 'https://dl.cloudsmith.io/public/caddy/xcaddy/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-xcaddy.list
-        sudo apt-get update
-        sudo apt-get install -y xcaddy
-
-    - name: Set some variables
-      run: |
-        echo "TEMP_DIR=$(mktemp -d)" >> $GITHUB_ENV
+      uses: engineerd/configurator@v0.0.8
+      with:
+        name: ${{ matrix.name }}
+        pathInArchive: ${{ matrix.pathInArchive }}
+        fromGitHubReleases: "true"
+        repo: "caddyserver/xcaddy"
+        version: "latest"
+        urlTemplate: ${{ matrix.urlTemplate }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build
       run: |
-        xcaddy build master --output "${TEMP_DIR}/caddy-l4" --with github.com/mholt/caddy-l4=./
+        xcaddy build master --output ${{ runner.temp }}/caddy --with github.com/mholt/caddy-l4=./
+        # smoking test
+        echo ''
+        echo '########'
+        echo '# caddy list-modules'
+        ${{ runner.temp }}/caddy list-modules
+        echo '########'
+        echo ''
+        echo '########'
+        echo '# caddy build-info'
+        ${{ runner.temp }}/caddy build-info
+        echo '########'
 
     - name: Test
       run: |
-        "${TEMP_DIR}/caddy-l4" list-modules
-
         # TODO:
-        # modules/l4socks needs to be fixed.
-        #
+        # github.com/mholt/caddy-l4,
+        # modules/l4echo,
+        # modules/l4proxy,
         # modules/l4ssh,
         # modules/l4subroute,
         # modules/l4tee,
@@ -52,4 +84,4 @@ jobs:
         # modules/l4tls,
         # modules/l4xmpp needs their test files.
 
-        # go test -v ./...
+        go test -v ./...
