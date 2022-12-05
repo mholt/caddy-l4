@@ -58,17 +58,22 @@ jobs:
 
     - name: Build
       run: |
-        xcaddy build master --output ${{ runner.temp }}/caddy --with github.com/mholt/caddy-l4=./
+        xcaddy build master --output ${{ runner.temp }}/${{ matrix.name }} --with github.com/mholt/caddy-l4=./
         # smoking test
         echo ''
         echo '########'
-        echo '# caddy list-modules'
-        ${{ runner.temp }}/caddy list-modules
+        echo "# ${{ runner.temp }}/${{ matrix.name }} version"
+        ${{ runner.temp }}/${{ matrix.name }} version
         echo '########'
         echo ''
         echo '########'
-        echo '# caddy build-info'
-        ${{ runner.temp }}/caddy build-info
+        echo "# ${{ runner.temp }}/${{ matrix.name }} list-modules"
+        ${{ runner.temp }}/${{ matrix.name }} list-modules
+        echo '########'
+        echo ''
+        echo '########'
+        echo "# ${{ runner.temp }}/${{ matrix.name }} build-info"
+        ${{ runner.temp }}/${{ matrix.name }} build-info
         echo '########'
 
     - name: Test
