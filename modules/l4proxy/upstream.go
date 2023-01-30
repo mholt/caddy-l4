@@ -17,6 +17,7 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	"github.com/caddyserver/caddy/v2"
@@ -42,6 +43,10 @@ type Upstream struct {
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
+}
+
+func (u Upstream) String() string {
+	return strings.Join(u.Dial, ",")
 }
 
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
