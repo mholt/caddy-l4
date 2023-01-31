@@ -317,25 +317,26 @@ func leastConns(upstreams []*Upstream) *Upstream {
 // hostByHashing returns an available host
 // from pool based on a hashable string s.
 func hostByHashing(pool []*Upstream, s string) *Upstream {
-	poolLen := uint32(len(pool))
-	if poolLen == 0 {
-		return nil
-	}
-	index := hash(s) % poolLen
-	for i := uint32(0); i < poolLen; i++ {
-		index += i
-		upstream := pool[index%poolLen]
-		if upstream.available() {
-			return upstream
+	// HRW hash (copy from caddy's code)
+	var highestHash uint32
+	var upstream *Upstream
+	for _, up := range pool {
+		if !up.available() {
+			continue
+		}
+		h := hash(up.String() + s) // important to hash key and server together
+		if h > highestHash {
+			highestHash = h
+			upstream = up
 		}
 	}
-	return nil
+	return upstream
 }
 
 // hash calculates a fast hash based on s.
 func hash(s string) uint32 {
 	h := fnv.New32a()
-	h.Write([]byte(s))
+	_, _ = h.Write([]byte(s))
 	return h.Sum32()
 }
 
