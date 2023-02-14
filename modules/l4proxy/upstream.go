@@ -29,6 +29,9 @@ type UpstreamPool []*Upstream
 
 // Upstream represents a proxy upstream.
 type Upstream struct {
+	// custom upstream key
+	Key string `json:"key,omitempty"`
+
 	// The network addresses to dial. Supports placeholders, but not port
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
@@ -46,6 +49,9 @@ type Upstream struct {
 }
 
 func (u Upstream) String() string {
+	if u.Key != "" {
+		return u.Key
+	}
 	return strings.Join(u.Dial, ",")
 }
 
