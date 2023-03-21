@@ -25,6 +25,7 @@ import (
 
 func init() {
 	caddy.RegisterModule(MatchIP{})
+	caddy.RegisterModule(MatchLocalIP{})
 }
 
 // ConnMatcher is a type that can match a connection.
@@ -170,7 +171,7 @@ type MatchLocalIP struct {
 func (MatchLocalIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.local_ip",
-		New: func() caddy.Module { return new(MatchIP) },
+		New: func() caddy.Module { return new(MatchLocalIP) },
 	}
 }
 
