@@ -45,7 +45,7 @@ jobs:
         go-version-file: ./go.mod
 
     - name: Set up xcaddy
-      uses: engineerd/configurator@v0.0.8
+      uses: engineerd/configurator@v0.0.10
       with:
         name: ${{ matrix.name }}
         pathInArchive: ${{ matrix.pathInArchive }}
