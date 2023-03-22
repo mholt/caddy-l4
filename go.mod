@@ -1,6 +1,6 @@
 module github.com/mholt/caddy-l4
 
-go 1.20
+go 1.19
 
 require (
 	github.com/caddyserver/caddy/v2 v2.6.4
