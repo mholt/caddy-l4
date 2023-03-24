@@ -3,6 +3,7 @@ package layer4
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -145,9 +146,32 @@ func (l *listener) Accept() (net.Conn, error) {
 
 }
 
-func (l *listener) pipeConnection(conn net.Conn) error {
-	l.connChan <- conn
+func (l *listener) pipeConnection(conn *Connection) error {
+	// can't use l4tls.GetConnectionStates because of import cycle
+	// TODO export tls_connection_states as a special constant
+	var connectionStates []*tls.ConnectionState
+	if val := conn.GetVar("tls_connection_states"); val != nil {
+		connectionStates = val.([]*tls.ConnectionState)
+	}
+	if len(connectionStates) > 0 {
+		l.connChan <- &tlsConnection{
+			Conn:      conn,
+			connState: connectionStates[len(connectionStates)-1],
+		}
+	} else {
+		l.connChan <- conn
+	}
 	return errHijacked
+}
+
+// tlsConnection implements ConnectionState interface to use it with h2
+type tlsConnection struct {
+	net.Conn
+	connState *tls.ConnectionState
+}
+
+func (tc *tlsConnection) ConnectionState() tls.ConnectionState {
+	return *tc.connState
 }
 
 // Interface guards
