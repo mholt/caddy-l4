@@ -10,9 +10,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    target-branch: "master"
 
   # Maintain dependencies for Go modules
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+    target-branch: "master"
