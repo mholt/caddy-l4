@@ -368,10 +368,10 @@ go.mozilla.org/pkcs7 v0.0.0-20210730143726-725912489c62/go.mod h1:SNgMg+EgDFwmvS
 go.mozilla.org/pkcs7 v0.0.0-20210826202110-33d05740a352 h1:CCriYyAfq1Br1aIYettdHZTy8mBTIPo7We18TuO/bak=
 go.mozilla.org/pkcs7 v0.0.0-20210826202110-33d05740a352/go.mod h1:SNgMg+EgDFwmvSmLRTNKC5fegJjB7v23qTQ0XLGUNHk=
 go.opencensus.io v0.24.0 h1:y73uSU6J157QMP2kn2r30vwW1A2W2WFwSCGnAVxeaD0=
-go.step.sm/cli-utils v0.7.6 h1:YkpLVrepmy2c5+eaz/wduiGxlgrRx3YdAStE37if25g=
-go.step.sm/cli-utils v0.7.6/go.mod h1:j+FxFZ2gbWkAJl0eded/rksuxmNqWpmyxbkXcukGJaY=
-go.step.sm/crypto v0.32.5 h1:TDYsZXZUcYT8tsZOtyJDTLVfjgeM2qEc04fLMx4mpHQ=
-go.step.sm/crypto v0.32.5/go.mod h1:rMETKeIA1ZsLBiKT6phQ2IIeBH3GL+XqimeobcqUw1g=
+go.step.sm/cli-utils v0.8.0 h1:b/Tc1/m3YuQq+u3ghTFP7Dz5zUekZj6GUmd5pCvkEXQ=
+go.step.sm/cli-utils v0.8.0/go.mod h1:S77aISrC0pKuflqiDfxxJlUbiXcAanyJ4POOnzFSxD4=
+go.step.sm/crypto v0.33.0 h1:fP8awo6YkZ0/rrLhzbHYA3U8g24VnWEebZRnGwUobRo=
+go.step.sm/crypto v0.33.0/go.mod h1:rMETKeIA1ZsLBiKT6phQ2IIeBH3GL+XqimeobcqUw1g=
 go.step.sm/linkedca v0.20.0 h1:bH41rvyDm3nSSJ5xgGsKUZOpzJcq5x2zacMIeqtq9oI=
 go.step.sm/linkedca v0.20.0/go.mod h1:eybHw6ZTpuFmkUQnTBRWM2SPIGaP0VbYeo1bupfPT70=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=

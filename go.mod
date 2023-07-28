@@ -95,8 +95,8 @@ require (
 	github.com/zeebo/blake3 v0.2.3 // indirect
 	go.etcd.io/bbolt v1.3.7 // indirect
 	go.mozilla.org/pkcs7 v0.0.0-20210826202110-33d05740a352 // indirect
-	go.step.sm/cli-utils v0.7.6 // indirect
-	go.step.sm/crypto v0.32.5 // indirect
+	go.step.sm/cli-utils v0.8.0 // indirect
+	go.step.sm/crypto v0.33.0 // indirect
 	go.step.sm/linkedca v0.20.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
