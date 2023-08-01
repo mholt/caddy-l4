@@ -72,7 +72,7 @@ type PassiveHealthChecks struct {
 	// Limits the number of simultaneous connections to a backend by
 	// marking the backend as "down" if it has this many or more
 	// concurrent connections.
-	UnhealthyConnectionCount int `json:"unhealthy_connnection_count,omitempty"`
+	UnhealthyConnectionCount int `json:"unhealthy_connection_count,omitempty"`
 
 	logger *zap.Logger
 }
