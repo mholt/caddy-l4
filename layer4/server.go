@@ -80,6 +80,9 @@ func (s Server) servePacket(pc net.PacketConn) error {
 		buf := udpBufPool.Get().([]byte)
 		n, addr, err := pc.ReadFrom(buf)
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
 			return err
 		}
 		go func(buf []byte, n int, addr net.Addr) {
