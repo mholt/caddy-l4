@@ -143,6 +143,10 @@ func (pc packetConn) RemoteAddr() net.Addr { return pc.addr }
 
 var udpBufPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 1024)
+		// Buffers need to be as large as the largest datagram we'll consume, because
+		// ReadFrom() can't resume partial reads.  (This is standard for UDP
+		// sockets on *nix.)  So our buffer sizes are 9000 bytes to accommodate
+		// networks with jumbo frames.  See also https://github.com/golang/go/issues/18056
+		return make([]byte, 9000)
 	},
 }
