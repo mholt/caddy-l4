@@ -3,7 +3,7 @@ module github.com/mholt/caddy-l4
 go 1.20
 
 require (
-	github.com/caddyserver/caddy/v2 v2.7.3
+	github.com/caddyserver/caddy/v2 v2.7.4
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/things-go/go-socks5 v0.0.3
 	go.uber.org/zap v1.25.0
@@ -23,7 +23,7 @@ require (
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df // indirect
 	github.com/aryann/difflib v0.0.0-20210328193216-ff5ff6dc229b // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/caddyserver/certmagic v0.19.1 // indirect
+	github.com/caddyserver/certmagic v0.19.2 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
@@ -78,7 +78,7 @@ require (
 	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
 	github.com/quic-go/qtls-go1-20 v0.3.1 // indirect
-	github.com/quic-go/quic-go v0.37.3 // indirect
+	github.com/quic-go/quic-go v0.37.5 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
