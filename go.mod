@@ -6,7 +6,7 @@ require (
 	github.com/caddyserver/caddy/v2 v2.7.3
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/things-go/go-socks5 v0.0.3
-	go.uber.org/zap v1.25.0
+	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.12.0
 	golang.org/x/net v0.14.0
 	golang.org/x/time v0.3.0
