@@ -344,8 +344,8 @@ github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcU
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 github.com/tailscale/tscert v0.0.0-20230806124524-28a91b69a046 h1:8rUlviSVOEe7TMk7W0gIPrW8MqEzYfZHpsNWSf8s2vg=
 github.com/tailscale/tscert v0.0.0-20230806124524-28a91b69a046/go.mod h1:kNGUQ3VESx3VZwRwA9MSCUegIl6+saPL8Noq82ozCaU=
-github.com/things-go/go-socks5 v0.0.3 h1:QtlIhkwDuLNCwW3wnt2uTjn1mQzpyjnwct2xdPuqroI=
-github.com/things-go/go-socks5 v0.0.3/go.mod h1:f8Zx+n8kfzyT90hXM767cP6sysAud93+t9rV90IgMcg=
+github.com/things-go/go-socks5 v0.0.4 h1:jMQjIc+qhD4z9cITOMnBiwo9dDmpGuXmBlkRFrl/qD0=
+github.com/things-go/go-socks5 v0.0.4/go.mod h1:sh4K6WHrmHZpjxLTCHyYtXYH8OUuD+yZun41NomR1IQ=
 github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8/go.mod h1:VFNgLljTbGfSG7qAOspJ7OScBnGdDN/yBr0sguwnwf0=
 github.com/urfave/cli v1.22.14 h1:ebbhrRiGK2i4naQJr+1Xj92HXZCrK7MsyTS/ob3HnAk=
 github.com/urfave/cli v1.22.14/go.mod h1:X0eDS6pD6Exaclxm99NJ3FiCDRED7vIHpx2mDOHLvkA=
