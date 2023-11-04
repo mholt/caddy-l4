@@ -1,4 +1,4 @@
-module github.com/agittins/caddy-l4
+module github.com/mholt/caddy-l4
 
 go 1.20
 
