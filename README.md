@@ -36,7 +36,7 @@ Current matchers:
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.matchers.socks4** - matches connections that look like [SOCKSv4](https://www.openssh.com/txt/socks4.protocol).
 - **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
-
+- **tls.handshake_match.version** - matches TLS Version from ClientHello, using strings from [VersionName](https://go.dev/src/crypto/tls/common.go).
 Current handlers:
 
 - **layer4.handlers.echo** - An echo server.
