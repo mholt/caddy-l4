@@ -21,6 +21,8 @@ Because this is a caddy app, it can be used alongside other Caddy apps such as t
 
 Note that only JSON config is available at this time. More documentation will come soon. For now, please read the code, especially type definitions and their comments. It's actually a pretty simple code base, and the JSON config isn't that bad once you get used to it! See below for tips and examples writing config.
 
+> [!NOTE]
+> This is not an official repository of the [Caddy Web Server](https://github.com/caddyserver) organization.
 
 ## Introduction
 
