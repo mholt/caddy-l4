@@ -15,6 +15,7 @@
 package layer4
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
@@ -27,6 +28,7 @@ import (
 func init() {
 	caddy.RegisterModule(MatchIP{})
 	caddy.RegisterModule(MatchLocalIP{})
+	caddy.RegisterModule(MatchNot{})
 }
 
 // ConnMatcher is a type that can match a connection.
@@ -213,12 +215,96 @@ func (m MatchLocalIP) getLocalIP(cx *Connection) (netip.Addr, error) {
 	return ip, nil
 }
 
+// MatchNot matches requests by negating the results of its matcher
+// sets. A single "not" matcher takes one or more matcher sets. Each
+// matcher set is OR'ed; in other words, if any matcher set returns
+// true, the final result of the "not" matcher is false. Individual
+// matchers within a set work the same (i.e. different matchers in
+// the same set are AND'ed).
+//
+// NOTE: The generated docs which describe the structure of this
+// module are wrong because of how this type unmarshals JSON in a
+// custom way. The correct structure is:
+//
+// ```json
+// [
+//
+//	{},
+//	{}
+//
+// ]
+// ```
+//
+// where each of the array elements is a matcher set, i.e. an
+// object keyed by matcher name.
+type MatchNot struct {
+	MatcherSetsRaw []caddy.ModuleMap `json:"-" caddy:"namespace=layer4.matchers"`
+	MatcherSets    []MatcherSet      `json:"-"`
+}
+
+// CaddyModule implements caddy.Module.
+func (MatchNot) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.not",
+		New: func() caddy.Module { return new(MatchNot) },
+	}
+}
+
+// UnmarshalJSON satisfies json.Unmarshaler. It puts the JSON
+// bytes directly into m's MatcherSetsRaw field.
+func (m *MatchNot) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &m.MatcherSetsRaw)
+}
+
+// MarshalJSON satisfies json.Marshaler by marshaling
+// m's raw matcher sets.
+func (m MatchNot) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.MatcherSetsRaw)
+}
+
+// Provision loads the matcher modules to be negated.
+func (m *MatchNot) Provision(ctx caddy.Context) error {
+	matcherSets, err := ctx.LoadModule(m, "MatcherSetsRaw")
+	if err != nil {
+		return fmt.Errorf("loading matcher sets: %v", err)
+	}
+	for _, modMap := range matcherSets.([]map[string]any) {
+		var ms MatcherSet
+		for _, modIface := range modMap {
+			ms = append(ms, modIface.(ConnMatcher))
+		}
+		m.MatcherSets = append(m.MatcherSets, ms)
+	}
+	return nil
+}
+
+// Match returns true if r matches m. Since this matcher negates
+// the embedded matchers, false is returned if any of its matcher
+// sets return true.
+func (m MatchNot) Match(r *Connection) (bool, error) {
+	for _, ms := range m.MatcherSets {
+		match, err := ms.Match(r)
+		if err != nil {
+			return false, err
+		}
+		if match {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // Interface guards
 var (
+	_ caddy.Module      = (*MatchIP)(nil)
 	_ ConnMatcher       = (*MatchIP)(nil)
 	_ caddy.Provisioner = (*MatchIP)(nil)
+	_ caddy.Module      = (*MatchLocalIP)(nil)
 	_ ConnMatcher       = (*MatchLocalIP)(nil)
 	_ caddy.Provisioner = (*MatchLocalIP)(nil)
+	_ caddy.Module      = (*MatchNot)(nil)
+	_ caddy.Provisioner = (*MatchNot)(nil)
+	_ ConnMatcher       = (*MatchNot)(nil)
 )
 
 // ParseNetworks parses a list of string IP addresses or CDIR subnets into a slice of net.IPNet's.
