@@ -3,11 +3,12 @@ package l4socks
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
+	"net/netip"
+	"strings"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
-	"io"
-	"net"
-	"strings"
 )
 
 func init() {
@@ -27,7 +28,7 @@ type Socks4Matcher struct {
 	Ports []uint16 `json:"ports,omitempty"`
 
 	commands []uint8
-	cidrs    []*net.IPNet
+	cidrs    []netip.Prefix
 }
 
 func (Socks4Matcher) CaddyModule() caddy.ModuleInfo {
@@ -100,7 +101,7 @@ func (m *Socks4Matcher) Match(cx *layer4.Connection) (bool, error) {
 
 	// match destination ipv4 (DSTIP)
 	if len(m.cidrs) > 0 {
-		ip := net.IPv4(buf[4], buf[5], buf[6], buf[7])
+		ip := netip.AddrFrom4([4]byte(buf[4:8]))
 		ipMatched := false
 		for _, ipRange := range m.cidrs {
 			if ipRange.Contains(ip) {
