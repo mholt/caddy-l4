@@ -8,7 +8,7 @@ require (
 	github.com/things-go/go-socks5 v0.0.4
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.16.0
-	golang.org/x/net v0.18.0
+	golang.org/x/net v0.19.0
 	golang.org/x/time v0.5.0
 )
 
