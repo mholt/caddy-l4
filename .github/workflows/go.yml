@@ -8,6 +8,9 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
+  schedule:
+    - cron: "5 4 * * 6"
 
 jobs:
   build-test-check:
