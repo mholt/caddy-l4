@@ -23,6 +23,7 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -253,6 +254,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	}
 
 	var wg sync.WaitGroup
+	var downClosed atomic.Bool
 
 	for _, up := range upConns {
 		wg.Add(1)
@@ -261,11 +263,16 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 			defer wg.Done()
 
 			if _, err := io.Copy(down, up); err != nil {
-				h.logger.Error("upstream connection",
-					zap.String("local_address", up.LocalAddr().String()),
-					zap.String("remote_address", up.RemoteAddr().String()),
-					zap.Error(err),
-				)
+				// If the downstream connection has been closed, we can assume this is
+				// the reason io.Copy() errored.  That's normal operation for UDP
+				// connections after idle timeout, so don't log an error in that case.
+				if !downClosed.Load() {
+					h.logger.Error("upstream connection",
+						zap.String("local_address", up.LocalAddr().String()),
+						zap.String("remote_address", up.RemoteAddr().String()),
+						zap.Error(err),
+					)
+				}
 			}
 		}(up)
 	}
@@ -280,9 +287,18 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 
 		// Shut down the writing side of all upstream connections, in case
 		// that the downstream connection is half closed. (issue #40)
+		//
+		// UDP connections meanwhile don't implement CloseWrite(), but in order
+		// to ensure io.Copy() in the per-upstream goroutines (above) returns,
+		// we need to close the socket.  This will cause io.Copy() return an
+		// error, which in this particular case is expected, so we signal the
+		// intentional closure by setting this flag.
+		downClosed.Store(true)
 		for _, up := range upConns {
 			if conn, ok := up.(closeWriter); ok {
 				_ = conn.CloseWrite()
+			} else {
+				up.Close()
 			}
 		}
 	}()
