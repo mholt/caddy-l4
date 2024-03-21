@@ -1,11 +1,11 @@
 package l4http
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -33,7 +33,7 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, make([]byte, 0, layer4.PrefetchChunkSize), zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
@@ -51,7 +51,8 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	matched, err := matcher.Match(cx)
+	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call record() before matching
+	matched, err := mset.Match(cx)
 
 	_, _ = io.Copy(io.Discard, in)
 
@@ -202,7 +203,7 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 		_ = out.Close()
 	}()
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer func() {
@@ -223,7 +224,8 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	matched, err := matcher.Match(cx)
+	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call record() before matching
+	matched, err := mset.Match(cx)
 	assertNoError(t, err)
 	if !matched {
 		t.Fatalf("matcher did not match")
@@ -247,7 +249,58 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	if matched {
 		t.Fatalf("matcher did match")
 	}
-	if err == nil || err.Error() != "unexpected EOF" {
+	if !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
 		t.Fatalf("handler did not return an error or the wrong error -> %v", err)
+	}
+}
+
+func TestMatchHTTP_isHttp(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		data        []byte
+		shouldMatch bool
+	}{
+		{
+			name:        "http/1.1-only-lf",
+			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\n\n"),
+			shouldMatch: true,
+		},
+		{
+			name:        "http/1.1-cr-lf",
+			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.1\r\nHost: localhost:10443\r\n\r\n"),
+			shouldMatch: true,
+		},
+		{
+			name:        "http/1.0-cr-lf",
+			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.0\r\nHost: localhost:10443\r\n\r\n"),
+			shouldMatch: true,
+		},
+		{
+			name:        "http/2.0-cr-lf",
+			data:        []byte("PRI * HTTP/2.0\r\n\r\n"),
+			shouldMatch: true,
+		},
+		{
+			name:        "dummy-short",
+			data:        []byte("dum\n"),
+			shouldMatch: false,
+		},
+		{
+			name:        "dummy-long",
+			data:        []byte("dummydummydummy\n"),
+			shouldMatch: false,
+		},
+		{
+			name:        "http/1.1-without-space-in-front",
+			data:        []byte("HTTP/1.1\n"),
+			shouldMatch: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			matched := MatchHTTP{}.isHttp(tc.data)
+			if matched != tc.shouldMatch {
+				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
+			}
+		})
 	}
 }

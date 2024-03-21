@@ -1,7 +1,6 @@
 package l4proxyprotocol
 
 import (
-	"bytes"
 	"encoding/hex"
 	"io"
 	"net"
@@ -33,7 +32,7 @@ func TestProxyProtocolMatchV1(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -59,7 +58,7 @@ func TestProxyProtocolMatchV2(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -85,7 +84,7 @@ func TestProxyProtocolMatchGarbage(t *testing.T) {
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
