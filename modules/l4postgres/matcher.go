@@ -1,4 +1,18 @@
-// Allows the L4 multiplexing of Postgres connections
+// Copyright 2020 Matthew Holt
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package l4postgres allows the L4 multiplexing of Postgres connections
 //
 // With thanks to docs and code published at these links:
 // ref: https://github.com/mholt/caddy-l4/blob/master/modules/l4ssh/matcher.go
@@ -7,7 +21,6 @@
 // ref: https://ivdl.co.za/2024/03/02/pretending-to-be-postgresql-part-one-1/
 // ref: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-STARTUPMESSAGE
 // ref: https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-SSLREQUEST
-
 package l4postgres
 
 import (
