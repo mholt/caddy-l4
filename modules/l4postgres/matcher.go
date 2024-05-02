@@ -37,24 +37,26 @@ func init() {
 }
 
 const (
-	SSLRequestCode = 80877103
-	InitMessageSizeLength = 4
+	// Magic number to identify a SSLRequest message
+	sslRequestCode = 80877103
+	// byte size of the 
+	initMessageSizeLength = 4
 )
 
 // Message provides readers for various types and 
 // updates the offset after each read
-type Message struct{
+type message struct{
 	data []byte
 	offset uint32
 }
 
-func (b *Message) ReadUint32() (r uint32) {
+func (b *message) ReadUint32() (r uint32) {
 	r = binary.BigEndian.Uint32(b.data[b.offset : b.offset+4])
 	b.offset += 4
 	return r
 }
 
-func (b *Message) ReadString() (r string) {
+func (b *message) ReadString() (r string) {
 	end := b.offset
 	max := uint32(len(b.data))
 	for ; end != max && b.data[end] != 0; end++ {
@@ -64,12 +66,13 @@ func (b *Message) ReadString() (r string) {
 	return r
 }
 
-func NewMessageFromBytes(b []byte) *Message {
-	return &Message{data: b}
+// NewMessageFromBytes wraps the raw bytes of a message to enable processing
+func newMessageFromBytes(b []byte) *message {
+	return &message{data: b}
 }
 
 // StartupMessage contains the values parsed from the startup message
-type StartupMessage struct {
+type startupMessage struct {
 	ProtocolVersion uint32
 	Parameters      map[string]string
 }
@@ -87,23 +90,23 @@ func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
 
 // Match returns true if the connection looks like the Postgres protocol.
 func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
-	// Get message length bytes
-	head := make([]byte, InitMessageSizeLength)
+	// Get bytes containing the message length
+	head := make([]byte, initMessageSizeLength)
 	if _, err := io.ReadFull(cx, head); err != nil {
 		return false, err
 	}
 
 	// Get actual message length
-	data := make([]byte, binary.BigEndian.Uint32(head)-InitMessageSizeLength)
+	data := make([]byte, binary.BigEndian.Uint32(head)-initMessageSizeLength)
 	if _, err := io.ReadFull(cx, data); err != nil {
 		return false, err
 	}
 
-	b := NewMessageFromBytes(data)
+	b := newMessageFromBytes(data)
 
-	// Check if a SSLRequest identified by magic number
+	// Check if it is a SSLRequest
 	code := b.ReadUint32()
-	if code == SSLRequestCode {
+	if code == sslRequestCode {
 		return true, nil
 	}
 
@@ -113,7 +116,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	}	
 
 	// Try parsing Postgres Params
-	startup := &StartupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
+	startup := &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
 	for {
 		k := b.ReadString()
 		if k == "" {
