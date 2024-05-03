@@ -35,6 +35,11 @@
 //		"postgres_clients": ["psql", "TablePlus"]
 //	}
 //
+//	{
+//		"postgres_ssl": {
+//			required: true
+//	}
+//
 // With thanks to docs and code published at these links:
 // ref: https://github.com/mholt/caddy-l4/blob/master/modules/l4ssh/matcher.go
 // ref: https://github.com/rueian/pgbroker/blob/master/message/startup_message.go
@@ -59,6 +64,7 @@ import (
 func init() {
 	caddy.RegisterModule(MatchPostgres{})
 	caddy.RegisterModule(MatchPostgresClients{})
+	caddy.RegisterModule(MatchPostgresSSL{})
 }
 
 const (
@@ -260,8 +266,38 @@ func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
 	// Check clients list
 	return slices.Contains(m.Clients, name), nil
 }
+
+// MatchPostgresSSL is able to require/reject Postgres SSL connections.
+type MatchPostgresSSL struct {
+	Required bool
+}
+
+// CaddyModule returns the Caddy module information.
+func (MatchPostgresSSL) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.postgres_ssl",
+		New: func() caddy.Module { return new(MatchPostgresSSL) },
+	}
+}
+
+// Match returns true if the connection is a Postgres SSL request.
+func (m MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
+	b, err := newMessageFromConn(cx)
+	if err != nil {
+		return false, err
+	}
+
+	code := b.ReadUint32()
+
+	// SSLRequest Message required?
+	if code == sslRequestCode {
+		return m.Required, nil
+	}
+
+	return false, nil
 }
 
 // Interface guard
 var _ layer4.ConnMatcher = (*MatchPostgres)(nil)
 var _ layer4.ConnMatcher = (*MatchPostgresClients)(nil)
+var _ layer4.ConnMatcher = (*MatchPostgresSSL)(nil)
