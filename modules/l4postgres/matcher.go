@@ -12,7 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package l4postgres allows the L4 multiplexing of Postgres connections
+// Package l4postgres allows the L4 multiplexing of Postgres connections.
+// SSL connections can be required.
+// Non-SSL connections can also match on Message parameters.
+//
+// Example matcher configs:
+//
+//	{
+//		"postgres": {}
+//	}
+//
+//	{
+//		"postgres": {
+//			"users": {
+//				"*": ["public_db"],
+//				"alice": ["planets_db", "stars_db"]
+//			}
+//		}
+//	}
 //
 // With thanks to docs and code published at these links:
 // ref: https://github.com/mholt/caddy-l4/blob/master/modules/l4ssh/matcher.go
@@ -26,10 +43,13 @@ package l4postgres
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -71,18 +91,33 @@ func newMessageFromBytes(b []byte) *message {
 	return &message{data: b}
 }
 
+// NewMessageFromConn create a message from the Connection
+func newMessageFromConn(cx *layer4.Connection) (*message, error) {
+	// Get bytes containing the message length
+	head := make([]byte, initMessageSizeLength)
+	if _, err := io.ReadFull(cx, head); err != nil {
+		return &message{}, err
+	}
+
+	// Get actual message length
+	data := make([]byte, binary.BigEndian.Uint32(head)-initMessageSizeLength)
+	if _, err := io.ReadFull(cx, data); err != nil {
+		return &message{}, err
+	}
+
+	return newMessageFromBytes(data), nil
+}
+
 // StartupMessage contains the values parsed from the startup message
 type startupMessage struct {
 	ProtocolVersion uint32
 	Parameters      map[string]string
 }
 
-// MatchPostgres is able to match Postgres connections, optionally further
-// matching on the User or Database being requested
+// MatchPostgres is able to match Postgres connections
 type MatchPostgres struct {
-	Users     []string
-	Databases []string
-	startup   *startupMessage
+	Users   map[string][]string
+	startup *startupMessage
 }
 
 // CaddyModule returns the Caddy module information.
@@ -93,21 +128,73 @@ func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Match returns true if the connection looks like the Postgres protocol.
+// Match returns true if the connection looks like the Postgres protocol, and
+// can match `user` and `database` parameters
 func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
-	// Get bytes containing the message length
-	head := make([]byte, initMessageSizeLength)
-	if _, err := io.ReadFull(cx, head); err != nil {
+	b, err := newMessageFromConn(cx)
+	if err != nil {
 		return false, err
 	}
 
-	// Get actual message length
-	data := make([]byte, binary.BigEndian.Uint32(head)-initMessageSizeLength)
-	if _, err := io.ReadFull(cx, data); err != nil {
-		return false, err
+	code := b.ReadUint32()
+	hasConfig := len(m.Users) == 0
+
+	// Finish if this is a SSLRequest and there are no other matchers
+	if code == sslRequestCode && !hasConfig {
+		return true, nil
 	}
 
-	b := newMessageFromBytes(data)
+	// Check supported protocol
+	if majorVersion := code >> 16; majorVersion < 3 {
+		return false, errors.New("pg protocol < 3.0 is not supported")
+	}
+
+	// Try parsing Postgres Params
+	m.startup = &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
+	for {
+		k := b.ReadString()
+		if k == "" {
+			break
+		}
+		m.startup.Parameters[k] = b.ReadString()
+	}
+
+	cx.Logger.Debug("layer4.matchers.postgres",
+		zap.String("match.config", fmt.Sprintf("%v", m.Users)),
+		zap.String("startupMessage", fmt.Sprintf("%v", m.startup.Parameters)),
+	)
+
+	// Finish if no more matchers are configured
+	if hasConfig {
+		return true, nil
+	}
+
+	// Is there a user to check?
+	user, ok := m.startup.Parameters["user"]
+	if !ok {
+		// Are there public databases to check?
+		if databases, ok := m.Users["*"]; ok {
+			if db, ok := m.startup.Parameters["database"]; ok {
+				return slices.Contains(databases, db), nil
+			}
+		}
+		return false, nil
+	}
+
+	databases, ok := m.Users[user]
+	if !ok {
+		return false, nil
+	}
+
+	// Are there databases to check?
+	if len(databases) > 0 {
+		if db, ok := m.startup.Parameters["database"]; ok {
+			return slices.Contains(databases, db), nil
+		}
+	}
+
+	return true, nil
+}
 
 	// Check if it is a SSLRequest
 	code := b.ReadUint32()
