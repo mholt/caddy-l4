@@ -39,7 +39,7 @@ func init() {
 const (
 	// Magic number to identify a SSLRequest message
 	sslRequestCode = 80877103
-	// byte size of the
+	// byte size of the message length field
 	initMessageSizeLength = 4
 )
 
