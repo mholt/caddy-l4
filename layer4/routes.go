@@ -141,16 +141,28 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger) Handler {
 						return err
 					}
 
-					// compile this route's handler stack
-					stack := next
-					for i := len(route.middleware) - 1; i >= 0; i-- {
-						stack = route.middleware[i](stack)
-					}
-					err = stack.Handle(cx)
-					if err != nil {
-						return err
-					}
-					if !route.terminal {
+					var handler Handler
+					if route.terminal {
+						handler = next
+						for i := len(route.middleware) - 1; i >= 0; i-- {
+							handler = route.middleware[i](handler)
+						}
+						return handler.Handle(cx)
+					} else {
+						// Catch potentially wrapped connection to use it as input for next round of route matching.
+						// This is for example required for matchers after a tls handler.
+						catcher := HandlerFunc(func(conn *Connection) error {
+							cx = conn
+							return nil
+						})
+						handler = &catcher
+						for i := len(route.middleware) - 1; i >= 0; i-- {
+							handler = route.middleware[i](handler)
+						}
+						err = handler.Handle(cx)
+						if err != nil {
+							return err
+						}
 						cx.clear()
 						goto router
 					}
