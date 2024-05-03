@@ -31,6 +31,10 @@
 //		}
 //	}
 //
+//	{
+//		"postgres_clients": ["psql", "TablePlus"]
+//	}
+//
 // With thanks to docs and code published at these links:
 // ref: https://github.com/mholt/caddy-l4/blob/master/modules/l4ssh/matcher.go
 // ref: https://github.com/rueian/pgbroker/blob/master/message/startup_message.go
@@ -54,6 +58,7 @@ import (
 
 func init() {
 	caddy.RegisterModule(MatchPostgres{})
+	caddy.RegisterModule(MatchPostgresClients{})
 }
 
 const (
@@ -196,10 +201,34 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
-	// Check if it is a SSLRequest
+// MatchPostgresClients is able to match Postgres connections that
+// contain an `application_name` field
+type MatchPostgresClients struct {
+	Clients []string
+	startup *startupMessage
+}
+
+// CaddyModule returns the Caddy module information.
+func (MatchPostgresClients) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.postgres_clients",
+		New: func() caddy.Module { return new(MatchPostgresClients) },
+	}
+}
+
+// Match returns true if the connection looks like the Postgres protocol and
+// passes any `application_name` parameter matchers
+func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
+	b, err := newMessageFromConn(cx)
+	if err != nil {
+		return false, err
+	}
+
 	code := b.ReadUint32()
+
+	// Reject if this is a SSLRequest as it has no params
 	if code == sslRequestCode {
-		return true, nil
+		return false, nil
 	}
 
 	// Check supported protocol
@@ -214,12 +243,25 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 		if k == "" {
 			break
 		}
-		startup.Parameters[k] = b.ReadString()
+		m.startup.Parameters[k] = b.ReadString()
 	}
-	// TODO(metafeather): match on param values: user, database, options, etc
 
-	return len(startup.Parameters) > 0, nil
+	cx.Logger.Debug("layer4.matchers.postgres_client",
+		zap.String("match.config", fmt.Sprintf("%v", m.Clients)),
+		zap.String("startupMessage", fmt.Sprintf("%v", m.startup.Parameters)),
+	)
+
+	// Is there a application_name to check?
+	name, ok := m.startup.Parameters["application_name"]
+	if !ok {
+		return false, nil
+	}
+
+	// Check clients list
+	return slices.Contains(m.Clients, name), nil
+}
 }
 
 // Interface guard
 var _ layer4.ConnMatcher = (*MatchPostgres)(nil)
+var _ layer4.ConnMatcher = (*MatchPostgresClients)(nil)
