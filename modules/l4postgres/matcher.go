@@ -39,14 +39,14 @@ func init() {
 const (
 	// Magic number to identify a SSLRequest message
 	sslRequestCode = 80877103
-	// byte size of the 
+	// byte size of the
 	initMessageSizeLength = 4
 )
 
-// Message provides readers for various types and 
+// Message provides readers for various types and
 // updates the offset after each read
-type message struct{
-	data []byte
+type message struct {
+	data   []byte
 	offset uint32
 }
 
@@ -113,7 +113,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	// Check supported protocol
 	if majorVersion := code >> 16; majorVersion < 3 {
 		return false, errors.New("pg protocol < 3.0 is not supported")
-	}	
+	}
 
 	// Try parsing Postgres Params
 	startup := &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
