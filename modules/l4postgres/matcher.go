@@ -77,8 +77,13 @@ type startupMessage struct {
 	Parameters      map[string]string
 }
 
-// MatchPostgres is able to match Postgres connections.
-type MatchPostgres struct{}
+// MatchPostgres is able to match Postgres connections, optionally further
+// matching on the User or Database being requested
+type MatchPostgres struct {
+	Users     []string
+	Databases []string
+	startup   *startupMessage
+}
 
 // CaddyModule returns the Caddy module information.
 func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
@@ -116,7 +121,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Try parsing Postgres Params
-	startup := &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
+	m.startup = &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
 	for {
 		k := b.ReadString()
 		if k == "" {
