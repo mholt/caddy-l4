@@ -2,12 +2,13 @@ package l4socks
 
 import (
 	"fmt"
+	"net"
+	"strings"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/things-go/go-socks5"
 	"go.uber.org/zap"
-	"net"
-	"strings"
 )
 
 func init() {
@@ -76,6 +77,10 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 // Handle handles the SOCKSv5 connection.
 func (h *Socks5Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 	return h.server.ServeConn(cx)
+}
+
+func (h *Socks5Handler) IsTerminal() bool {
+	return true
 }
 
 var (

@@ -43,7 +43,7 @@ type Route struct {
 	HandlersRaw []json.RawMessage `json:"handle,omitempty" caddy:"namespace=layer4.handlers inline_key=handler"`
 
 	// Is set to true during Provision if any of the handlers IsTerminal.
-	terminal bool
+	Terminal bool
 
 	matcherSets MatcherSets
 	middleware  []Middleware
@@ -73,7 +73,7 @@ func (r *Route) Provision(ctx caddy.Context) error {
 		handler := mod.(NextHandler)
 		handlers = append(handlers, handler)
 		if handler.IsTerminal() {
-			r.terminal = true
+			r.Terminal = true
 		}
 	}
 	for _, midhandler := range handlers {
@@ -142,7 +142,7 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger) Handler {
 					}
 
 					var handler Handler
-					if route.terminal {
+					if route.Terminal {
 						handler = next
 						for i := len(route.middleware) - 1; i >= 0; i-- {
 							handler = route.middleware[i](handler)

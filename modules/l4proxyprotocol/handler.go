@@ -164,6 +164,10 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(cx.Wrap(conn))
 }
 
+func (h *Handler) IsTerminal() bool {
+	return false
+}
+
 // GetConn gets the connection which holds the information received from the PROXY protocol.
 func GetConn(cx *layer4.Connection) net.Conn {
 	if val := cx.GetVar("l4.proxy_protocol.conn"); val != nil {

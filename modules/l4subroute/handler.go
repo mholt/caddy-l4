@@ -64,6 +64,18 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return subroute.Handle(cx)
 }
 
+func (h *Handler) IsTerminal() bool {
+	// try to be clever but maybe this needs to be configurable?
+	terminal := true
+	for _, route := range h.Routes {
+		if !route.Terminal {
+			terminal = false
+			break
+		}
+	}
+	return terminal
+}
+
 // Interface guards
 var (
 	_ caddy.Provisioner  = (*Handler)(nil)

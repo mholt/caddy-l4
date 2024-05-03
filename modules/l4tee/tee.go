@@ -110,6 +110,10 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(&nextc)
 }
 
+func (h *Handler) IsTerminal() bool {
+	return false
+}
+
 // teeConn is a connection wrapper that reads
 // from a different reader.
 type teeConn struct {
