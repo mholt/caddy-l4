@@ -16,6 +16,7 @@ package l4subroute
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
@@ -34,6 +35,9 @@ type Handler struct {
 	// The primary list of routes to compile and execute.
 	Routes layer4.RouteList `json:"routes,omitempty"`
 
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 500ms.
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
+
 	logger *zap.Logger
 }
 
@@ -49,6 +53,10 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.logger = ctx.Logger(h)
 
+	if h.MatchingTimeout <= 0 {
+		h.MatchingTimeout = caddy.Duration(500 * time.Millisecond)
+	}
+
 	if h.Routes != nil {
 		err := h.Routes.Provision(ctx)
 		if err != nil {
@@ -60,7 +68,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
-	subroute := h.Routes.Compile(next, h.logger)
+	subroute := h.Routes.Compile(next, h.logger, time.Duration(h.MatchingTimeout))
 	return subroute.Handle(cx)
 }
 

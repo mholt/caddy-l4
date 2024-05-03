@@ -22,6 +22,9 @@ type ListenerWrapper struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 500ms.
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
+
 	compiledRoute Handler
 
 	logger *zap.Logger
@@ -41,11 +44,15 @@ func (lw *ListenerWrapper) Provision(ctx caddy.Context) error {
 	lw.ctx = ctx
 	lw.logger = ctx.Logger()
 
+	if lw.MatchingTimeout <= 0 {
+		lw.MatchingTimeout = caddy.Duration(500 * time.Millisecond)
+	}
+
 	err := lw.Routes.Provision(ctx)
 	if err != nil {
 		return err
 	}
-	lw.compiledRoute = lw.Routes.Compile(listenerHandler{}, lw.logger)
+	lw.compiledRoute = lw.Routes.Compile(listenerHandler{}, lw.logger, time.Duration(lw.MatchingTimeout))
 
 	return nil
 }
