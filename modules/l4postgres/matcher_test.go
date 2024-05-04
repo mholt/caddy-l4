@@ -11,8 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Reader allows any Example to be used in tests as data
-type Reader interface {
+// MessageReader allows any Example to be used in tests as data
+type MessageReader interface {
 	Read() ([]byte, error)
 }
 
@@ -81,7 +81,7 @@ func TestPostgres(t *testing.T) {
 	tests := []struct {
 		name    string
 		matcher layer4.ConnMatcher
-		data    Reader
+		data    MessageReader
 		expect  bool
 		explain string
 	}{
@@ -153,7 +153,7 @@ func TestPostgresSSL(t *testing.T) {
 	tests := []struct {
 		name    string
 		matcher layer4.ConnMatcher
-		data    Reader
+		data    MessageReader
 		expect  bool
 		explain string
 	}{
