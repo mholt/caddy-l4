@@ -24,7 +24,7 @@
 //
 //	{
 //		"postgres": {
-//			"users": {
+//			"user": {
 //				"*": ["public_db"],
 //				"alice": ["planets_db", "stars_db"]
 //			}
@@ -32,7 +32,7 @@
 //	}
 //
 //	{
-//		"postgres_clients": ["psql", "TablePlus"]
+//		"postgres_client": ["psql", "TablePlus"]
 //	}
 //
 //	{
@@ -61,7 +61,7 @@ import (
 
 func init() {
 	caddy.RegisterModule(MatchPostgres{})
-	caddy.RegisterModule(MatchPostgresClients{})
+	caddy.RegisterModule(MatchPostgresClient{})
 	caddy.RegisterModule(MatchPostgresSSL{})
 }
 
@@ -89,7 +89,7 @@ func newMessageFromConn(cx *layer4.Connection) (*message, error) {
 
 // MatchPostgres is able to match Postgres connections
 type MatchPostgres struct {
-	Users   map[string][]string
+	User    map[string][]string
 	startup *startupMessage
 }
 
@@ -110,7 +110,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	m.startup = newStartupMessage(b)
-	hasConfig := len(m.Users) > 0
+	hasConfig := len(m.User) > 0
 
 	// Finish if this is a SSLRequest and there are no other matchers
 	if m.startup.IsSSL() && !hasConfig {
@@ -131,7 +131,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	user, ok := m.startup.Parameters["user"]
 	if !ok {
 		// Are there public databases to check?
-		if databases, ok := m.Users["*"]; ok {
+		if databases, ok := m.User["*"]; ok {
 			if db, ok := m.startup.Parameters["database"]; ok {
 				return slices.Contains(databases, db), nil
 			}
@@ -139,7 +139,7 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 		return false, nil
 	}
 
-	databases, ok := m.Users[user]
+	databases, ok := m.User[user]
 	if !ok {
 		return false, nil
 	}
@@ -154,24 +154,24 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
-// MatchPostgresClients is able to match Postgres connections that
+// MatchPostgresClient is able to match Postgres connections that
 // contain an `application_name` field
-type MatchPostgresClients struct {
-	Clients []string
+type MatchPostgresClient struct {
+	Client  []string
 	startup *startupMessage
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchPostgresClients) CaddyModule() caddy.ModuleInfo {
+func (MatchPostgresClient) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.postgres_clients",
-		New: func() caddy.Module { return new(MatchPostgresClients) },
+		ID:  "layer4.matchers.postgres_client",
+		New: func() caddy.Module { return new(MatchPostgresClient) },
 	}
 }
 
 // Match returns true if the connection looks like the Postgres protocol and
 // passes any `application_name` parameter matchers
-func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
+func (m MatchPostgresClient) Match(cx *layer4.Connection) (bool, error) {
 	b, err := newMessageFromConn(cx)
 	if err != nil {
 		return false, err
@@ -196,7 +196,7 @@ func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Check clients list
-	return slices.Contains(m.Clients, name), nil
+	return slices.Contains(m.Client, name), nil
 }
 
 // MatchPostgresSSL is able to require/reject Postgres SSL connections.
@@ -235,5 +235,5 @@ func (m MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
 
 // Interface guard
 var _ layer4.ConnMatcher = (*MatchPostgres)(nil)
-var _ layer4.ConnMatcher = (*MatchPostgresClients)(nil)
+var _ layer4.ConnMatcher = (*MatchPostgresClient)(nil)
 var _ layer4.ConnMatcher = (*MatchPostgresSSL)(nil)
