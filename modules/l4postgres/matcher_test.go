@@ -11,17 +11,22 @@ import (
 	"go.uber.org/zap"
 )
 
-// Example extends StartupMessage with utils to create example messages.
+// Reader allows any Example to be used in tests as data
+type Reader interface {
+	Read() ([]byte, error)
+}
+
+// Example extends StartupMessage with utils to create messages
 type example struct {
 	startupMessage
 }
 
-// Bytes gets []byte from a struct as the raw protocol is similar to
+// Read gets []byte from an Example struct as the raw protocol is similar to
 // "user\u0000alice\u0000database\u0000stars_db"
-func (x *example) Bytes() []byte {
+func (x *example) Read() ([]byte, error) {
 	buf := new(bytes.Buffer)
-	_, _ = buf.ReadFrom(x.Reader())
-	return buf.Bytes()
+	_, err := buf.ReadFrom(x.Reader())
+	return buf.Bytes(), err
 }
 
 func assertNoError(t *testing.T, err error) {
@@ -37,88 +42,158 @@ func closePipe(wg *sync.WaitGroup, c1 net.Conn, c2 net.Conn) {
 	_ = c2.Close()
 }
 
-var ExampleSSLRequest = func() []byte {
-	x := &example{
-		startupMessage: startupMessage{
-			ProtocolVersion: sslRequestCode,
-		},
-	}
-	return x.Bytes()
+func matchTester(t *testing.T, matcher layer4.ConnMatcher, data []byte) (bool, error) {
+	wg := &sync.WaitGroup{}
+	in, out := net.Pipe()
+	defer closePipe(wg, in, out)
+
+	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer out.Close()
+		_, err := out.Write(data)
+		assertNoError(t, err)
+	}()
+
+	matched, err := matcher.Match(cx)
+
+	_, _ = io.Copy(io.Discard, in)
+
+	return matched, err
 }
 
-var ExampleStartupMessage = func() []byte {
-	x := &example{
-		startupMessage: startupMessage{
-			ProtocolVersion: 196608, // v3.0
-			Parameters: map[string]string{
-				"user":     "alice",
-				"database": "stars_db",
+func Fatalf(t *testing.T, err error, matched bool, expect bool, explain string) {
+	t.Helper()
+	if matched != expect {
+		if err != nil {
+			t.Logf("Unexpected error: %s\n", err)
+		}
+		t.Fatalf("matcher did not match: returned %t != expected %t; %s", matched, expect, explain)
+	}
+}
+
+func TestPostgres(t *testing.T) {
+	t.Parallel() // marks as capable of running in parallel with other tests
+
+	// ref: https://go.dev/wiki/TableDrivenTests
+	tests := []struct {
+		name    string
+		matcher layer4.ConnMatcher
+		data    Reader
+		expect  bool
+		explain string
+	}{
+		{
+			name:    "rejects an empty StartupMessage",
+			matcher: MatchPostgres{},
+			data: &example{
+				startupMessage: startupMessage{},
 			},
+			expect:  false,
+			explain: "an empty Postgres StartupMessage has no version to check",
+		},
+		{
+			name:    "allows any SSLRequest",
+			matcher: MatchPostgres{},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: sslRequestCode,
+				},
+			},
+			expect:  true,
+			explain: "any Postgres SSLRequest should be accepted",
+		},
+		{
+			name:    "allows any StartupMessage with a supported ProtocolVersion",
+			matcher: MatchPostgres{},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: 196608, // v3.0
+				},
+			},
+			expect:  true,
+			explain: "any Postgres StartupMessage without parameters should be rejected",
+		},
+		{
+			name:    "allows any StartupMessage with parameters",
+			matcher: MatchPostgres{},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: 196608, // v3.0
+					Parameters: map[string]string{
+						"user":     "alice",
+						"database": "stars_db",
+					},
+				},
+			},
+			expect:  true,
+			explain: "any Postgres StartupMessage with parameters should be accepted",
 		},
 	}
-	return x.Bytes()
+	for _, tc := range tests {
+		tc := tc // NOTE: /wiki/CommonMistakes#using-goroutines-on-loop-iterator-variables
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := tc.data.Read()
+			assertNoError(t, err)
+
+			matched, err := matchTester(t, tc.matcher, data)
+			Fatalf(t, err, matched, tc.expect, tc.explain)
+		})
+	}
 }
 
-func TestPostgresSSLMatch(t *testing.T) {
-	wg := &sync.WaitGroup{}
-	in, out := net.Pipe()
-	defer closePipe(wg, in, out)
+func TestPostgresSSL(t *testing.T) {
+	t.Parallel() // marks as capable of running in parallel with other tests
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
-
-	x := ExampleSSLRequest()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer out.Close()
-		_, err := out.Write(x)
-		assertNoError(t, err)
-	}()
-
-	matcher := MatchPostgresSSL{
-		Required: true,
-	}
-
-	matched, err := matcher.Match(cx)
-	assertNoError(t, err)
-
-	if !matched {
-		t.Fatalf("matcher did not match SSL")
-	}
-
-	_, _ = io.Copy(io.Discard, in)
-}
-
-func TestPostgresMatch(t *testing.T) {
-	wg := &sync.WaitGroup{}
-	in, out := net.Pipe()
-	defer closePipe(wg, in, out)
-
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
-
-	x := ExampleStartupMessage()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer out.Close()
-		_, err := out.Write(x)
-		assertNoError(t, err)
-	}()
-
-	matcher := MatchPostgres{
-		Users: map[string][]string{
-			"alice": {},
+	// ref: https://go.dev/wiki/TableDrivenTests
+	tests := []struct {
+		name    string
+		matcher layer4.ConnMatcher
+		data    Reader
+		expect  bool
+		explain string
+	}{
+		{
+			name: "requires SSL Requests",
+			matcher: MatchPostgresSSL{
+				Required: true,
+			},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: sslRequestCode,
+				},
+			},
+			expect:  true,
+			explain: "matcher did not match SSL",
+		},
+		{
+			name: "rejects non-SSL Requests",
+			matcher: MatchPostgresSSL{
+				Required: true,
+			},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: 196608,
+				},
+			},
+			expect:  false,
+			explain: "matcher did not match SSL",
 		},
 	}
+	for _, tc := range tests {
+		tc := tc // NOTE: /wiki/CommonMistakes#using-goroutines-on-loop-iterator-variables
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	matched, err := matcher.Match(cx)
-	assertNoError(t, err)
+			data, err := tc.data.Read()
+			assertNoError(t, err)
 
-	if !matched {
-		t.Fatalf("matcher did not match user")
+			matched, err := matchTester(t, tc.matcher, data)
+			Fatalf(t, err, matched, tc.expect, tc.explain)
+		})
 	}
-
-	_, _ = io.Copy(io.Discard, in)
 }
