@@ -52,13 +52,11 @@ package l4postgres
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
-	"go.uber.org/zap"
 )
 
 func init() {
@@ -70,59 +68,23 @@ func init() {
 const (
 	// Magic number to identify a SSLRequest message
 	sslRequestCode = 80877103
-	// byte size of the message length field
-	initMessageSizeLength = 4
 )
-
-// Message provides readers for various types and
-// updates the offset after each read
-type message struct {
-	data   []byte
-	offset uint32
-}
-
-func (b *message) ReadUint32() (r uint32) {
-	r = binary.BigEndian.Uint32(b.data[b.offset : b.offset+4])
-	b.offset += 4
-	return r
-}
-
-func (b *message) ReadString() (r string) {
-	end := b.offset
-	max := uint32(len(b.data))
-	for ; end != max && b.data[end] != 0; end++ {
-	}
-	r = string(b.data[b.offset:end])
-	b.offset = end + 1
-	return r
-}
-
-// NewMessageFromBytes wraps the raw bytes of a message to enable processing
-func newMessageFromBytes(b []byte) *message {
-	return &message{data: b}
-}
 
 // NewMessageFromConn create a message from the Connection
 func newMessageFromConn(cx *layer4.Connection) (*message, error) {
 	// Get bytes containing the message length
-	head := make([]byte, initMessageSizeLength)
+	head := make([]byte, lengthFieldSize)
 	if _, err := io.ReadFull(cx, head); err != nil {
-		return &message{}, err
+		return nil, err
 	}
 
 	// Get actual message length
-	data := make([]byte, binary.BigEndian.Uint32(head)-initMessageSizeLength)
+	data := make([]byte, binary.BigEndian.Uint32(head)-lengthFieldSize)
 	if _, err := io.ReadFull(cx, data); err != nil {
-		return &message{}, err
+		return nil, err
 	}
 
 	return newMessageFromBytes(data), nil
-}
-
-// StartupMessage contains the values parsed from the startup message
-type startupMessage struct {
-	ProtocolVersion uint32
-	Parameters      map[string]string
 }
 
 // MatchPostgres is able to match Postgres connections
@@ -147,36 +109,21 @@ func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 		return false, err
 	}
 
-	code := b.ReadUint32()
-	hasConfig := len(m.Users) == 0
+	m.startup = newStartupMessage(b)
+	hasConfig := len(m.Users) > 0
 
 	// Finish if this is a SSLRequest and there are no other matchers
-	if code == sslRequestCode && !hasConfig {
+	if m.startup.IsSSL() && !hasConfig {
 		return true, nil
 	}
 
 	// Check supported protocol
-	if majorVersion := code >> 16; majorVersion < 3 {
+	if !m.startup.IsSupported() {
 		return false, errors.New("pg protocol < 3.0 is not supported")
 	}
 
-	// Try parsing Postgres Params
-	m.startup = &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
-	for {
-		k := b.ReadString()
-		if k == "" {
-			break
-		}
-		m.startup.Parameters[k] = b.ReadString()
-	}
-
-	cx.Logger.Debug("layer4.matchers.postgres",
-		zap.String("match.config", fmt.Sprintf("%v", m.Users)),
-		zap.String("startupMessage", fmt.Sprintf("%v", m.startup.Parameters)),
-	)
-
 	// Finish if no more matchers are configured
-	if hasConfig {
+	if !hasConfig {
 		return true, nil
 	}
 
@@ -230,32 +177,17 @@ func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
 		return false, err
 	}
 
-	code := b.ReadUint32()
+	m.startup = newStartupMessage(b)
 
 	// Reject if this is a SSLRequest as it has no params
-	if code == sslRequestCode {
+	if m.startup.IsSSL() {
 		return false, nil
 	}
 
 	// Check supported protocol
-	if majorVersion := code >> 16; majorVersion < 3 {
+	if !m.startup.IsSupported() {
 		return false, errors.New("pg protocol < 3.0 is not supported")
 	}
-
-	// Try parsing Postgres Params
-	m.startup = &startupMessage{ProtocolVersion: code, Parameters: make(map[string]string)}
-	for {
-		k := b.ReadString()
-		if k == "" {
-			break
-		}
-		m.startup.Parameters[k] = b.ReadString()
-	}
-
-	cx.Logger.Debug("layer4.matchers.postgres_client",
-		zap.String("match.config", fmt.Sprintf("%v", m.Clients)),
-		zap.String("startupMessage", fmt.Sprintf("%v", m.startup.Parameters)),
-	)
 
 	// Is there a application_name to check?
 	name, ok := m.startup.Parameters["application_name"]
@@ -290,7 +222,7 @@ func (m MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
 	code := b.ReadUint32()
 
 	// SSLRequest Message required?
-	if code == sslRequestCode {
+	if isSSLRequest(code) {
 		return m.Required, nil
 	}
 
