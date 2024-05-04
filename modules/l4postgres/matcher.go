@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package l4postgres allows the L4 multiplexing of Postgres connections.
-// SSL connections can be required.
+// Connections can be required to have SSL disabled.
 // Non-SSL connections can also match on Message parameters.
 //
 // Example matcher configs:
@@ -37,7 +37,7 @@
 //
 //	{
 //		"postgres_ssl": {
-//			required: true
+//			disabled: false
 //	}
 //
 // With thanks to docs and code published at these links:
@@ -201,7 +201,7 @@ func (m MatchPostgresClients) Match(cx *layer4.Connection) (bool, error) {
 
 // MatchPostgresSSL is able to require/reject Postgres SSL connections.
 type MatchPostgresSSL struct {
-	Required bool
+	Disabled bool
 }
 
 // CaddyModule returns the Caddy module information.
@@ -212,7 +212,7 @@ func (MatchPostgresSSL) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Match returns true if the connection is a Postgres SSL request.
+// Match checks whether the connection is a Postgres SSL request.
 func (m MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
 	b, err := newMessageFromConn(cx)
 	if err != nil {
@@ -220,12 +220,16 @@ func (m MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	code := b.ReadUint32()
+	disabled := !isSSLRequest(code)
 
-	// SSLRequest Message required?
-	if isSSLRequest(code) {
-		return m.Required, nil
+	// Enforce SSL enabled
+	if !m.Disabled && !disabled {
+		return true, nil
 	}
-
+	// Enforce SSL disabled
+	if m.Disabled && disabled {
+		return true, nil
+	}
 	return false, nil
 }
 

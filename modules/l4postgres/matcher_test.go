@@ -158,9 +158,29 @@ func TestPostgresSSL(t *testing.T) {
 		explain string
 	}{
 		{
-			name: "requires SSL Requests",
+			name:    "rejects an empty StartupMessage",
+			matcher: MatchPostgresSSL{},
+			data: &example{
+				startupMessage: startupMessage{},
+			},
+			expect:  false,
+			explain: "an empty Postgres StartupMessage has no version to check",
+		},
+		{
+			name:    "implicitly requires SSL Requests",
+			matcher: MatchPostgresSSL{},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: sslRequestCode,
+				},
+			},
+			expect:  true,
+			explain: "SSL is enabled",
+		},
+		{
+			name: "explictly requires SSL Requests",
 			matcher: MatchPostgresSSL{
-				Required: true,
+				Disabled: false,
 			},
 			data: &example{
 				startupMessage: startupMessage{
@@ -168,12 +188,23 @@ func TestPostgresSSL(t *testing.T) {
 				},
 			},
 			expect:  true,
-			explain: "matcher did not match SSL",
+			explain: "SSL is enabled",
 		},
 		{
-			name: "rejects non-SSL Requests",
+			name:    "implicitly rejects non-SSL Requests",
+			matcher: MatchPostgresSSL{},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: 196608,
+				},
+			},
+			expect:  false,
+			explain: "SSL is enabled",
+		},
+		{
+			name: "explictly rejects non-SSL Requests",
 			matcher: MatchPostgresSSL{
-				Required: true,
+				Disabled: false,
 			},
 			data: &example{
 				startupMessage: startupMessage{
@@ -181,7 +212,33 @@ func TestPostgresSSL(t *testing.T) {
 				},
 			},
 			expect:  false,
-			explain: "matcher did not match SSL",
+			explain: "SSL is enabled",
+		},
+		{
+			name: "explictly requires non-SSL Requests",
+			matcher: MatchPostgresSSL{
+				Disabled: true,
+			},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: 196608,
+				},
+			},
+			expect:  true,
+			explain: "SSL is disabled",
+		},
+		{
+			name: "explictly rejects SSL Requests",
+			matcher: MatchPostgresSSL{
+				Disabled: true,
+			},
+			data: &example{
+				startupMessage: startupMessage{
+					ProtocolVersion: sslRequestCode,
+				},
+			},
+			expect:  false,
+			explain: "SSL is disabled",
 		},
 	}
 	for _, tc := range tests {
