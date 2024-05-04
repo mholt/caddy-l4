@@ -75,8 +75,6 @@ func Fatalf(t *testing.T, err error, matched bool, expect bool, explain string) 
 }
 
 func TestPostgres(t *testing.T) {
-	t.Parallel() // marks as capable of running in parallel with other tests
-
 	// ref: https://go.dev/wiki/TableDrivenTests
 	tests := []struct {
 		name    string
@@ -135,8 +133,6 @@ func TestPostgres(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc // NOTE: /wiki/CommonMistakes#using-goroutines-on-loop-iterator-variables
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			data, err := tc.data.Read()
 			assertNoError(t, err)
 
@@ -147,8 +143,6 @@ func TestPostgres(t *testing.T) {
 }
 
 func TestPostgresSSL(t *testing.T) {
-	t.Parallel() // marks as capable of running in parallel with other tests
-
 	// ref: https://go.dev/wiki/TableDrivenTests
 	tests := []struct {
 		name    string
@@ -244,8 +238,6 @@ func TestPostgresSSL(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc // NOTE: /wiki/CommonMistakes#using-goroutines-on-loop-iterator-variables
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			data, err := tc.data.Read()
 			assertNoError(t, err)
 
