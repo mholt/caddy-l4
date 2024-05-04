@@ -1,7 +1,6 @@
 package l4socks
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"net"
@@ -55,7 +54,7 @@ func TestSocks5Matcher_Match(t *testing.T) {
 				_ = out.Close()
 			}()
 
-			cx := layer4.WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
+			cx := layer4.WrapConnection(out, []byte{}, zap.NewNop())
 			go func() {
 				_, err := in.Write(tc.data)
 				assertNoError(t, err)

@@ -13,7 +13,7 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	defer in.Close()
 	defer out.Close()
 
-	cx := WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
+	cx := WrapConnection(out, []byte{}, zap.NewNop())
 	defer cx.Close()
 
 	matcherData := []byte("foo")
