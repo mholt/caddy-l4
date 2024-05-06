@@ -125,7 +125,7 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeou
 				return nil // return nil so the error does not get logged again
 			}
 			for _, route := range routes {
-				// route must match at least one of the matcher sets
+				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
 					continue // ignore and try next route
@@ -141,28 +141,31 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeou
 						return err
 					}
 
-					var handler Handler
-					if route.Terminal {
-						handler = next
-						for i := len(route.middleware) - 1; i >= 0; i-- {
-							handler = route.middleware[i](handler)
-						}
-						return handler.Handle(cx)
-					} else {
-						// Catch potentially wrapped connection to use it as input for next round of route matching.
+					lastHandler := HandlerFunc(func(conn *Connection) error {
+						// Catch potentially wrapped connection to use it as input for the next round of route matching.
 						// This is for example required for matchers after a tls handler.
-						catcher := HandlerFunc(func(conn *Connection) error {
-							cx = conn
-							return nil
-						})
-						handler = &catcher
-						for i := len(route.middleware) - 1; i >= 0; i-- {
-							handler = route.middleware[i](handler)
-						}
-						err = handler.Handle(cx)
-						if err != nil {
-							return err
-						}
+						cx = conn
+						// call the default/fallback handler
+						return next.Handle(conn)
+					})
+					var handler Handler
+					handler = &lastHandler
+					// compile the route handler stack with lastHandler being called last
+					for i := len(route.middleware) - 1; i >= 0; i-- {
+						handler = route.middleware[i](handler)
+					}
+					err = handler.Handle(cx)
+					if err != nil {
+						return err
+					}
+
+					// If matched route is terminal we stop routing,
+					// otherwise we jump back to the start of the routing loop to peel of more protocol layers.
+					if route.Terminal {
+						return nil
+					} else {
+						// Reset buffer and offsets after a handler was executed,
+						// we assume it consumed the buffer and maybe even wrote to the connection.
 						cx.clear()
 						goto router
 					}
