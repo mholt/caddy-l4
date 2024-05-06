@@ -35,6 +35,8 @@ func (h Handlers) Compile() Handler {
 // as part of a middleware chain.
 type NextHandler interface {
 	Handle(*Connection, Handler) error
+	// Must return true if this is the last handler in a handler chain.
+	IsTerminal() bool
 }
 
 // Handler is a type that can handle connections.
