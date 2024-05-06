@@ -35,7 +35,7 @@ type Server struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
-	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 500ms.
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	logger        *zap.Logger
@@ -48,7 +48,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
 
 	if s.MatchingTimeout <= 0 {
-		s.MatchingTimeout = caddy.Duration(500 * time.Millisecond)
+		s.MatchingTimeout = caddy.Duration(3 * time.Second)
 	}
 
 	for i, address := range s.Listen {

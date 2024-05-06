@@ -35,7 +35,7 @@ type Handler struct {
 	// The primary list of routes to compile and execute.
 	Routes layer4.RouteList `json:"routes,omitempty"`
 
-	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 500ms.
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	logger *zap.Logger
@@ -54,7 +54,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 	h.logger = ctx.Logger(h)
 
 	if h.MatchingTimeout <= 0 {
-		h.MatchingTimeout = caddy.Duration(500 * time.Millisecond)
+		h.MatchingTimeout = caddy.Duration(3 * time.Second)
 	}
 
 	if h.Routes != nil {
