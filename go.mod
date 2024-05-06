@@ -7,8 +7,8 @@ require (
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/things-go/go-socks5 v0.0.5
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.21.0
-	golang.org/x/net v0.22.0
+	golang.org/x/crypto v0.23.0
+	golang.org/x/net v0.25.0
 	golang.org/x/time v0.5.0
 )
 
@@ -99,9 +99,9 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20240205201215-2c58cdc269a3 // indirect
 	golang.org/x/mod v0.15.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
-	golang.org/x/term v0.18.0 // indirect
-	golang.org/x/text v0.14.0 // indirect
+	golang.org/x/sys v0.20.0 // indirect
+	golang.org/x/term v0.20.0 // indirect
+	golang.org/x/text v0.15.0 // indirect
 	golang.org/x/tools v0.17.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20231016165738-49dd2c1f3d0b // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231016165738-49dd2c1f3d0b // indirect
