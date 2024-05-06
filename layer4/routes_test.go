@@ -9,16 +9,9 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
-
-type sentinelHandler struct {
-	Called bool
-}
-
-func (h *sentinelHandler) Handle(_ *Connection) error {
-	h.Called = true
-	return nil
-}
 
 func TestMatchingTimeoutWorks(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
@@ -31,8 +24,12 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 		t.Fatalf("provision failed | %s", err)
 	}
 
-	sentinel := &sentinelHandler{}
-	compiledRoutes := routes.Compile(sentinel, zap.NewNop(), 5*time.Millisecond)
+	matched := false
+	loggerCore, logs := observer.New(zapcore.WarnLevel)
+	compiledRoutes := routes.Compile(HandlerFunc(func(con *Connection) error {
+		matched = true
+		return nil
+	}), zap.New(loggerCore), 5*time.Millisecond)
 
 	in, out := net.Pipe()
 	defer in.Close()
@@ -42,16 +39,27 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	defer cx.Close()
 
 	err = compiledRoutes.Handle(cx)
-	if err == nil {
-		t.Fatalf("missing error")
+	if err != nil {
+		t.Fatalf("handle failed | %s", err)
 	}
 
-	if !errors.Is(err, ErrMatchingTimeout) {
-		t.Fatalf("unexpected handler error | %v", err)
+	// verify the matching aborted error was logged
+	if logs.Len() != 1 {
+		t.Fatalf("logs should contain 1 entry but has %d", logs.Len())
+	}
+	logEntry := logs.All()[0]
+	if logEntry.Level != zapcore.WarnLevel {
+		t.Fatalf("wrong log level | %s", logEntry.Level)
+	}
+	if logEntry.Message != "matching connection" {
+		t.Fatalf("wrong log message | %s", logEntry.Message)
+	}
+	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) {
+		t.Fatalf("wrong error | %v", logEntry.Context[1].Interface)
 	}
 
 	// since matching failed no handler should be called
-	if sentinel.Called != false {
-		t.Fatal("sentinel handler was called but should not")
+	if matched {
+		t.Fatal("handler was called but should not")
 	}
 }

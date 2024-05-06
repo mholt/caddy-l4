@@ -5,15 +5,14 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"io"
 	"net"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
+	_ "github.com/mholt/caddy-l4/modules/l4echo"
 	"go.uber.org/zap"
 )
 
@@ -24,22 +23,13 @@ func assertNoError(t *testing.T, err error) {
 	}
 }
 
-func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []byte) (bool, error) {
-	wg := &sync.WaitGroup{}
+func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool, error) {
 	in, out := net.Pipe()
-	defer func() {
-		wg.Wait()
-		_ = in.Close()
-		_ = out.Close()
-	}()
+	defer in.Close()
+	defer out.Close()
 
 	cx := layer4.WrapConnection(in, make([]byte, 0, layer4.PrefetchChunkSize), zap.NewNop())
 	go func() {
-		wg.Add(1)
-		defer func() {
-			wg.Done()
-			_ = out.Close()
-		}()
 		_, err := out.Write(data)
 		assertNoError(t, err)
 	}()
@@ -47,14 +37,22 @@ func httpMatchTester(t *testing.T, matcherSets caddyhttp.RawMatcherSets, data []
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	matcher := MatchHTTP{MatcherSetsRaw: matcherSets}
-	err := matcher.Provision(ctx)
+	routes := layer4.RouteList{&layer4.Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"http": matchers},
+		},
+	}}
+	err := routes.Provision(ctx)
 	assertNoError(t, err)
 
-	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call freeze() before matching
-	matched, err := mset.Match(cx)
+	matched := false
+	compiledRoute := routes.Compile(layer4.HandlerFunc(func(con *layer4.Connection) error {
+		matched = true
+		return nil
+	}), zap.NewNop(), 10*time.Millisecond) // FIXME: routes without handlers are not terminal thus each test runs at least this long
 
-	_, _ = io.Copy(io.Discard, in)
+	err = compiledRoute.Handle(cx)
+	assertNoError(t, err)
 
 	return matched, err
 }
@@ -63,43 +61,43 @@ func TestHttp1Matching(t *testing.T) {
 	http1RequestExample := []byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\nUser-Agent: curl/7.82.0\nAccept: */*\n\n")
 
 	for _, tc := range []struct {
-		name        string
-		matcherSets caddyhttp.RawMatcherSets
-		data        []byte
+		name     string
+		matchers json.RawMessage
+		data     []byte
 	}{
 		{
-			name:        "match-by-host",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"host": json.RawMessage("[\"localhost\"]")}},
-			data:        http1RequestExample,
+			name:     "match-by-host",
+			matchers: json.RawMessage("[{\"host\":[\"localhost\"]}]"),
+			data:     http1RequestExample,
 		},
 		{
-			name:        "match-by-method",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"method": json.RawMessage("[\"GET\"]")}},
-			data:        http1RequestExample,
+			name:     "match-by-method",
+			matchers: json.RawMessage("[{\"method\":[\"GET\"]}]"),
+			data:     http1RequestExample,
 		},
 		{
-			name:        "match-by-path",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"path": json.RawMessage("[\"/foo/bar\"]")}},
-			data:        http1RequestExample,
+			name:     "match-by-path",
+			matchers: json.RawMessage("[{\"path\":[\"/foo/bar\"]}]"),
+			data:     http1RequestExample,
 		},
 		{
-			name:        "match-by-query",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"query": json.RawMessage("{\"aaa\":[\"bbb\"]}")}},
-			data:        http1RequestExample,
+			name:     "match-by-query",
+			matchers: json.RawMessage("[{\"query\":{\"aaa\":[\"bbb\"]}}]"),
+			data:     http1RequestExample,
 		},
 		{
-			name:        "match-by-header",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"header": json.RawMessage("{\"user-agent\":[\"curl*\"]}")}},
-			data:        http1RequestExample,
+			name:     "match-by-header",
+			matchers: json.RawMessage("[{\"header\":{\"user-agent\":[\"curl*\"]}}]"),
+			data:     http1RequestExample,
 		},
 		{
-			name:        "match-by-protocol",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
-			data:        http1RequestExample,
+			name:     "match-by-protocol",
+			matchers: json.RawMessage("[{\"protocol\":\"http\"}]"),
+			data:     http1RequestExample,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched, err := httpMatchTester(t, tc.matcherSets, tc.data)
+			matched, err := httpMatchTester(t, tc.matchers, tc.data)
 			assertNoError(t, err)
 			if !matched {
 				t.Errorf("matcher did not match")
@@ -116,74 +114,74 @@ func TestHttp2Matching(t *testing.T) {
 	assertNoError(t, err)
 
 	for _, tc := range []struct {
-		name        string
-		matcherSets caddyhttp.RawMatcherSets
-		data        []byte
+		name     string
+		matchers json.RawMessage
+		data     []byte
 	}{
 		{
-			name:        "match-by-host",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"host": json.RawMessage("[\"localhost\"]")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-host",
+			matchers: json.RawMessage("[{\"host\":[\"localhost\"]}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 		{
-			name:        "match-by-method",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"method": json.RawMessage("[\"GET\"]")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-method",
+			matchers: json.RawMessage("[{\"method\":[\"GET\"]}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 		{
-			name:        "match-by-path",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"path": json.RawMessage("[\"/foo/bar\"]")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-path",
+			matchers: json.RawMessage("[{\"path\":[\"/foo/bar\"]}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 		{
-			name:        "match-by-query",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"query": json.RawMessage("{\"aaa\":[\"bbb\"]}")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-query",
+			matchers: json.RawMessage("[{\"query\":{\"aaa\":[\"bbb\"]}}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 		{
-			name:        "match-by-header",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"header": json.RawMessage("{\"user-agent\":[\"curl*\"]}")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-header",
+			matchers: json.RawMessage("[{\"header\":{\"user-agent\":[\"curl*\"]}}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 		{
-			name:        "match-by-protocol",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
-			data:        http2PriorKnowledgeRequestExample,
+			name:     "match-by-protocol",
+			matchers: json.RawMessage("[{\"protocol\":\"http\"}]"),
+			data:     http2PriorKnowledgeRequestExample,
 		},
 
 		{
-			name:        "upgrade-match-by-host",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"host": json.RawMessage("[\"localhost\"]")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-host",
+			matchers: json.RawMessage("[{\"host\":[\"localhost\"]}]"),
+			data:     http2UpgradeRequestExample,
 		},
 		{
-			name:        "upgrade-match-by-method",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"method": json.RawMessage("[\"GET\"]")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-method",
+			matchers: json.RawMessage("[{\"method\":[\"GET\"]}]"),
+			data:     http2UpgradeRequestExample,
 		},
 		{
-			name:        "upgrade-match-by-path",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"path": json.RawMessage("[\"/foo/bar\"]")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-path",
+			matchers: json.RawMessage("[{\"path\":[\"/foo/bar\"]}]"),
+			data:     http2UpgradeRequestExample,
 		},
 		{
-			name:        "upgrade-match-by-query",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"query": json.RawMessage("{\"aaa\":[\"bbb\"]}")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-query",
+			matchers: json.RawMessage("[{\"query\":{\"aaa\":[\"bbb\"]}}]"),
+			data:     http2UpgradeRequestExample,
 		},
 		{
-			name:        "upgrade-match-by-header",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"header": json.RawMessage("{\"user-agent\":[\"curl*\"]}")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-header",
+			matchers: json.RawMessage("[{\"header\":{\"user-agent\":[\"curl*\"]}}]"),
+			data:     http2UpgradeRequestExample,
 		},
 		{
-			name:        "upgrade-match-by-protocol",
-			matcherSets: caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"http\"")}},
-			data:        http2UpgradeRequestExample,
+			name:     "upgrade-match-by-protocol",
+			matchers: json.RawMessage("[{\"protocol\":\"http\"}]"),
+			data:     http2UpgradeRequestExample,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched, err := httpMatchTester(t, tc.matcherSets, tc.data)
+			matched, err := httpMatchTester(t, tc.matchers, tc.data)
 			assertNoError(t, err)
 			if !matched {
 				t.Errorf("matcher did not match")
@@ -193,23 +191,30 @@ func TestHttp2Matching(t *testing.T) {
 }
 
 func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
-	matcherSets := caddyhttp.RawMatcherSets{caddy.ModuleMap{"protocol": json.RawMessage("\"https\"")}}
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
 
-	wg := &sync.WaitGroup{}
+	routes := layer4.RouteList{&layer4.Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"http": json.RawMessage("[{\"protocol\":\"https\"}]")},
+		},
+	}}
+
+	err := routes.Provision(ctx)
+	assertNoError(t, err)
+
+	handlerCalled := false
+	compiledRoute := routes.Compile(layer4.HandlerFunc(func(con *layer4.Connection) error {
+		handlerCalled = true
+		return nil
+	}), zap.NewNop(), 100*time.Millisecond)
+
 	in, out := net.Pipe()
-	defer func() {
-		wg.Wait()
-		_ = in.Close()
-		_ = out.Close()
-	}()
+	defer in.Close()
+	defer out.Close()
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
-		wg.Add(1)
-		defer func() {
-			wg.Done()
-			_ = out.Close()
-		}()
 		_, err := out.Write([]byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\n\n"))
 		assertNoError(t, err)
 	}()
@@ -217,27 +222,17 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 	// pretend the tls handler was executed before, not an ideal test setup but better then nothing
 	cx.SetVar("tls_connection_states", []*tls.ConnectionState{{ServerName: "localhost"}})
 
-	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
-	defer cancel()
-
-	matcher := MatchHTTP{MatcherSetsRaw: matcherSets}
-	err := matcher.Provision(ctx)
+	err = compiledRoute.Handle(cx)
 	assertNoError(t, err)
-
-	mset := layer4.MatcherSet{matcher} // use MatcherSet to correctly call freeze() before matching
-	matched, err := mset.Match(cx)
-	assertNoError(t, err)
-	if !matched {
+	if !handlerCalled {
 		t.Fatalf("matcher did not match")
 	}
-
-	_, _ = io.Copy(io.Discard, in)
 }
 
 func TestHttpMatchingGarbage(t *testing.T) {
-	matcherSets := caddyhttp.RawMatcherSets{caddy.ModuleMap{"host": json.RawMessage("[\"localhost\"]")}}
+	matchers := json.RawMessage("[{\"host\":[\"localhost\"]}]")
 
-	matched, err := httpMatchTester(t, matcherSets, []byte("not a valid http request"))
+	matched, err := httpMatchTester(t, matchers, []byte("not a valid http request"))
 	assertNoError(t, err)
 	if matched {
 		t.Fatalf("matcher did match")
@@ -245,12 +240,9 @@ func TestHttpMatchingGarbage(t *testing.T) {
 
 	validHttp2MagicWithoutHeadersFrame, err := base64.StdEncoding.DecodeString("UFJJICogSFRUUC8yLjANCg0KU00NCg0KAAASBAAAAAAAAAMAAABkAAQCAAAAAAIAAAAATm8gbG9uZ2VyIHZhbGlkIGh0dHAyIHJlcXVlc3QgZnJhbWVz")
 	assertNoError(t, err)
-	matched, err = httpMatchTester(t, matcherSets, validHttp2MagicWithoutHeadersFrame)
+	matched, err = httpMatchTester(t, matchers, validHttp2MagicWithoutHeadersFrame)
 	if matched {
 		t.Fatalf("matcher did match")
-	}
-	if !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
-		t.Fatalf("handler did not return an error or the wrong error -> %v", err)
 	}
 }
 
