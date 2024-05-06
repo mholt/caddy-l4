@@ -65,9 +65,10 @@ type Connection struct {
 
 	Logger *zap.Logger
 
-	buf      []byte // stores matching data
-	offset   int
-	matching bool
+	buf          []byte // stores matching data
+	offset       int
+	frozenOffset int
+	matching     bool
 
 	bytesRead, bytesWritten uint64
 }
@@ -80,18 +81,22 @@ var ErrMatchingBufferFull = errors.New("matching buffer is full")
 // and once depleted (or if there isn't one), it continues
 // reading from the underlying connection.
 func (cx *Connection) Read(p []byte) (n int, err error) {
-	if cx.matching {
-		if len(cx.buf) == 0 || len(cx.buf[cx.offset:]) == 0 {
-			return 0, ErrConsumedAllPrefetchedBytes
-		}
+	// if we are matching and consumed the buffer exit with error
+	if cx.matching && (len(cx.buf) == 0 || len(cx.buf) == cx.offset) {
+		return 0, ErrConsumedAllPrefetchedBytes
 	}
 
 	// if there is a buffer we should read from, start
 	// with that; we only read from the underlying conn
 	// after the buffer has been "depleted"
-	if cx.offset < len(cx.buf) {
+	if len(cx.buf) > 0 && cx.offset < len(cx.buf) {
 		n := copy(p, cx.buf[cx.offset:])
 		cx.offset += n
+		if !cx.matching && cx.offset == len(cx.buf) {
+			// if we are not in matching mode reset buf automatically after it was consumed
+			cx.offset = 0
+			cx.buf = cx.buf[:0]
+		}
 		return n, nil
 	}
 
@@ -174,21 +179,14 @@ func (cx *Connection) prefetch() (err error) {
 // freeze activates the matching mode that only reads from cx.buf.
 func (cx *Connection) freeze() {
 	cx.matching = true
+	cx.frozenOffset = cx.offset
 }
 
 // unfreeze stops the matching mode and resets the buffer offset
 // so that the next reads come from the buffer first.
 func (cx *Connection) unfreeze() {
 	cx.matching = false
-	cx.offset = 0
-}
-
-// clear discards cx.buf and resets cx.offset to prepare the connection for the next prefetch & matching phase
-func (cx *Connection) clear() {
-	if cx.buf != nil {
-		cx.buf = cx.buf[:0]
-	}
-	cx.offset = 0
+	cx.offset = cx.frozenOffset
 }
 
 // SetVar sets a value in the context's variable table with

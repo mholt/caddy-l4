@@ -164,9 +164,6 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeou
 					if route.Terminal {
 						return nil
 					} else {
-						// Reset buffer and offsets after a handler was executed,
-						// we assume it consumed the buffer and maybe even wrote to the connection.
-						cx.clear()
 						goto router
 					}
 				}
