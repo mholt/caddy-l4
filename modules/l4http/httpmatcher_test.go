@@ -12,7 +12,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
-	_ "github.com/mholt/caddy-l4/modules/l4echo"
 	"go.uber.org/zap"
 )
 

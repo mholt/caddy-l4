@@ -81,7 +81,7 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	if !ok {
 		var err error
 
-		data, err := cx.MatchingBytes()
+		data := cx.MatchingBytes()
 		if !m.isHttp(data) {
 			return false, nil
 		}
