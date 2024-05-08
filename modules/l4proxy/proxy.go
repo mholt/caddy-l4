@@ -184,10 +184,6 @@ func (h Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	return nil
 }
 
-func (h *Handler) IsTerminal() bool {
-	return true
-}
-
 func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
 	var upConns []net.Conn
 

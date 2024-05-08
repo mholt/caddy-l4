@@ -114,10 +114,6 @@ func (h Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(cx)
 }
 
-func (h Handler) IsTerminal() bool {
-	return false
-}
-
 type throttledConn struct {
 	net.Conn
 	ctx                        context.Context

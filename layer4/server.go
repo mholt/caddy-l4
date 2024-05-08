@@ -63,7 +63,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	if err != nil {
 		return err
 	}
-	s.compiledRoute = s.Routes.Compile(nopHandler{}, s.logger, time.Duration(s.MatchingTimeout))
+	s.compiledRoute = s.Routes.Compile(nopNextHandler{}, s.logger, time.Duration(s.MatchingTimeout))
 
 	return nil
 }

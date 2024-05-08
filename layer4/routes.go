@@ -42,9 +42,6 @@ type Route struct {
 	// executed in sequential order if the route's matchers match.
 	HandlersRaw []json.RawMessage `json:"handle,omitempty" caddy:"namespace=layer4.handlers inline_key=handler"`
 
-	// Is set to true during Provision if any of the handlers IsTerminal.
-	Terminal bool
-
 	matcherSets MatcherSets
 	middleware  []Middleware
 }
@@ -72,9 +69,6 @@ func (r *Route) Provision(ctx caddy.Context) error {
 	for _, mod := range mods.([]interface{}) {
 		handler := mod.(NextHandler)
 		handlers = append(handlers, handler)
-		if handler.IsTerminal() {
-			r.Terminal = true
-		}
 	}
 	for _, midhandler := range handlers {
 		r.middleware = append(r.middleware, wrapHandler(midhandler))
@@ -104,7 +98,7 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 // Compile prepares a middleware chain from the route list.
 // This should only be done once: after all the routes have
 // been provisioned, and before the server loop begins.
-func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeout time.Duration) Handler {
+func (routes RouteList) Compile(next NextHandler, logger *zap.Logger, matchingTimeout time.Duration) Handler {
 	return HandlerFunc(func(cx *Connection) error {
 		deadline := time.Now().Add(matchingTimeout)
 	router:
@@ -141,16 +135,17 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeou
 						return err
 					}
 
+					isTerminal := true
 					lastHandler := HandlerFunc(func(conn *Connection) error {
 						// Catch potentially wrapped connection to use it as input for the next round of route matching.
 						// This is for example required for matchers after a tls handler.
 						cx = conn
-						// call the default/fallback handler
-						return next.Handle(conn)
+						// If this handler is called all handlers before where not terminal
+						isTerminal = false
+						return nil
 					})
-					var handler Handler
-					handler = &lastHandler
 					// compile the route handler stack with lastHandler being called last
+					handler := wrapHandler(next)(lastHandler)
 					for i := len(route.middleware) - 1; i >= 0; i-- {
 						handler = route.middleware[i](handler)
 					}
@@ -159,9 +154,9 @@ func (routes RouteList) Compile(next Handler, logger *zap.Logger, matchingTimeou
 						return err
 					}
 
-					// If matched route is terminal we stop routing,
+					// If handler is terminal we stop routing,
 					// otherwise we jump back to the start of the routing loop to peel of more protocol layers.
-					if route.Terminal {
+					if isTerminal {
 						return nil
 					} else {
 						goto router

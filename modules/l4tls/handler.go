@@ -104,10 +104,6 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(cx.Wrap(tlsConn))
 }
 
-func (t *Handler) IsTerminal() bool {
-	return false
-}
-
 func appendClientHello(cx *layer4.Connection, chi ClientHelloInfo) {
 	var clientHellos []ClientHelloInfo
 	if val := cx.GetVar("tls_client_hellos"); val != nil {

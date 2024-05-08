@@ -79,10 +79,6 @@ func (h *Socks5Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 	return h.server.ServeConn(cx)
 }
 
-func (h *Socks5Handler) IsTerminal() bool {
-	return true
-}
-
 var (
 	_ caddy.Provisioner  = (*Socks5Handler)(nil)
 	_ layer4.NextHandler = (*Socks5Handler)(nil)

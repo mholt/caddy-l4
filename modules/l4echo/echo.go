@@ -42,9 +42,5 @@ func (Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 	return err
 }
 
-func (h Handler) IsTerminal() bool {
-	return true
-}
-
 // Interface guard
 var _ layer4.NextHandler = (*Handler)(nil)

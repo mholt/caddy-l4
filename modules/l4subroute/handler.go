@@ -68,20 +68,10 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
-	subroute := h.Routes.Compile(next, h.logger, time.Duration(h.MatchingTimeout))
+	subroute := h.Routes.Compile(layer4.NextHandlerFunc(func(cx *layer4.Connection, _ layer4.Handler) error {
+		return next.Handle(cx) // continue with original chain after subroute
+	}), h.logger, time.Duration(h.MatchingTimeout))
 	return subroute.Handle(cx)
-}
-
-func (h *Handler) IsTerminal() bool {
-	// try to be clever but maybe this needs to be configurable?
-	terminal := true
-	for _, route := range h.Routes {
-		if !route.Terminal {
-			terminal = false
-			break
-		}
-	}
-	return terminal
 }
 
 // Interface guards
