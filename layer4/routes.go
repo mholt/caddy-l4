@@ -16,7 +16,10 @@ package layer4
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -43,6 +46,8 @@ type Route struct {
 	middleware  []Middleware
 }
 
+var ErrMatchingTimeout = errors.New("aborted matching according to timeout")
+
 // Provision sets up a route.
 func (r *Route) Provision(ctx caddy.Context) error {
 	// matchers
@@ -62,7 +67,8 @@ func (r *Route) Provision(ctx caddy.Context) error {
 	}
 	var handlers Handlers
 	for _, mod := range mods.([]interface{}) {
-		handlers = append(handlers, mod.(NextHandler))
+		handler := mod.(NextHandler)
+		handlers = append(handlers, handler)
 	}
 	for _, midhandler := range handlers {
 		r.middleware = append(r.middleware, wrapHandler(midhandler))
@@ -92,75 +98,71 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 // Compile prepares a middleware chain from the route list.
 // This should only be done once: after all the routes have
 // been provisioned, and before the server loop begins.
-func (routes RouteList) Compile(next Handler, logger *zap.Logger) Handler {
-	mid := make([]Middleware, 0, len(routes))
-	for _, route := range routes {
-		mid = append(mid, wrapRoute(route, logger))
-	}
-	stack := next
-	for i := len(mid) - 1; i >= 0; i-- {
-		stack = mid[i](stack)
-	}
-	return stack
-}
-
-// wrapRoute wraps route with a middleware and handler so that it can
-// be chained in and defer evaluation of its matchers to request-time.
-// Like wrapMiddleware, it is vital that this wrapping takes place in
-// its own stack frame so as to not overwrite the reference to the
-// intended route by looping and changing the reference each time.
-func wrapRoute(route *Route, logger *zap.Logger) Middleware {
-	return func(next Handler) Handler {
-		return HandlerFunc(func(cx *Connection) error {
-			// TODO: Update this comment, it seems we've moved the copy into the handler?
-			// copy the next handler (it's an interface, so it's just
-			// a very lightweight copy of a pointer); this is important
-			// because this is a closure to the func below, which
-			// re-assigns the value as it compiles the middleware stack;
-			// if we don't make this copy, we'd affect the underlying
-			// pointer for all future request (yikes); we could
-			// alternatively solve this by moving the func below out of
-			// this closure and into a standalone package-level func,
-			// but I just thought this made more sense
-			nextCopy := next
-
-			// route must match at least one of the matcher sets
-			matched, err := route.matcherSets.AnyMatch(cx)
+func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
+	return HandlerFunc(func(cx *Connection) error {
+		deadline := time.Now().Add(matchingTimeout)
+	router:
+		// timeout matching to protect against malicious or very slow clients
+		err := cx.Conn.SetReadDeadline(deadline)
+		if err != nil {
+			return err
+		}
+		for { // retry prefetching and matching routes until timeout
+			err = cx.prefetch()
 			if err != nil {
-				logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+				logFunc := logger.Error
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					err = ErrMatchingTimeout
+					logFunc = logger.Warn
+				}
+				logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 				return nil // return nil so the error does not get logged again
 			}
-			if !matched {
-				return nextCopy.Handle(cx)
+			for _, route := range routes {
+				// A route must match at least one of the matcher sets
+				matched, err := route.matcherSets.AnyMatch(cx)
+				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
+					continue // ignore and try next route
+				}
+				if err != nil {
+					logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+					return nil
+				}
+				if matched {
+					// remove deadline after we matched
+					err = cx.Conn.SetReadDeadline(time.Time{})
+					if err != nil {
+						return err
+					}
+
+					isTerminal := true
+					lastHandler := HandlerFunc(func(conn *Connection) error {
+						// Catch potentially wrapped connection to use it as input for the next round of route matching.
+						// This is for example required for matchers after a tls handler.
+						cx = conn
+						// If this handler is called all handlers before where not terminal
+						isTerminal = false
+						return nil
+					})
+					// compile the route handler stack with lastHandler being called last
+					handler := wrapHandler(next)(lastHandler)
+					for i := len(route.middleware) - 1; i >= 0; i-- {
+						handler = route.middleware[i](handler)
+					}
+					err = handler.Handle(cx)
+					if err != nil {
+						return err
+					}
+
+					// If handler is terminal we stop routing,
+					// otherwise we jump back to the start of the routing loop to peel of more protocol layers.
+					if isTerminal {
+						return nil
+					} else {
+						goto router
+					}
+				}
 			}
-
-			// TODO: other routing features?
-
-			// // if route is part of a group, ensure only the
-			// // first matching route in the group is applied
-			// if route.Group != "" {
-			// 	groups := req.Context().Value(routeGroupCtxKey).(map[string]struct{})
-
-			// 	if _, ok := groups[route.Group]; ok {
-			// 		// this group has already been
-			// 		// satisfied by a matching route
-			// 		return nextCopy.ServeHTTP(rw, req)
-			// 	}
-
-			// 	// this matching route satisfies the group
-			// 	groups[route.Group] = struct{}{}
-			// }
-
-			// // make terminal routes terminate
-			// if route.Terminal {
-			// 	nextCopy = emptyHandler
-			// }
-
-			// compile this route's handler stack
-			for i := len(route.middleware) - 1; i >= 0; i-- {
-				nextCopy = route.middleware[i](nextCopy)
-			}
-			return nextCopy.Handle(cx)
-		})
-	}
+		}
+	})
 }

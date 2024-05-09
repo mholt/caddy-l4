@@ -16,17 +16,19 @@ package l4http
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4tls"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
-	"io"
-	"net/http"
-	"net/url"
 )
 
 func init() {
@@ -78,11 +80,18 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	req, ok := cx.GetVar("http_request").(*http.Request)
 	if !ok {
 		var err error
-		bufReader := bufio.NewReader(cx)
+
+		data := cx.MatchingBytes()
+		if !m.isHttp(data) {
+			return false, nil
+		}
+
+		// use bufio reader which exactly matches the size of prefetched data,
+		// to not trigger all bytes consumed error
+		bufReader := bufio.NewReaderSize(cx, len(data))
 		req, err = http.ReadRequest(bufReader)
 		if err != nil {
-			// TODO: find a way to distinguish actual errors from mismatches
-			return false, nil
+			return false, err
 		}
 
 		// check if req is a http2 request made with prior knowledge and if so parse it
@@ -111,6 +120,23 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured
 	return m.matcherSets.AnyMatch(req), nil
+}
+
+func (m MatchHTTP) isHttp(data []byte) bool {
+	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
+	i := bytes.IndexByte(data, 0x0a) // find first new line
+	if i < 10 {
+		return false
+	}
+	// assume only \n line ending
+	start := i - 9 // position of space in front of HTTP
+	end := i - 3   // cut off version number "1.1" or "2.0"
+	// if we got a correct \r\n line ending shift the calculated start & end to the left
+	if data[i-1] == 0x0d {
+		start -= 1
+		end -= 1
+	}
+	return bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)

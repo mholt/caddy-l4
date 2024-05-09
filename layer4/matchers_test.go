@@ -1,7 +1,6 @@
 package layer4
 
 import (
-	"bytes"
 	"net"
 	"testing"
 
@@ -70,7 +69,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "127.0.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -89,7 +87,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "192.168.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -108,7 +105,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "192.168.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -130,7 +126,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "172.16.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -152,7 +147,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "192.168.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "192.168.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -174,7 +168,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "172.16.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{
@@ -194,7 +187,6 @@ func TestNotMatcher(t *testing.T) {
 					localAddr:  dummyAddr{ip: "127.0.0.1", network: "tcp"},
 					remoteAddr: dummyAddr{ip: "192.168.0.1", network: "tcp"},
 				},
-				buf:    &bytes.Buffer{},
 				Logger: zap.NewNop(),
 			},
 			matcher: MatchNot{

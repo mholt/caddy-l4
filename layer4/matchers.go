@@ -48,9 +48,9 @@ type MatcherSet []ConnMatcher
 // or if there are no matchers. Any error terminates matching.
 func (mset MatcherSet) Match(cx *Connection) (matched bool, err error) {
 	for _, m := range mset {
-		cx.record()
+		cx.freeze()
 		matched, err = m.Match(cx)
-		cx.rewind()
+		cx.unfreeze()
 		if cx.Logger.Core().Enabled(zap.DebugLevel) {
 			matcher := "unknown"
 			if cm, ok := m.(caddy.Module); ok {

@@ -25,6 +25,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const MatchingTimeoutDefault = 3 * time.Second
+
 // Server represents a Caddy layer4 server.
 type Server struct {
 	// The network address to bind to. Any Caddy network address
@@ -35,6 +37,9 @@ type Server struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
+
 	logger        *zap.Logger
 	listenAddrs   []caddy.NetworkAddress
 	compiledRoute Handler
@@ -43,6 +48,10 @@ type Server struct {
 // Provision sets up the server.
 func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
+
+	if s.MatchingTimeout <= 0 {
+		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
+	}
 
 	for i, address := range s.Listen {
 		addr, err := caddy.ParseNetworkAddress(address)
@@ -56,7 +65,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	if err != nil {
 		return err
 	}
-	s.compiledRoute = s.Routes.Compile(nopHandler{}, s.logger)
+	s.compiledRoute = s.Routes.Compile(s.logger, time.Duration(s.MatchingTimeout), nopNextHandler{})
 
 	return nil
 }
@@ -99,8 +108,8 @@ func (s Server) servePacket(pc net.PacketConn) error {
 func (s Server) handle(conn net.Conn) {
 	defer conn.Close()
 
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
+	buf := bufPool.Get().([]byte)
+	buf = buf[:0]
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf, s.logger)

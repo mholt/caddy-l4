@@ -15,9 +15,8 @@
 package layer4
 
 import (
-	"bytes"
 	"context"
-	"io"
+	"errors"
 	"net"
 	"sync"
 
@@ -30,7 +29,7 @@ import (
 // and variable table. This function is intended for use at the start of a
 // connection handler chain where the underlying connection is not yet a layer4
 // Connection value.
-func WrapConnection(underlying net.Conn, buf *bytes.Buffer, logger *zap.Logger) *Connection {
+func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
 	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
 	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
@@ -66,50 +65,45 @@ type Connection struct {
 
 	Logger *zap.Logger
 
-	buf       *bytes.Buffer // stores recordings
-	bufReader io.Reader     // used to read buf so it doesn't discard bytes
-	recording bool
+	buf          []byte // stores matching data
+	offset       int
+	frozenOffset int
+	matching     bool
 
 	bytesRead, bytesWritten uint64
 }
+
+var ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
+var ErrMatchingBufferFull = errors.New("matching buffer is full")
 
 // Read implements io.Reader in such a way that reads first
 // deplete any associated buffer from the prior recording,
 // and once depleted (or if there isn't one), it continues
 // reading from the underlying connection.
 func (cx *Connection) Read(p []byte) (n int, err error) {
+	// if we are matching and consumed the buffer exit with error
+	if cx.matching && (len(cx.buf) == 0 || len(cx.buf) == cx.offset) {
+		return 0, ErrConsumedAllPrefetchedBytes
+	}
+
 	// if there is a buffer we should read from, start
 	// with that; we only read from the underlying conn
 	// after the buffer has been "depleted"
-	if cx.bufReader != nil {
-		n, err = cx.bufReader.Read(p)
-		if err == io.EOF {
-			cx.bufReader = nil
-			err = nil
+	if len(cx.buf) > 0 && cx.offset < len(cx.buf) {
+		n := copy(p, cx.buf[cx.offset:])
+		cx.offset += n
+		if !cx.matching && cx.offset == len(cx.buf) {
+			// if we are not in matching mode reset buf automatically after it was consumed
+			cx.offset = 0
+			cx.buf = cx.buf[:0]
 		}
-		// prevent first read from returning 0 bytes because of empty bufReader
-		if !(n == 0 && err == nil) {
-			return
-		}
+		return n, nil
 	}
 
 	// buffer has been "depleted" so read from
 	// underlying connection
 	n, err = cx.Conn.Read(p)
 	cx.bytesRead += uint64(n)
-
-	if !cx.recording {
-		return
-	}
-
-	// since we're recording at this point, anything that
-	// was read needs to be written to the buffer, even
-	// if there was an error
-	if n > 0 {
-		if nw, errw := cx.buf.Write(p[:n]); errw != nil {
-			return nw, errw
-		}
-	}
 
 	return
 }
@@ -130,33 +124,75 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 		Context:      cx.Context,
 		Logger:       cx.Logger,
 		buf:          cx.buf,
-		bufReader:    cx.bufReader,
-		recording:    cx.recording,
+		offset:       cx.offset,
+		matching:     cx.matching,
 		bytesRead:    cx.bytesRead,
 		bytesWritten: cx.bytesWritten,
 	}
 }
 
-// record starts recording the stream into cx.buf. It also creates a reader
-// to read from the buffer but not to discard any byte.
-func (cx *Connection) record() {
-	cx.recording = true
-	cx.bufReader = bytes.NewReader(cx.buf.Bytes()) // Don't discard bytes.
+// prefetch tries to read all bytes that a client initially sent us without blocking.
+func (cx *Connection) prefetch() (err error) {
+	var n int
+	var tmp []byte
+
+	for len(cx.buf) < MaxMatchingBytes {
+		free := cap(cx.buf) - len(cx.buf)
+		if free >= prefetchChunkSize {
+			n, err = cx.Conn.Read(cx.buf[len(cx.buf) : len(cx.buf)+prefetchChunkSize])
+			cx.buf = cx.buf[:len(cx.buf)+n]
+		} else {
+			if tmp == nil {
+				tmp = bufPool.Get().([]byte)
+				tmp = tmp[:prefetchChunkSize]
+				defer bufPool.Put(tmp)
+			}
+			n, err = cx.Conn.Read(tmp)
+			cx.buf = append(cx.buf, tmp[:n]...)
+		}
+
+		cx.bytesRead += uint64(n)
+
+		if err != nil {
+			return err
+		}
+
+		if n < prefetchChunkSize {
+			break
+		}
+	}
+
+	if cx.Logger.Core().Enabled(zap.DebugLevel) {
+		cx.Logger.Debug("prefetched",
+			zap.String("remote", cx.RemoteAddr().String()),
+			zap.Int("bytes", len(cx.buf)),
+		)
+	}
+
+	if len(cx.buf) >= MaxMatchingBytes {
+		return ErrMatchingBufferFull
+	}
+
+	return nil
 }
 
-// rewind stops recording and creates a reader for the
-// buffer so that the next reads from an associated
-// recordableConn come from the buffer first, then
-// continue with the underlying conn.
-func (cx *Connection) rewind() {
-	cx.recording = false
-	cx.bufReader = cx.buf // Actually consume bytes.
+// freeze activates the matching mode that only reads from cx.buf.
+func (cx *Connection) freeze() {
+	cx.matching = true
+	cx.frozenOffset = cx.offset
+}
+
+// unfreeze stops the matching mode and resets the buffer offset
+// so that the next reads come from the buffer first.
+func (cx *Connection) unfreeze() {
+	cx.matching = false
+	cx.offset = cx.frozenOffset
 }
 
 // SetVar sets a value in the context's variable table with
 // the given key. It overwrites any previous value with the
 // same key.
-func (cx Connection) SetVar(key string, value interface{}) {
+func (cx *Connection) SetVar(key string, value interface{}) {
 	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
 	if !ok {
 		return
@@ -167,12 +203,18 @@ func (cx Connection) SetVar(key string, value interface{}) {
 // GetVar gets a value from the context's variable table with
 // the given key. It returns the value if found, and true if
 // it found a value with that key; false otherwise.
-func (cx Connection) GetVar(key string) interface{} {
+func (cx *Connection) GetVar(key string) interface{} {
 	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
 	if !ok {
 		return nil
 	}
 	return varMap[key]
+}
+
+// MatchingBytes returns all bytes currently available for matching. This is only intended for reading.
+// Do not write into the slice. It's a view of the internal buffer and you will likely mess up the connection.
+func (cx *Connection) MatchingBytes() []byte {
+	return cx.buf[cx.offset:]
 }
 
 var (
@@ -187,8 +229,15 @@ var (
 	listenerCtxKey caddy.CtxKey = "listener"
 )
 
+const prefetchChunkSize = 1024
+
+// MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
+// This is probably most relevant for the http matcher since http requests do not have a size limit.
+// 8 KiB should cover most use-cases and is similar to popular webservers.
+const MaxMatchingBytes = 8 * 1024
+
 var bufPool = sync.Pool{
 	New: func() interface{} {
-		return new(bytes.Buffer)
+		return make([]byte, 0, prefetchChunkSize)
 	},
 }

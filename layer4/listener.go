@@ -1,16 +1,16 @@
 package layer4
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
-	"github.com/caddyserver/caddy/v2"
-	"go.uber.org/zap"
 	"net"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/caddyserver/caddy/v2"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -21,6 +21,9 @@ func init() {
 type ListenerWrapper struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
+
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	compiledRoute Handler
 
@@ -41,11 +44,15 @@ func (lw *ListenerWrapper) Provision(ctx caddy.Context) error {
 	lw.ctx = ctx
 	lw.logger = ctx.Logger()
 
+	if lw.MatchingTimeout <= 0 {
+		lw.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
+	}
+
 	err := lw.Routes.Provision(ctx)
 	if err != nil {
 		return err
 	}
-	lw.compiledRoute = lw.Routes.Compile(listenerHandler{}, lw.logger)
+	lw.compiledRoute = lw.Routes.Compile(lw.logger, time.Duration(lw.MatchingTimeout), listenerHandler{})
 
 	return nil
 }
@@ -116,8 +123,8 @@ func (l *listener) handle(conn net.Conn) {
 		}
 	}()
 
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
+	buf := bufPool.Get().([]byte)
+	buf = buf[:0]
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf, l.logger)

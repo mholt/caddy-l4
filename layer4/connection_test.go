@@ -8,12 +8,12 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestConnection_RecordAndRewind(t *testing.T) {
+func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	in, out := net.Pipe()
 	defer in.Close()
 	defer out.Close()
 
-	cx := WrapConnection(out, &bytes.Buffer{}, zap.NewNop())
+	cx := WrapConnection(out, []byte{}, zap.NewNop())
 	defer cx.Close()
 
 	matcherData := []byte("foo")
@@ -26,9 +26,14 @@ func TestConnection_RecordAndRewind(t *testing.T) {
 		in.Write(consumeData)
 	}()
 
-	// 1st matcher
+	// prefetch like server handler would
+	err := cx.prefetch()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	cx.record()
+	// 1st matcher
+	cx.freeze()
 
 	n, err := cx.Read(buf)
 	if err != nil {
@@ -41,11 +46,11 @@ func TestConnection_RecordAndRewind(t *testing.T) {
 		t.Fatalf("expected %s but received %s", matcherData, buf)
 	}
 
-	cx.rewind()
+	cx.unfreeze()
 
 	// 2nd matcher (reads same data)
 
-	cx.record()
+	cx.freeze()
 
 	n, err = cx.Read(buf)
 	if err != nil {
@@ -58,9 +63,9 @@ func TestConnection_RecordAndRewind(t *testing.T) {
 		t.Fatalf("expected %s but received %s", matcherData, buf)
 	}
 
-	cx.rewind()
+	cx.unfreeze()
 
-	// 1st consumer (no record call)
+	// 1st consumer (no freeze call)
 
 	n, err = cx.Read(buf)
 	if err != nil {

@@ -2,12 +2,13 @@ package l4socks
 
 import (
 	"fmt"
+	"net"
+	"strings"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/things-go/go-socks5"
 	"go.uber.org/zap"
-	"net"
-	"strings"
 )
 
 func init() {

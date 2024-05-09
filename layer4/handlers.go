@@ -60,6 +60,11 @@ type HandlerFunc func(*Connection) error
 // Handle handles a connection; it implements the Handler interface.
 func (h HandlerFunc) Handle(cx *Connection) error { return h(cx) }
 
+// NextHandlerFunc can turn a function into a NextHandler type.
+type NextHandlerFunc func(cx *Connection, next Handler) error
+
+func (h NextHandlerFunc) Handle(cx *Connection, next Handler) error { return h(cx, next) }
+
 // nopHandler is a connection handler that does nothing with the
 // connection, not even reading from it; it simply returns. It is
 // the default end of all handler chains.
@@ -75,9 +80,13 @@ type nopHandler struct{}
 
 func (nopHandler) Handle(_ *Connection) error { return nil }
 
+type nopNextHandler struct{}
+
+func (nopNextHandler) Handle(cx *Connection, next Handler) error { return next.Handle(cx) }
+
 // listenerHandler is a connection handler that pipe incoming connection to channel as a listener wrapper
 type listenerHandler struct{}
 
-func (listenerHandler) Handle(conn *Connection) error {
+func (listenerHandler) Handle(conn *Connection, _ Handler) error {
 	return conn.Context.Value(listenerCtxKey).(*listener).pipeConnection(conn)
 }
