@@ -27,7 +27,7 @@ func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool,
 	defer in.Close()
 	defer out.Close()
 
-	cx := layer4.WrapConnection(in, make([]byte, 0, layer4.PrefetchChunkSize), zap.NewNop())
+	cx := layer4.WrapConnection(in, make([]byte, 0), zap.NewNop())
 	go func() {
 		_, err := out.Write(data)
 		assertNoError(t, err)

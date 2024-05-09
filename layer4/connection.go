@@ -138,13 +138,13 @@ func (cx *Connection) prefetch() (err error) {
 
 	for len(cx.buf) < MaxMatchingBytes {
 		free := cap(cx.buf) - len(cx.buf)
-		if free >= PrefetchChunkSize {
-			n, err = cx.Conn.Read(cx.buf[len(cx.buf) : len(cx.buf)+PrefetchChunkSize])
+		if free >= prefetchChunkSize {
+			n, err = cx.Conn.Read(cx.buf[len(cx.buf) : len(cx.buf)+prefetchChunkSize])
 			cx.buf = cx.buf[:len(cx.buf)+n]
 		} else {
 			if tmp == nil {
 				tmp = bufPool.Get().([]byte)
-				tmp = tmp[:PrefetchChunkSize]
+				tmp = tmp[:prefetchChunkSize]
 				defer bufPool.Put(tmp)
 			}
 			n, err = cx.Conn.Read(tmp)
@@ -157,7 +157,7 @@ func (cx *Connection) prefetch() (err error) {
 			return err
 		}
 
-		if n < PrefetchChunkSize {
+		if n < prefetchChunkSize {
 			break
 		}
 	}
@@ -212,7 +212,7 @@ func (cx *Connection) GetVar(key string) interface{} {
 }
 
 // MatchingBytes returns all bytes currently available for matching. This is only intended for reading.
-// Do not write into the slice it's a view of the internal buffer and you will likely mess up the connection.
+// Do not write into the slice. It's a view of the internal buffer and you will likely mess up the connection.
 func (cx *Connection) MatchingBytes() []byte {
 	return cx.buf[cx.offset:]
 }
@@ -229,7 +229,7 @@ var (
 	listenerCtxKey caddy.CtxKey = "listener"
 )
 
-const PrefetchChunkSize = 1024
+const prefetchChunkSize = 1024
 
 // MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
 // This is probably most relevant for the http matcher since http requests do not have a size limit.
@@ -238,6 +238,6 @@ const MaxMatchingBytes = 8 * 1024
 
 var bufPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 0, PrefetchChunkSize)
+		return make([]byte, 0, prefetchChunkSize)
 	},
 }
