@@ -98,7 +98,7 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 // Compile prepares a middleware chain from the route list.
 // This should only be done once: after all the routes have
 // been provisioned, and before the server loop begins.
-func (routes RouteList) Compile(next NextHandler, logger *zap.Logger, matchingTimeout time.Duration) Handler {
+func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
 	return HandlerFunc(func(cx *Connection) error {
 		deadline := time.Now().Add(matchingTimeout)
 	router:

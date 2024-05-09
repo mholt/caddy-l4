@@ -45,14 +45,14 @@ func (lw *ListenerWrapper) Provision(ctx caddy.Context) error {
 	lw.logger = ctx.Logger()
 
 	if lw.MatchingTimeout <= 0 {
-		lw.MatchingTimeout = caddy.Duration(3 * time.Second)
+		lw.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
 
 	err := lw.Routes.Provision(ctx)
 	if err != nil {
 		return err
 	}
-	lw.compiledRoute = lw.Routes.Compile(listenerHandler{}, lw.logger, time.Duration(lw.MatchingTimeout))
+	lw.compiledRoute = lw.Routes.Compile(lw.logger, time.Duration(lw.MatchingTimeout), listenerHandler{})
 
 	return nil
 }

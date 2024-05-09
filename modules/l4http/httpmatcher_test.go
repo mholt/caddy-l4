@@ -45,10 +45,11 @@ func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool,
 	assertNoError(t, err)
 
 	matched := false
-	compiledRoute := routes.Compile(layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
-		matched = true
-		return nil
-	}), zap.NewNop(), 10*time.Millisecond)
+	compiledRoute := routes.Compile(zap.NewNop(), 10*time.Millisecond,
+		layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
+			matched = true
+			return nil
+		}))
 
 	err = compiledRoute.Handle(cx)
 	assertNoError(t, err)
@@ -203,10 +204,11 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 	assertNoError(t, err)
 
 	handlerCalled := false
-	compiledRoute := routes.Compile(layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
-		handlerCalled = true
-		return nil
-	}), zap.NewNop(), 100*time.Millisecond)
+	compiledRoute := routes.Compile(zap.NewNop(), 100*time.Millisecond,
+		layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
+			handlerCalled = true
+			return nil
+		}))
 
 	in, out := net.Pipe()
 	defer in.Close()

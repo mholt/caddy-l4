@@ -26,10 +26,11 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 
 	matched := false
 	loggerCore, logs := observer.New(zapcore.WarnLevel)
-	compiledRoutes := routes.Compile(NextHandlerFunc(func(con *Connection, next Handler) error {
-		matched = true
-		return next.Handle(con)
-	}), zap.New(loggerCore), 5*time.Millisecond)
+	compiledRoutes := routes.Compile(zap.New(loggerCore), 5*time.Millisecond,
+		NextHandlerFunc(func(con *Connection, next Handler) error {
+			matched = true
+			return next.Handle(con)
+		}))
 
 	in, out := net.Pipe()
 	defer in.Close()

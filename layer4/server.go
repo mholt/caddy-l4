@@ -25,6 +25,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const MatchingTimeoutDefault = 3 * time.Second
+
 // Server represents a Caddy layer4 server.
 type Server struct {
 	// The network address to bind to. Any Caddy network address
@@ -48,7 +50,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
 
 	if s.MatchingTimeout <= 0 {
-		s.MatchingTimeout = caddy.Duration(3 * time.Second)
+		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
 
 	for i, address := range s.Listen {
@@ -63,7 +65,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	if err != nil {
 		return err
 	}
-	s.compiledRoute = s.Routes.Compile(nopNextHandler{}, s.logger, time.Duration(s.MatchingTimeout))
+	s.compiledRoute = s.Routes.Compile(s.logger, time.Duration(s.MatchingTimeout), nopNextHandler{})
 
 	return nil
 }

@@ -54,7 +54,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 	h.logger = ctx.Logger(h)
 
 	if h.MatchingTimeout <= 0 {
-		h.MatchingTimeout = caddy.Duration(3 * time.Second)
+		h.MatchingTimeout = caddy.Duration(layer4.MatchingTimeoutDefault)
 	}
 
 	if h.Routes != nil {
@@ -68,9 +68,10 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
-	subroute := h.Routes.Compile(layer4.NextHandlerFunc(func(cx *layer4.Connection, _ layer4.Handler) error {
-		return next.Handle(cx) // continue with original chain after subroute
-	}), h.logger, time.Duration(h.MatchingTimeout))
+	subroute := h.Routes.Compile(h.logger, time.Duration(h.MatchingTimeout),
+		layer4.NextHandlerFunc(func(cx *layer4.Connection, _ layer4.Handler) error {
+			return next.Handle(cx) // continue with original chain after subroute
+		}))
 	return subroute.Handle(cx)
 }
 
