@@ -107,17 +107,26 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		if err != nil {
 			return err
 		}
+		isFirstPrefetch := true
 		for { // retry prefetching and matching routes until timeout
-			err = cx.prefetch()
-			if err != nil {
-				logFunc := logger.Error
-				if errors.Is(err, os.ErrDeadlineExceeded) {
-					err = ErrMatchingTimeout
-					logFunc = logger.Warn
+
+			// Do not call prefetch if this is the first loop iteration and there already is some data available,
+			// since this means we are at the start of a subroute handler and previous prefetch calls likely already fetched all bytes available from the client.
+			// Which means it would block the subroute handler. In the second iteration (if no subroute routes match) blocking is the correct behaviour.
+			if !isFirstPrefetch || cx.buf == nil || len(cx.buf[cx.offset:]) == 0 {
+				err = cx.prefetch()
+				isFirstPrefetch = false
+				if err != nil {
+					logFunc := logger.Error
+					if errors.Is(err, os.ErrDeadlineExceeded) {
+						err = ErrMatchingTimeout
+						logFunc = logger.Warn
+					}
+					logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+					return nil // return nil so the error does not get logged again
 				}
-				logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
-				return nil // return nil so the error does not get logged again
 			}
+
 			for _, route := range routes {
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
