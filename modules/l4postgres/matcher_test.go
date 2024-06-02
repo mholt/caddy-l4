@@ -47,7 +47,7 @@ func matchTester(t *testing.T, matcher layer4.ConnMatcher, data []byte) (bool, e
 	in, out := net.Pipe()
 	defer closePipe(wg, in, out)
 
-	cx := layer4.WrapConnection(in, &bytes.Buffer{}, zap.NewNop())
+	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 
 	wg.Add(1)
 	go func() {
