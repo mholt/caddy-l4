@@ -101,6 +101,7 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
 	return HandlerFunc(func(cx *Connection) error {
 		deadline := time.Now().Add(matchingTimeout)
+		lastMatchedRouteIdx := -1
 	router:
 		// timeout matching to protect against malicious or very slow clients
 		err := cx.Conn.SetReadDeadline(deadline)
@@ -127,7 +128,16 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 			}
 
-			for _, route := range routes {
+			for i, route := range routes {
+				// After a match continue with the routes after the matched one, instead of starting at the beginning.
+				// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
+				// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
+				if i <= lastMatchedRouteIdx {
+					continue
+				}
+				// Only skip once after a match, so it behaves like we continued after the match.
+				lastMatchedRouteIdx = -1
+
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
@@ -168,6 +178,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					if isTerminal {
 						return nil
 					} else {
+						lastMatchedRouteIdx = i
 						goto router
 					}
 				}
