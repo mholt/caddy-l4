@@ -27,6 +27,14 @@ import (
 // UpstreamPool is a collection of upstreams.
 type UpstreamPool []*Upstream
 
+type UpstreamTLSConfig struct {
+	reverseproxy.TLSConfig
+
+	// Propagate TLS configuration of the client to for the upstream connection
+	// Setting this to true resembles default behvior when TLS configuration is nil
+	PropagateClientConfig bool `json:"use_client_config,omitempty"`
+}
+
 // Upstream represents a proxy upstream.
 type Upstream struct {
 	// The network addresses to dial. Supports placeholders, but not port
@@ -34,7 +42,7 @@ type Upstream struct {
 	Dial []string `json:"dial,omitempty"`
 
 	// Set this field to enable TLS to the upstream.
-	TLS *reverseproxy.TLSConfig `json:"tls,omitempty"`
+	TLS *UpstreamTLSConfig `json:"tls,omitempty"`
 
 	// How many connections this upstream is allowed to
 	// have before being marked as unhealthy (if > 0).
