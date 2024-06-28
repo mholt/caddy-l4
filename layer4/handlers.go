@@ -80,13 +80,16 @@ type nopHandler struct{}
 
 func (nopHandler) Handle(_ *Connection) error { return nil }
 
-type nopNextHandler struct{}
+// forwardNextHandler will forward the handling to the next handler in the chain.
+type forwardNextHandler struct{}
 
-func (nopNextHandler) Handle(cx *Connection, next Handler) error { return next.Handle(cx) }
+func (forwardNextHandler) Handle(cx *Connection, next Handler) error {
+	return next.Handle(cx)
+}
 
 // listenerHandler is a connection handler that pipe incoming connection to channel as a listener wrapper
 type listenerHandler struct{}
 
-func (listenerHandler) Handle(conn *Connection, _ Handler) error {
+func (listenerHandler) Handle(conn *Connection) error {
 	return conn.Context.Value(listenerCtxKey).(*listener).pipeConnection(conn)
 }
