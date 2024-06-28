@@ -108,15 +108,14 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		if err != nil {
 			return err
 		}
-		isFirstPrefetch := true
-		for { // retry prefetching and matching routes until timeout
+
+		for i := 0; i < 10000; i++ { // retry prefetching and matching routes until timeout
 
 			// Do not call prefetch if this is the first loop iteration and there already is some data available,
 			// since this means we are at the start of a subroute handler and previous prefetch calls likely already fetched all bytes available from the client.
 			// Which means it would block the subroute handler. In the second iteration (if no subroute routes match) blocking is the correct behaviour.
-			if !isFirstPrefetch || cx.buf == nil || len(cx.buf[cx.offset:]) == 0 {
+			if i != 0 || cx.buf == nil || len(cx.buf[cx.offset:]) == 0 {
 				err = cx.prefetch()
-				isFirstPrefetch = false
 				if err != nil {
 					logFunc := logger.Error
 					if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -184,5 +183,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 			}
 		}
+
+		logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(errors.New("number of prefetch calls exhausted")))
+		return nil
 	})
 }
