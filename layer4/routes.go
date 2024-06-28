@@ -112,6 +112,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		var (
 			lastMatchedRouteIdx = -1
 			routesStatus        = make(map[int]int)
+			matcherNeedMore     bool
 		)
 		// this loop should only be done if there are matchers that can't determine the match,
 		// i.e. some of the matchers returned false, ErrConsumedAllPrefetchedBytes. The index which
@@ -123,15 +124,19 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			return err
 		}
 		for {
-			err = cx.prefetch()
-			if err != nil {
-				logFunc := logger.Error
-				if errors.Is(err, os.ErrDeadlineExceeded) {
-					err = ErrMatchingTimeout
-					logFunc = logger.Warn
+			// only read more because there is no buffered data or matchers require more.
+			// can happen if this routes list is embedded in another
+			if len(cx.buf) == 0 || matcherNeedMore {
+				err = cx.prefetch()
+				if err != nil {
+					logFunc := logger.Error
+					if errors.Is(err, os.ErrDeadlineExceeded) {
+						err = ErrMatchingTimeout
+						logFunc = logger.Warn
+					}
+					logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+					return nil // return nil so the error does not get logged again
 				}
-				logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
-				return nil // return nil so the error does not get logged again
 			}
 
 			for i, route := range routes {
@@ -206,6 +211,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			}
 			// some of the matchers can't reach a conclusion
 			if indetermined > 0 {
+				matcherNeedMore = true
 				goto loop
 			}
 			return next.Handle(cx)
