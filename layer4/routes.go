@@ -73,7 +73,6 @@ func (r *Route) Provision(ctx caddy.Context) error {
 	for _, midhandler := range handlers {
 		r.middleware = append(r.middleware, wrapHandler(midhandler))
 	}
-
 	return nil
 }
 
@@ -95,51 +94,62 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 	return nil
 }
 
+const (
+	// routes that need more data to determine the match
+	routeNeedsMore = iota
+	// routes definitely not matched
+	routeNotMatched
+	routeMatched
+)
+
 // Compile prepares a middleware chain from the route list.
 // This should only be done once: after all the routes have
 // been provisioned, and before the server loop begins.
-func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
+func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next Handler) Handler {
 	return HandlerFunc(func(cx *Connection) error {
 		deadline := time.Now().Add(matchingTimeout)
-		lastMatchedRouteIdx := -1
-	router:
+
+		var (
+			lastMatchedRouteIdx = -1
+			routesStatus        = make(map[int]int)
+		)
+		// this loop should only be done if there are matchers that can't determine the match,
+		// i.e. some of the matchers returned false, ErrConsumedAllPrefetchedBytes. The index which
+		// the loop begins depends upon if there is a matched route.
+	loop:
 		// timeout matching to protect against malicious or very slow clients
 		err := cx.Conn.SetReadDeadline(deadline)
 		if err != nil {
 			return err
 		}
-
-		for i := 0; i < 10000; i++ { // retry prefetching and matching routes until timeout
-
-			// Do not call prefetch if this is the first loop iteration and there already is some data available,
-			// since this means we are at the start of a subroute handler and previous prefetch calls likely already fetched all bytes available from the client.
-			// Which means it would block the subroute handler. In the second iteration (if no subroute routes match) blocking is the correct behaviour.
-			if i != 0 || cx.buf == nil || len(cx.buf[cx.offset:]) == 0 {
-				err = cx.prefetch()
-				if err != nil {
-					logFunc := logger.Error
-					if errors.Is(err, os.ErrDeadlineExceeded) {
-						err = ErrMatchingTimeout
-						logFunc = logger.Warn
-					}
-					logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
-					return nil // return nil so the error does not get logged again
+		for {
+			err = cx.prefetch()
+			if err != nil {
+				logFunc := logger.Error
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					err = ErrMatchingTimeout
+					logFunc = logger.Warn
 				}
+				logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+				return nil // return nil so the error does not get logged again
 			}
 
 			for i, route := range routes {
-				// After a match continue with the routes after the matched one, instead of starting at the beginning.
-				// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
-				// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
 				if i <= lastMatchedRouteIdx {
 					continue
 				}
-				// Only skip once after a match, so it behaves like we continued after the match.
-				lastMatchedRouteIdx = -1
+
+				// If the route is definitely not matched, skip it
+				if s, ok := routesStatus[i]; ok && s == routeNotMatched {
+					continue
+				}
+				// now the matcher is after a matched route and current route needs more data to determine if more data is needed.
+				// note a matcher is skipped if the one after it can determine it is matched
 
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
+					routesStatus[i] = routeNeedsMore
 					continue // ignore and try next route
 				}
 				if err != nil {
@@ -147,6 +157,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					return nil
 				}
 				if matched {
+					routesStatus[i] = routeMatched
+					lastMatchedRouteIdx = i
 					// remove deadline after we matched
 					err = cx.Conn.SetReadDeadline(time.Time{})
 					if err != nil {
@@ -163,7 +175,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 						return nil
 					})
 					// compile the route handler stack with lastHandler being called last
-					handler := wrapHandler(next)(lastHandler)
+					handler := wrapHandler(forwardNextHandler{})(lastHandler)
 					for i := len(route.middleware) - 1; i >= 0; i-- {
 						handler = route.middleware[i](handler)
 					}
@@ -173,18 +185,30 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					}
 
 					// If handler is terminal we stop routing,
-					// otherwise we jump back to the start of the routing loop to peel of more protocol layers.
+					// otherwise we try the next handler.
 					if isTerminal {
 						return nil
-					} else {
-						lastMatchedRouteIdx = i
-						goto router
 					}
+				} else {
+					routesStatus[i] = routeNotMatched
 				}
 			}
+			// end of match
+			if lastMatchedRouteIdx == len(routes)-1 {
+				// next is called because if the last handler is terminal, it's already returned
+				return next.Handle(cx)
+			}
+			var indetermined int
+			for i, s := range routesStatus {
+				if i > lastMatchedRouteIdx && s == routeNeedsMore {
+					indetermined++
+				}
+			}
+			// some of the matchers can't reach a conclusion
+			if indetermined > 0 {
+				goto loop
+			}
+			return next.Handle(cx)
 		}
-
-		logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(errors.New("number of prefetch calls exhausted")))
-		return nil
 	})
 }

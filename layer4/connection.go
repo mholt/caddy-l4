@@ -136,19 +136,19 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 // prefetch tries to read all bytes that a client initially sent us without blocking.
 func (cx *Connection) prefetch() (err error) {
 	var n int
-	var tmp []byte
 
-	for len(cx.buf) < MaxMatchingBytes {
+	// read once
+	if len(cx.buf) < MaxMatchingBytes {
 		free := cap(cx.buf) - len(cx.buf)
 		if free >= prefetchChunkSize {
 			n, err = cx.Conn.Read(cx.buf[len(cx.buf) : len(cx.buf)+prefetchChunkSize])
 			cx.buf = cx.buf[:len(cx.buf)+n]
 		} else {
-			if tmp == nil {
-				tmp = bufPool.Get().([]byte)
-				tmp = tmp[:prefetchChunkSize]
-				defer bufPool.Put(tmp)
-			}
+			var tmp []byte
+			tmp = bufPool.Get().([]byte)
+			tmp = tmp[:prefetchChunkSize]
+			defer bufPool.Put(tmp)
+
 			n, err = cx.Conn.Read(tmp)
 			cx.buf = append(cx.buf, tmp[:n]...)
 		}
@@ -159,23 +159,17 @@ func (cx *Connection) prefetch() (err error) {
 			return err
 		}
 
-		if n < prefetchChunkSize {
-			break
+		if cx.Logger.Core().Enabled(zap.DebugLevel) {
+			cx.Logger.Debug("prefetched",
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Int("bytes", len(cx.buf)),
+			)
 		}
+
+		return nil
 	}
 
-	if cx.Logger.Core().Enabled(zap.DebugLevel) {
-		cx.Logger.Debug("prefetched",
-			zap.String("remote", cx.RemoteAddr().String()),
-			zap.Int("bytes", len(cx.buf)),
-		)
-	}
-
-	if len(cx.buf) >= MaxMatchingBytes {
-		return ErrMatchingBufferFull
-	}
-
-	return nil
+	return ErrMatchingBufferFull
 }
 
 // freeze activates the matching mode that only reads from cx.buf.

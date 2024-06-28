@@ -70,10 +70,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
-	subroute := h.Routes.Compile(h.logger, time.Duration(h.MatchingTimeout),
-		layer4.NextHandlerFunc(func(cx *layer4.Connection, _ layer4.Handler) error {
-			return next.Handle(cx) // continue with original chain after subroute
-		}))
+	subroute := h.Routes.Compile(h.logger, time.Duration(h.MatchingTimeout), next)
 	return subroute.Handle(cx)
 }
 
