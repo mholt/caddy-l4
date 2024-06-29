@@ -219,5 +219,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			}
 			return next.Handle(cx)
 		}
+
+		logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(errors.New("number of prefetch calls exhausted")))
+		return nil
 	})
 }
