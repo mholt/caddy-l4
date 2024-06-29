@@ -111,6 +111,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 
 		var (
 			lastMatchedRouteIdx = -1
+			lastNeedsMoreIdx    = -1
 			routesStatus        = make(map[int]int)
 			matcherNeedMore     bool
 		)
@@ -145,7 +146,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 
 				// If the route is definitely not matched, skip it
-				if s, ok := routesStatus[i]; ok && s == routeNotMatched {
+				if s, ok := routesStatus[i]; ok && s == routeNotMatched && i <= lastNeedsMoreIdx {
 					continue
 				}
 				// now the matcher is after a matched route and current route needs more data to determine if more data is needed.
@@ -154,6 +155,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
+					lastNeedsMoreIdx = i
 					routesStatus[i] = routeNeedsMore
 					continue // ignore and try next route
 				}
@@ -164,6 +166,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				if matched {
 					routesStatus[i] = routeMatched
 					lastMatchedRouteIdx = i
+					lastNeedsMoreIdx = i
 					// remove deadline after we matched
 					err = cx.Conn.SetReadDeadline(time.Time{})
 					if err != nil {
