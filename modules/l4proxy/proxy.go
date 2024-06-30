@@ -201,7 +201,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			// in which case we adopt the downstream client's TLS ClientHello for ours;
 			// i.e. by default, make the client's TLS config as transparent as possible
 			tlsCfg := upstream.tlsConfig
-			if tlsCfg == nil {
+			if tlsCfg == nil || upstream.TLS.PropagateClientConfig {
 				tlsCfg = new(tls.Config)
 				if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
 					hellos[0].FillTLSClientConfig(tlsCfg)
