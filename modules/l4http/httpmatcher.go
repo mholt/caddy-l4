@@ -82,8 +82,9 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 		var err error
 
 		data := cx.MatchingBytes()
-		if !m.isHttp(data) {
-			return false, nil
+		match, err := m.isHttp(data)
+		if !match {
+			return match, err
 		}
 
 		// use bufio reader which exactly matches the size of prefetched data,
@@ -122,11 +123,15 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	return m.matcherSets.AnyMatch(req), nil
 }
 
-func (m MatchHTTP) isHttp(data []byte) bool {
+func (m MatchHTTP) isHttp(data []byte) (bool, error) {
 	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
+	if i == -1 {
+		// no line break found yet so we signal we need more data
+		return false, layer4.ErrConsumedAllPrefetchedBytes
+	}
 	if i < 10 {
-		return false
+		return false, nil
 	}
 	// assume only \n line ending
 	start := i - 9 // position of space in front of HTTP
@@ -136,7 +141,7 @@ func (m MatchHTTP) isHttp(data []byte) bool {
 		start -= 1
 		end -= 1
 	}
-	return bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
+	return bytes.Compare(data[start:end], []byte(" HTTP/")) == 0, nil
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)

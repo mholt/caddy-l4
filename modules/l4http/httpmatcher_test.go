@@ -252,47 +252,64 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 		name        string
 		data        []byte
 		shouldMatch bool
+		expectedErr error
 	}{
 		{
 			name:        "http/1.1-only-lf",
 			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.1\nHost: localhost:10443\n\n"),
 			shouldMatch: true,
+			expectedErr: nil,
 		},
 		{
 			name:        "http/1.1-cr-lf",
 			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.1\r\nHost: localhost:10443\r\n\r\n"),
 			shouldMatch: true,
+			expectedErr: nil,
 		},
 		{
 			name:        "http/1.0-cr-lf",
 			data:        []byte("GET /foo/bar?aaa=bbb HTTP/1.0\r\nHost: localhost:10443\r\n\r\n"),
 			shouldMatch: true,
+			expectedErr: nil,
 		},
 		{
 			name:        "http/2.0-cr-lf",
 			data:        []byte("PRI * HTTP/2.0\r\n\r\n"),
 			shouldMatch: true,
+			expectedErr: nil,
 		},
 		{
 			name:        "dummy-short",
 			data:        []byte("dum\n"),
 			shouldMatch: false,
+			expectedErr: nil,
 		},
 		{
 			name:        "dummy-long",
 			data:        []byte("dummydummydummy\n"),
 			shouldMatch: false,
+			expectedErr: nil,
 		},
 		{
 			name:        "http/1.1-without-space-in-front",
 			data:        []byte("HTTP/1.1\n"),
 			shouldMatch: false,
+			expectedErr: nil,
+		},
+		{
+			name:        "get-with-incomplete-request-line",
+			data:        []byte("GET /with/incomplete/request-line"),
+			shouldMatch: false,
+			expectedErr: layer4.ErrConsumedAllPrefetchedBytes,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched := MatchHTTP{}.isHttp(tc.data)
+			matched, err := MatchHTTP{}.isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
+			}
+			if err != tc.expectedErr {
+				t.Fatalf("test %v | err: %v != expectedErr: %v", tc.name, err, tc.expectedErr)
 			}
 		})
 	}
