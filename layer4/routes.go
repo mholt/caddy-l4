@@ -15,6 +15,7 @@
 package layer4
 
 import (
+	"container/ring"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,7 +102,14 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
 	return HandlerFunc(func(cx *Connection) error {
 		deadline := time.Now().Add(matchingTimeout)
-		lastMatchedRouteIdx := -1
+
+		routesIdxRing := ring.New(len(routes))
+		for i := 0; i < len(routes); i++ {
+			routesIdxRing.Value = i
+			routesIdxRing = routesIdxRing.Next()
+		}
+
+		notMatchingRoutes := make(map[int]struct{}, len(routes))
 	router:
 		// timeout matching to protect against malicious or very slow clients
 		err := cx.Conn.SetReadDeadline(deadline)
@@ -127,15 +135,20 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 			}
 
-			for i, route := range routes {
-				// After a match continue with the routes after the matched one, instead of starting at the beginning.
-				// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
-				// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
-				if i <= lastMatchedRouteIdx {
+			// Use a ring to try routes in a strictly circular fashion.
+			// After a match continue with the routes after the matched one, instead of starting at the beginning.
+			// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
+			// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
+			for j := 0; j < len(routes); j++ {
+				routeIdx := routesIdxRing.Value.(int)
+				routesIdxRing = routesIdxRing.Next()
+
+				// Skip routes that signaled they definitely can not match
+				if _, ok := notMatchingRoutes[routeIdx]; ok {
 					continue
 				}
-				// Only skip once after a match, so it behaves like we continued after the match.
-				lastMatchedRouteIdx = -1
+
+				route := routes[routeIdx]
 
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
@@ -164,8 +177,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					})
 					// compile the route handler stack with lastHandler being called last
 					handler := wrapHandler(next)(lastHandler)
-					for i := len(route.middleware) - 1; i >= 0; i-- {
-						handler = route.middleware[i](handler)
+					for j := len(route.middleware) - 1; j >= 0; j-- {
+						handler = route.middleware[j](handler)
 					}
 					err = handler.Handle(cx)
 					if err != nil {
@@ -177,10 +190,19 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					if isTerminal {
 						return nil
 					} else {
-						lastMatchedRouteIdx = i
+						clear(notMatchingRoutes) // after a match all routes should get a chance again
 						goto router
 					}
+				} else {
+					// remember to not try this route again
+					notMatchingRoutes[routeIdx] = struct{}{}
 				}
+			}
+
+			// If all routes signaled they definitely can not be matched even with more data,
+			// we stop matching and directly call the fallback handler. This fixes https://github.com/mholt/caddy-l4/issues/207.
+			if len(notMatchingRoutes) == len(routes) {
+				return next.Handle(cx, nopHandler{})
 			}
 		}
 
