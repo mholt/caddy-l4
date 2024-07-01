@@ -209,6 +209,8 @@ func (cx *Connection) GetVar(key string) interface{} {
 
 // MatchingBytes returns all bytes currently available for matching. This is only intended for reading.
 // Do not write into the slice. It's a view of the internal buffer, and you will likely mess up the connection.
+// Use of this for matching purpose should be accompanied by corresponding error value,
+// ErrConsumedAllPrefetchedBytes and ErrMatchingBufferFull, if not matched.
 func (cx *Connection) MatchingBytes() []byte {
 	return cx.buf[cx.offset:]
 }

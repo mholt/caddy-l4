@@ -314,7 +314,7 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched := (&MatchHTTP{}).isHttp(tc.data)
+			_, matched := MatchHTTP{}.isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
 			}
