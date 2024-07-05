@@ -101,6 +101,7 @@ func (m MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 	repl.Set("l4.tls.server_name", chi.ClientHelloInfo.ServerName)
 	repl.Set("l4.tls.version", chi.Version)
+	repl.Set("l4.tls.cipher_suite", chi.CipherSuites)
 
 	for _, matcher := range m.matchers {
 		// TODO: even though we have more data than the standard lib's
