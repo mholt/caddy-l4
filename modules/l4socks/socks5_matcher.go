@@ -1,9 +1,12 @@
 package l4socks
 
 import (
-	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
+	"strconv"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
@@ -65,9 +68,52 @@ func (m *Socks5Matcher) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
+// UnmarshalCaddyfile sets up the Socks5Matcher from Caddyfile tokens. Syntax:
+//
+//	socks5 {
+//		auth_methods <auth_methods...>
+//	}
+//
+// socks5
+func (m *Socks5Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "auth_methods":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			for d.NextArg() {
+				authMethod, err := strconv.ParseUint(d.Val(), 10, 8)
+				if err != nil {
+					return d.WrapErr(err)
+				}
+				m.AuthMethods = append(m.AuthMethods, uint8(authMethod))
+			}
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 var (
-	_ layer4.ConnMatcher = (*Socks5Matcher)(nil)
-	_ caddy.Provisioner  = (*Socks5Matcher)(nil)
+	_ layer4.ConnMatcher    = (*Socks5Matcher)(nil)
+	_ caddy.Provisioner     = (*Socks5Matcher)(nil)
+	_ caddyfile.Unmarshaler = (*Socks5Matcher)(nil)
 )
 
 func contains(values []uint8, search uint8) bool {
