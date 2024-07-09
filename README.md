@@ -80,22 +80,20 @@ A simple echo server:
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"example": {
-					"listen": ["127.0.0.1:5000"],
-					"routes": [
-						{
-							"handle": [
-								{"handler": "echo"}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "example": {
+          "listen": ["127.0.0.1:5000"],
+          "routes": [
+            {
+              "handle": [{ "handler": "echo" }]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -104,35 +102,32 @@ A simple echo server with TLS termination that uses a self-signed cert for `loca
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"example": {
-					"listen": ["127.0.0.1:5000"],
-					"routes": [
-						{
-							"handle": [
-								{"handler": "tls"},
-								{"handler": "echo"}
-							]
-						}
-					]
-				}
-			}
-		},
-		"tls": {
-			"certificates": {
-				"automate": ["localhost"]
-			},
-			"automation": {
-				"policies": [
-					{
-						"issuers": [{"module": "internal"}]
-					}
-				]
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "example": {
+          "listen": ["127.0.0.1:5000"],
+          "routes": [
+            {
+              "handle": [{ "handler": "tls" }, { "handler": "echo" }]
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "certificates": {
+        "automate": ["localhost"]
+      },
+      "automation": {
+        "policies": [
+          {
+            "issuers": [{ "module": "internal" }]
+          }
+        ]
+      }
+    }
+  }
 }
 ```
 
@@ -140,50 +135,46 @@ A simple TCP reverse proxy that terminates TLS on 993, and sends the PROXY proto
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"secure-imap": {
-					"listen": ["0.0.0.0:993"],
-					"routes": [
-						{
-							"handle": [
-								{
-									"handler": "tls"
-								},
-								{
-									"handler": "proxy",
-									"proxy_protocol": "v1",
-									"upstreams": [
-										{"dial": ["localhost:143"]}
-									]
-								}
-							]
-						}
-					]
-				},
-				"normal-imap": {
-					"listen": ["0.0.0.0:143"],
-					"routes": [
-						{
-							"handle": [
-								{
-									"handler": "proxy_protocol"
-								},
-								{
-									"handler": "proxy",
-									"proxy_protocol": "v2",
-									"upstreams": [
-										{"dial": ["localhost:1143"]}
-									]
-								}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "secure-imap": {
+          "listen": ["0.0.0.0:993"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "tls"
+                },
+                {
+                  "handler": "proxy",
+                  "proxy_protocol": "v1",
+                  "upstreams": [{ "dial": ["localhost:143"] }]
+                }
+              ]
+            }
+          ]
+        },
+        "normal-imap": {
+          "listen": ["0.0.0.0:143"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "proxy_protocol"
+                },
+                {
+                  "handler": "proxy",
+                  "proxy_protocol": "v2",
+                  "upstreams": [{ "dial": ["localhost:1143"] }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -191,47 +182,43 @@ A multiplexer that proxies HTTP to one backend, and TLS to another (without term
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"example": {
-					"listen": ["127.0.0.1:5000"],
-					"routes": [
-						{
-							"match": [
-								{
-									"http": []
-								}
-							],
-							"handle": [
-								{
-									"handler": "proxy",
-									"upstreams": [
-										{"dial": ["localhost:80"]}
-									]
-								}
-							]
-						},
-						{
-							"match": [
-								{
-									"tls": {}
-								}
-							],
-							"handle": [
-								{
-									"handler": "proxy",
-									"upstreams": [
-										{"dial": ["localhost:443"]}
-									]
-								}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "example": {
+          "listen": ["127.0.0.1:5000"],
+          "routes": [
+            {
+              "match": [
+                {
+                  "http": []
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [{ "dial": ["localhost:80"] }]
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "tls": {}
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [{ "dial": ["localhost:443"] }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -239,63 +226,57 @@ Same as previous, but only applies to HTTP requests with specific hosts:
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"example": {
-					"listen": ["127.0.0.1:5000"],
-					"routes": [
-						{
-							"match": [
-								{
-									"http": [
-										{"host": ["example.com"]}
-									]
-								}
-							],
-							"handle": [
-								{
-									"handler": "subroute",
-									"routes": [
-										{
-											"match": [
-												{
-													"http": []
-												}
-											],
-											"handle": [
-												{
-													"handler": "proxy",
-													"upstreams": [
-														{"dial": ["localhost:80"]}
-													]
-												}
-											]
-										},
-										{
-											"match": [
-												{
-													"tls": {}
-												}
-											],
-											"handle": [
-												{
-													"handler": "proxy",
-													"upstreams": [
-														{"dial": ["localhost:443"]}
-													]
-												}
-											]
-										}
-									]
-								}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "example": {
+          "listen": ["127.0.0.1:5000"],
+          "routes": [
+            {
+              "match": [
+                {
+                  "http": [{ "host": ["example.com"] }]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "match": [
+                        {
+                          "http": []
+                        }
+                      ],
+                      "handle": [
+                        {
+                          "handler": "proxy",
+                          "upstreams": [{ "dial": ["localhost:80"] }]
+                        }
+                      ]
+                    },
+                    {
+                      "match": [
+                        {
+                          "tls": {}
+                        }
+                      ],
+                      "handle": [
+                        {
+                          "handler": "proxy",
+                          "upstreams": [{ "dial": ["localhost:443"] }]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -303,51 +284,45 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"example": {
-					"listen": ["127.0.0.1:5000"],
-					"routes": [
-						{
-							"match": [
-								{
-									"http": [
-										{"host": ["example.com"]}
-									]
-								}
-							],
-							"handle": [
-								{
-									"handler": "proxy",
-									"upstreams": [
-										{"dial": ["localhost:80"]}
-									]
-								}
-							]
-						},
-						{
-							"match": [
-								{
-									"tls": {
-										"sni": ["example.net"]
-									}
-								}
-							],
-							"handle": [
-								{
-									"handler": "proxy",
-									"upstreams": [
-										{"dial": ["localhost:443"]}
-									]
-								}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "example": {
+          "listen": ["127.0.0.1:5000"],
+          "routes": [
+            {
+              "match": [
+                {
+                  "http": [{ "host": ["example.com"] }]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [{ "dial": ["localhost:80"] }]
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "tls": {
+                    "sni": ["example.net"]
+                  }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [{ "dial": ["localhost:443"] }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
 ```
 
@@ -357,47 +332,46 @@ While only allowing connections from a specific network and requiring a username
 
 ```json
 {
-	"apps": {
-		"layer4": {
-			"servers": {
-				"socks": {
-					"listen": ["0.0.0.0:1080"],
-					"routes": [
-						{
-							"match": [
-								{
-									"socks5": {},
-									"ip": {"ranges": ["10.0.0.0/24"]}
-								}
-							],
-							"handle": [
-								{
-									"handler": "socks5",
-									"credentials": {
-										"bob": "qHoEtVpGRM"
-									}
-								}
-							]
-						},
-						{
-							"match": [
-								{
-									"socks4": {}
-								}
-							],
-							"handle": [
-								{
-									"handler": "proxy",
-									"upstreams": [
-										{"dial": ["10.64.0.1:1080"]}
-									]
-								}
-							]
-						}
-					]
-				}
-			}
-		}
-	}
+  "apps": {
+    "layer4": {
+      "servers": {
+        "socks": {
+          "listen": ["0.0.0.0:1080"],
+          "routes": [
+            {
+              "match": [
+                {
+                  "socks5": {},
+                  "ip": { "ranges": ["10.0.0.0/24"] }
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "socks5",
+                  "credentials": {
+                    "bob": "qHoEtVpGRM"
+                  }
+                }
+              ]
+            },
+            {
+              "match": [
+                {
+                  "socks4": {}
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "proxy",
+                  "upstreams": [{ "dial": ["10.64.0.1:1080"] }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
 }
+
 ```
