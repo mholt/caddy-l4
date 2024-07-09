@@ -18,7 +18,7 @@ func init() {
 // use AuthMethods to exactly specify which METHODS you expect your clients to send.
 // By default only the most common methods are matched NO AUTH, GSSAPI & USERNAME/PASSWORD.
 type Socks5Matcher struct {
-	AuthMethods []uint8 `json:"auth_methods,omitempty"`
+	AuthMethods []uint16 `json:"auth_methods,omitempty"`
 }
 
 func (Socks5Matcher) CaddyModule() caddy.ModuleInfo {
@@ -30,7 +30,7 @@ func (Socks5Matcher) CaddyModule() caddy.ModuleInfo {
 
 func (m *Socks5Matcher) Provision(_ caddy.Context) error {
 	if len(m.AuthMethods) == 0 {
-		m.AuthMethods = []uint8{0, 1, 2} // NO AUTH, GSSAPI, USERNAME/PASSWORD
+		m.AuthMethods = []uint16{0, 1, 2} // NO AUTH, GSSAPI, USERNAME/PASSWORD
 	}
 	return nil
 }
@@ -60,7 +60,7 @@ func (m *Socks5Matcher) Match(cx *layer4.Connection) (bool, error) {
 
 	// match auth methods
 	for _, requestedMethod := range methods {
-		if !contains(m.AuthMethods, requestedMethod) {
+		if !contains(m.AuthMethods, uint16(requestedMethod)) {
 			return false, nil
 		}
 	}
@@ -95,7 +95,7 @@ func (m *Socks5Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				if err != nil {
 					return d.WrapErr(err)
 				}
-				m.AuthMethods = append(m.AuthMethods, uint8(authMethod))
+				m.AuthMethods = append(m.AuthMethods, uint16(authMethod))
 			}
 		default:
 			return d.ArgErr()
@@ -116,7 +116,7 @@ var (
 	_ caddyfile.Unmarshaler = (*Socks5Matcher)(nil)
 )
 
-func contains(values []uint8, search uint8) bool {
+func contains(values []uint16, search uint16) bool {
 	for _, value := range values {
 		if value == search {
 			return true
