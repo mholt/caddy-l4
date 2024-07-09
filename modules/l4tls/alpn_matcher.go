@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 )
 
@@ -47,7 +48,31 @@ func (m MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
 	return false
 }
 
+// UnmarshalCaddyfile sets up the MatchALPN from Caddyfile tokens. Syntax:
+//
+//	alpn <values...>
+func (m *MatchALPN) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	for d.Next() {
+		wrapper := d.Val()
+
+		// At least one same-line option must be provided
+		if d.CountRemainingArgs() == 0 {
+			return d.ArgErr()
+		}
+
+		*m = append(*m, d.RemainingArgs()...)
+
+		// No blocks are supported
+		if d.NextBlock(d.Nesting()) {
+			return d.Errf("malformed TLS handshake matcher '%s': blocks are not supported", wrapper)
+		}
+	}
+
+	return nil
+}
+
 // Interface guards
 var (
 	_ caddytls.ConnectionMatcher = (*MatchALPN)(nil)
+	_ caddyfile.Unmarshaler      = (*MatchALPN)(nil)
 )
