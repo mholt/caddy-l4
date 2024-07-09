@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -47,8 +48,30 @@ func (m MatchXMPP) Match(cx *layer4.Connection) (bool, error) {
 	return strings.Contains(string(p), xmppWord), nil
 }
 
+// UnmarshalCaddyfile sets up the MatchXMPP from Caddyfile tokens. Syntax:
+//
+//	xmpp
+func (m *MatchXMPP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
 var xmppWord = "jabber"
 var minXmppLength = 50
 
-// Interface guard
-var _ layer4.ConnMatcher = (*MatchXMPP)(nil)
+// Interface guards
+var (
+	_ layer4.ConnMatcher    = (*MatchXMPP)(nil)
+	_ caddyfile.Unmarshaler = (*MatchXMPP)(nil)
+)
