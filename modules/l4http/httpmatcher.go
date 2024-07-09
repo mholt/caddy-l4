@@ -24,6 +24,7 @@ import (
 	"net/url"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4tls"
@@ -209,10 +210,38 @@ func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Req
 	return err
 }
 
+// UnmarshalCaddyfile sets up the MatchHTTP from Caddyfile tokens. Syntax:
+//
+//	http {
+//		<matcher> [<args...>]
+//		not <matcher> [<args...>]
+//		not {
+//			<matcher> [<args...>]
+//		}
+//	}
+//	http <matcher> [<args...>]
+//	http not <matcher> [<args...>]
+//
+// Note: as per https://caddyserver.com/docs/json/apps/http/servers/routes/match/,
+// matchers within a set are AND'ed together. Arguments of this http matcher constitute
+// a single matcher set, thus no OR logic is supported. Instead, use multiple http matchers.
+func (m *MatchHTTP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	matcherSet, err := caddyhttp.ParseCaddyfileNestedMatcherSet(d)
+	if err != nil {
+		return err
+	}
+	m.MatcherSetsRaw = append(m.MatcherSetsRaw, matcherSet)
+
+	return nil
+}
+
 // Interface guards
 var (
-	_ layer4.ConnMatcher = (*MatchHTTP)(nil)
-	_ caddy.Provisioner  = (*MatchHTTP)(nil)
-	_ json.Marshaler     = (*MatchHTTP)(nil)
-	_ json.Unmarshaler   = (*MatchHTTP)(nil)
+	_ caddy.Provisioner     = (*MatchHTTP)(nil)
+	_ caddyfile.Unmarshaler = (*MatchHTTP)(nil)
+	_ json.Marshaler        = (*MatchHTTP)(nil)
+	_ json.Unmarshaler      = (*MatchHTTP)(nil)
+	_ layer4.ConnMatcher    = (*MatchHTTP)(nil)
 )
