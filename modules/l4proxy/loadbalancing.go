@@ -20,10 +20,13 @@ import (
 	"hash/fnv"
 	weakrand "math/rand"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -66,6 +69,88 @@ func (lb LoadBalancing) tryAgain(ctx caddy.Context, start time.Time) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
+//
+//	load_balancing {
+//		selection <policy> [<policy_options>]
+//		try_duration <duration>
+//		try_interval <duration>
+//	}
+func (lb *LoadBalancing) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), "proxy "+d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasSelection, hasTryDuration, hasTryInterval bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "selection":
+			if hasSelection {
+				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)
+			}
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			policyName := d.Val()
+
+			unm, err := caddyfile.UnmarshalModule(d.NewFromNextSegment(), "layer4.proxy.selection_policies."+policyName)
+			if err != nil {
+				return err
+			}
+			us, ok := unm.(Selector)
+			if !ok {
+				return d.Errf("selection module '%s' is not an upstream selector", policyName)
+			}
+			policyRaw := caddyconfig.JSON(us, nil)
+
+			policyRaw, err = layer4.SetModuleNameInline("policy", policyName, policyRaw)
+			if err != nil {
+				return d.Errf("re-encoding module '%s' configuration: %v", policyName, err)
+			}
+			lb.SelectionPolicyRaw, hasSelection = policyRaw, true
+		case "try_duration":
+			if hasTryDuration {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			lb.TryDuration, hasTryDuration = caddy.Duration(dur), true
+		case "try_interval":
+			if hasTryInterval {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			lb.TryInterval, hasTryInterval = caddy.Duration(dur), true
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
 }
 
 // Selector selects an available upstream from the pool.
@@ -115,6 +200,25 @@ func (r RandomSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Ups
 		}
 	}
 	return randomHost
+}
+
+// UnmarshalCaddyfile sets up the RandomSelection from Caddyfile tokens. Syntax:
+//
+//	random
+func (r *RandomSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
 }
 
 // RandomChoiceSelection is a policy that selects
@@ -169,6 +273,34 @@ func (r RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) *
 	return leastConns(choices)
 }
 
+// UnmarshalCaddyfile sets up the RandomChoiceSelection from Caddyfile tokens. Syntax:
+//
+//	random_choose <int>
+//	random_choose
+func (r *RandomChoiceSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// Only one same-line option is supported
+	if d.CountRemainingArgs() > 1 {
+		return d.ArgErr()
+	}
+
+	if d.NextArg() {
+		val, err := strconv.ParseInt(d.Val(), 10, 32)
+		if err != nil {
+			return err
+		}
+		r.Choose = int(val)
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
 // LeastConnSelection is a policy that selects the upstream
 // with the least active connections. If multiple upstreams
 // have the same fewest number, one is chosen randomly.
@@ -213,6 +345,25 @@ func (LeastConnSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstr
 	return best
 }
 
+// UnmarshalCaddyfile sets up the LeastConnSelection from Caddyfile tokens. Syntax:
+//
+//	least_conn
+func (r *LeastConnSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
 // RoundRobinSelection is a policy that selects
 // a host based on round-robin ordering.
 type RoundRobinSelection struct {
@@ -243,6 +394,25 @@ func (r *RoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *U
 	return nil
 }
 
+// UnmarshalCaddyfile sets up the RoundRobinSelection from Caddyfile tokens. Syntax:
+//
+//	round_robin
+func (r *RoundRobinSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
 // FirstSelection is a policy that selects
 // the first available host.
 type FirstSelection struct{}
@@ -262,6 +432,25 @@ func (FirstSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream 
 			return host
 		}
 	}
+	return nil
+}
+
+// UnmarshalCaddyfile sets up the FirstSelection from Caddyfile tokens. Syntax:
+//
+//	first
+func (r *FirstSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
 	return nil
 }
 
@@ -285,6 +474,25 @@ func (IPHashSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Upstr
 		clientIP = remoteAddr
 	}
 	return hostByHashing(pool, clientIP)
+}
+
+// UnmarshalCaddyfile sets up the IPHashSelection from Caddyfile tokens. Syntax:
+//
+//	ip_hash
+func (r *IPHashSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
 }
 
 // leastConns returns the upstream with the
@@ -351,4 +559,12 @@ var (
 
 	_ caddy.Validator   = (*RandomChoiceSelection)(nil)
 	_ caddy.Provisioner = (*RandomChoiceSelection)(nil)
+
+	_ caddyfile.Unmarshaler = (*LoadBalancing)(nil)
+	_ caddyfile.Unmarshaler = (*RandomSelection)(nil)
+	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
+	_ caddyfile.Unmarshaler = (*LeastConnSelection)(nil)
+	_ caddyfile.Unmarshaler = (*RoundRobinSelection)(nil)
+	_ caddyfile.Unmarshaler = (*FirstSelection)(nil)
+	_ caddyfile.Unmarshaler = (*IPHashSelection)(nil)
 )
