@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mastercactapus/proxyprotocol"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4proxyprotocol"
@@ -368,6 +369,85 @@ func (h *Handler) Cleanup() error {
 	return nil
 }
 
+// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
+//
+//	proxy [<upstreams...>] {
+//		health_checks {
+//			...
+//		}
+//		load_balancing {
+//			...
+//		}
+//		proxy_protocol <v1|v2>
+//		upstream [<args...>] {
+//			...
+//		}
+//		upstream [<args...>]
+//	}
+func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// Treat all same-line options as upstream addresses
+	for i := 0; d.NextArg(); i++ {
+		val := d.Val()
+		_, err := caddy.ParseNetworkAddress(val)
+		if err != nil {
+			return d.Errf("parsing %s upstream on position %d: %v", wrapper, i, err)
+		}
+		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{val}})
+	}
+
+	var hasHealthChecks, hasLoadBalancing, hasProxyProtocol bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "health_checks":
+			if hasHealthChecks {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			h.HealthChecks, hasHealthChecks = &HealthChecks{}, true
+			if err := h.HealthChecks.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
+				return err
+			}
+		case "load_balancing":
+			if hasLoadBalancing {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			h.LoadBalancing, hasLoadBalancing = &LoadBalancing{}, true
+			if err := h.LoadBalancing.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
+				return err
+			}
+		case "proxy_protocol":
+			if hasProxyProtocol {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			_, h.ProxyProtocol, hasProxyProtocol = d.NextArg(), d.Val(), true
+			switch h.ProxyProtocol {
+			case "v1", "v2":
+				continue
+			default:
+				return d.Errf("malformed %s option '%s': unrecognized value '%s'",
+					wrapper, optionName, h.ProxyProtocol)
+			}
+		case "upstream":
+			u := &Upstream{}
+			if err := u.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
+				return err
+			}
+			h.Upstreams = append(h.Upstreams, u)
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 // peers is the global repository for peers that are
 // currently in use by active configuration(s). This
 // allows the state of remote hosts to be preserved
@@ -376,9 +456,10 @@ var peers = caddy.NewUsagePool()
 
 // Interface guards
 var (
-	_ layer4.NextHandler = (*Handler)(nil)
-	_ caddy.Provisioner  = (*Handler)(nil)
-	_ caddy.CleanerUpper = (*Handler)(nil)
+	_ caddy.CleanerUpper    = (*Handler)(nil)
+	_ caddy.Provisioner     = (*Handler)(nil)
+	_ caddyfile.Unmarshaler = (*Handler)(nil)
+	_ layer4.NextHandler    = (*Handler)(nil)
 )
 
 // Used to properly shutdown half-closed connections (see PR #73).
