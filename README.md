@@ -19,7 +19,7 @@ With it, you can listen on sockets/ports and express logic such as:
 
 Because this is a caddy app, it can be used alongside other Caddy apps such as the [HTTP server](https://caddyserver.com/docs/modules/http) or [TLS certificate manager](https://caddyserver.com/docs/modules/tls).
 
-Note that only JSON config is available at this time. More documentation will come soon. For now, please read the code, especially type definitions and their comments. It's actually a pretty simple code base, and the JSON config isn't that bad once you get used to it! See below for tips and examples writing config.
+Note that both Caddyfile and JSON configs are available at this time. More documentation will come soon. For now, please read the code, especially type definitions and their comments. It's actually a pretty simple code base. See below for tips and examples writing config.
 
 > [!NOTE]
 > This is not an official repository of the [Caddy Web Server](https://github.com/caddyserver) organization.
@@ -82,6 +82,24 @@ See below for some examples to help you get started.
 
 A simple echo server:
 
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        127.0.0.1:5000 {
+            route {
+                echo
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
+
 ```json
 {
 	"apps": {
@@ -102,9 +120,29 @@ A simple echo server:
 	}
 }
 ```
+</details>
 
 
 A simple echo server with TLS termination that uses a self-signed cert for `localhost`:
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        127.0.0.1:5000 {
+            route {
+                tls
+                echo
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -139,8 +177,40 @@ A simple echo server with TLS termination that uses a self-signed cert for `loca
 	}
 }
 ```
+</details>
 
 A simple TCP reverse proxy that terminates TLS on 993, and sends the PROXY protocol header to 1143 through 143:
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        0.0.0.0:993 {
+            route {
+                tls
+                proxy {
+                    proxy_protocol v1
+                    upstream localhost:143
+                }
+            }
+        }
+        0.0.0.0:143 {
+            route {
+                proxy_protocol
+                proxy {
+                    proxy_protocol v2
+                    upstream localhost:1143
+                }
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -190,8 +260,32 @@ A simple TCP reverse proxy that terminates TLS on 993, and sends the PROXY proto
 	}
 }
 ```
+</details>
 
 A multiplexer that proxies HTTP to one backend, and TLS to another (without terminating TLS):
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        127.0.0.1:5000 {
+            @insecure http
+            route @insecure {
+                proxy localhost:80
+            }
+            @secure tls
+            route @secure {
+                proxy localhost:443
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -238,8 +332,37 @@ A multiplexer that proxies HTTP to one backend, and TLS to another (without term
 	}
 }
 ```
+</details>
 
 Same as previous, but only applies to HTTP requests with specific hosts:
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        127.0.0.1:5000 {
+            @example http host example.com
+            route @example {
+                subroute {
+                    @insecure http
+                    route @insecure {
+                        proxy localhost:80
+                    }
+                    @secure tls
+                    route @secure {
+                        proxy localhost:443
+                    }
+                }
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -302,8 +425,32 @@ Same as previous, but only applies to HTTP requests with specific hosts:
 	}
 }
 ```
+</details>
 
 Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerName:
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        127.0.0.1:5000 {
+            @insecure http host example.com
+            route @insecure {
+                proxy localhost:80
+            }
+            @secure tls sni example.net
+            route @secure {
+                proxy localhost:443
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -354,10 +501,38 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 	}
 }
 ```
-
+</details>
 
 Forwarding SOCKSv4 to a remote server and handling SOCKSv5 directly in caddy.  
 While only allowing connections from a specific network and requiring a username and password for SOCKSv5.
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+    layer4 {
+        0.0.0.0:1080 {
+            @s5 {
+                socks5
+                ip 10.0.0.0/24
+            }
+            route @s5 {
+                socks5 {
+                    credentials bob qHoEtVpGRM
+                }
+            }
+            @s4 socks4
+            route @s4 {
+                proxy 10.64.0.1:1080
+            }
+        }
+    }
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
 
 ```json
 {
@@ -405,3 +580,4 @@ While only allowing connections from a specific network and requiring a username
 	}
 }
 ```
+</details>
