@@ -26,7 +26,7 @@ Note that only JSON config is available at this time. More documentation will co
 
 ## Introduction
 
-This app works similarly to the `http` app. You define servers, and each server consists of routes. A route has a set of matchers and handlers; if a connection matches, the assoicated handlers are invoked.
+This app works similarly to the `http` app. You define servers, and each server consists of routes. A route has a set of matchers and handlers; if a connection matches, the associated handlers are invoked.
 
 Current matchers:
 
@@ -36,15 +36,18 @@ Current matchers:
 - **layer4.matchers.postgres** - matches connections that look like Postgres connections.
 - **layer4.matchers.remote_ip** - matches connections based on remote IP (or CIDR range).
 - **layer4.matchers.local_ip** - matches connections based on local IP (or CIDR range).
+- **layer4.matchers.not** - matches connections that aren't matched by inner matcher sets.
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.matchers.rdp** - matches connections that look like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf).
 - **layer4.matchers.socks4** - matches connections that look like [SOCKSv4](https://www.openssh.com/txt/socks4.protocol).
 - **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
+- **layer4.matchers.xmpp** - matches connections that look like [XMPP](https://xmpp.org/about/technology-overview/).
 
 Current handlers:
 
 - **layer4.handlers.echo** - An echo server.
 - **layer4.handlers.proxy** - Powerful layer 4 proxy, capable of multiple upstreams (with load balancing and health checks) and establishing new TLS connections to backends. Optionally supports sending the [HAProxy proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
+- **layer4.handlers.subroute** - Implements recursion logic, i.e. allows to match and handle already matched connections.
 - **layer4.handlers.tee** - Branches the handling of a connection into a concurrent handler chain.
 - **layer4.handlers.throttle** - Throttle connections to simulate slowness and latency.
 - **layer4.handlers.tls** - TLS termination.
