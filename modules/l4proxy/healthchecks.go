@@ -19,9 +19,11 @@ import (
 	"log"
 	"net"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"go.uber.org/zap"
 )
 
@@ -165,3 +167,192 @@ func (h *Handler) doActiveHealthCheck(p *peer) error {
 
 	return nil
 }
+
+// UnmarshalCaddyfile sets up the HealthChecks from Caddyfile tokens. Syntax:
+//
+//	health_checks {
+//		active {
+//			...
+//		}
+//		passive {
+//			...
+//		}
+//	}
+//
+// health_checks active <args>
+func (hc *HealthChecks) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next()
+
+	for nesting := d.Nesting(); d.NextArg() || d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "active":
+			ahc := ActiveHealthChecks{}
+			err := ahc.UnmarshalCaddyfile(d.NewFromNextSegment())
+			if err != nil {
+				return err
+			}
+			hc.Active = &ahc
+		case "passive":
+			phc := PassiveHealthChecks{}
+			err := phc.UnmarshalCaddyfile(d.NewFromNextSegment())
+			if err != nil {
+				return err
+			}
+			hc.Passive = &phc
+		default:
+			return d.ArgErr()
+		}
+	}
+
+	return nil
+}
+
+// UnmarshalCaddyfile sets up the ActiveHealthChecks from Caddyfile tokens. Syntax:
+//
+//	active {
+//		interval <duration>
+//		port <int>
+//		timeout <duration>
+//	}
+func (ahc *ActiveHealthChecks) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), "proxy health_checks "+d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasInterval, hasPort, hasTimeout bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "interval":
+			if hasInterval {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			ahc.Interval, hasInterval = caddy.Duration(dur), true
+		case "port":
+			if hasPort {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			ahc.Port, hasPort = int(val), true
+		case "timeout":
+			if hasTimeout {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			ahc.Timeout, hasTimeout = caddy.Duration(dur), true
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
+// UnmarshalCaddyfile sets up the PassiveHealthChecks from Caddyfile tokens. Syntax:
+//
+//	passive {
+//		fail_duration <duration>
+//		max_fails <int>
+//		unhealthy_connection_count <int>
+//	}
+func (phc *PassiveHealthChecks) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), "proxy health_checks "+d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "fail_duration":
+			if hasFailDuration {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			phc.FailDuration, hasFailDuration = caddy.Duration(dur), true
+		case "max_fails":
+			if hasMaxFails {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			phc.MaxFails, hasMaxFails = int(val), true
+		case "unhealthy_connection_count":
+			if hasUnhealthyConnCount {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			phc.UnhealthyConnectionCount, hasUnhealthyConnCount = int(val), true
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
+// Interface guards
+var (
+	_ caddyfile.Unmarshaler = (*HealthChecks)(nil)
+	_ caddyfile.Unmarshaler = (*ActiveHealthChecks)(nil)
+	_ caddyfile.Unmarshaler = (*PassiveHealthChecks)(nil)
+)
