@@ -101,7 +101,12 @@ func (routes RouteList) Provision(ctx caddy.Context) error {
 // been provisioned, and before the server loop begins.
 func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duration, next NextHandler) Handler {
 	return HandlerFunc(func(cx *Connection) error {
+		// Timeout matching to protect against malicious or very slow clients.
 		deadline := time.Now().Add(matchingTimeout)
+		err := cx.Conn.SetReadDeadline(deadline)
+		if err != nil {
+			return err
+		}
 
 		routesIdxRing := ring.New(len(routes))
 		for i := 0; i < len(routes); i++ {
@@ -110,14 +115,9 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		}
 
 		notMatchingRoutes := make(map[int]struct{}, len(routes))
-	router:
-		// timeout matching to protect against malicious or very slow clients
-		err := cx.Conn.SetReadDeadline(deadline)
-		if err != nil {
-			return err
-		}
 
-		for i := 0; i < 10000; i++ { // retry prefetching and matching routes until timeout
+	router:
+		for i := 0; i < 10000; i++ { // Limit number of tries to mitigate endless matching bugs.
 
 			// Do not call prefetch if this is the first loop iteration and there already is some data available,
 			// since this means we are at the start of a subroute handler and previous prefetch calls likely already fetched all bytes available from the client.
@@ -185,16 +185,25 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 						return err
 					}
 
-					// If handler is terminal we stop routing,
-					// otherwise we jump back to the start of the routing loop to peel of more protocol layers.
+					// If handler is terminal we stop routing
 					if isTerminal {
 						return nil
-					} else {
-						clear(notMatchingRoutes) // after a match all routes should get a chance again
-						goto router
 					}
+					// Otherwise we reactivate the deadline and continue matching
+					err := cx.Conn.SetReadDeadline(deadline)
+					if err != nil {
+						return err
+					}
+					// After a match all routes should get a chance again.
+					// Because it could happen that the correct next route already was marked unmatchable based on data for this handler.
+					// For example if the current route required multiple prefetch calls until it matched.
+					// Then routes with an index after the current one where also tried on this now old/consumed data.
+					clear(notMatchingRoutes)
+					// We jump back to the router loop to call prefetch again after the match,
+					// because the handler likely consumed all data.
+					continue router
 				} else {
-					// remember to not try this route again
+					// Remember to not try this route again
 					notMatchingRoutes[routeIdx] = struct{}{}
 				}
 			}
