@@ -17,11 +17,16 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
+	"github.com/caddyserver/caddy/v2/modules/caddytls"
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 // UpstreamPool is a collection of upstreams.
@@ -154,6 +159,78 @@ func (u *Upstream) totalConns() int {
 	return totalConns
 }
 
+// UnmarshalCaddyfile sets up the Upstream from Caddyfile tokens. Syntax:
+//
+//	upstream [<address:port>] {
+//		dial            <address:port> [<address:port>]
+//		max_connections <int>
+//		tls {
+//			...
+//		}
+//	}
+//	upstream <address:port>
+func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), "proxy "+d.Val() // consume wrapper name
+
+	// Treat all same-line options as dial arguments
+	shortcutArgs := d.RemainingArgs()
+
+	var hasTLS, hasMaxConnections bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "dial":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
+		case "max_connections":
+			if hasMaxConnections {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			u.MaxConnections, hasMaxConnections = int(val), true
+		case "tls":
+			if hasTLS {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			u.TLS, hasTLS = &reverseproxy.TLSConfig{}, true
+			err := unmarshalCaddyfileTLSConfig(d.NewFromNextSegment(), u.TLS)
+			if err != nil {
+				return err
+			}
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	shortcutOptionName := "dial"
+	if len(shortcutArgs) == 0 {
+		return d.Errf("malformed %s block: at least one %s address must be provided", wrapper, shortcutOptionName)
+	}
+	for _, arg := range shortcutArgs {
+		_, err := caddy.ParseNetworkAddress(arg)
+		if err != nil {
+			return d.Errf("parsing %s option '%s': %v", wrapper, shortcutOptionName, err)
+		}
+		u.Dial = append(u.Dial, arg)
+	}
+
+	return nil
+}
+
 // peer holds the state for a singular proxy backend;
 // must not be copied, because peers are singular
 // (even if there is more than 1 instance of a config,
@@ -204,4 +281,150 @@ func (p *peer) setHealthy(healthy bool) (bool, error) {
 	}
 	swapped := atomic.CompareAndSwapInt32(&p.unhealthy, compare, unhealthy)
 	return swapped, nil
+}
+
+// Interface guard
+var _ caddyfile.Unmarshaler = (*Upstream)(nil)
+
+// unmarshalCaddyfileTLSConfig sets the TLSConfig from Caddyfile tokens. Syntax:
+//
+//	tls {
+//		ca                   <module>
+//		client_auth          <automate_name> | <cert_file> <key_file>
+//		curves               <curves...>
+//		except_ports         <ports...>
+//		handshake_timeout    <duration>
+//		insecure_skip_verify
+//		renegotiation        <never|once|freely>
+//		server_name          <name>
+//		# DEPRECATED:
+//		root_ca_pool         <certificates...>
+//		root_ca_pem_files    <certificates...>
+//	}
+//	tls
+func unmarshalCaddyfileTLSConfig(d *caddyfile.Dispenser, tls *reverseproxy.TLSConfig) error {
+	_, wrapper := d.Next(), "proxy "+d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasCA, hasClientAuth, hasInsecureSkipVerify, hasHandshakeTimeout, hasRenegotiation, hasServerName bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "ca":
+			if hasCA {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			_, moduleName := d.NextArg(), d.Val()
+
+			unm, err := caddyfile.UnmarshalModule(d, "tls.ca_pool.source."+moduleName)
+			if err != nil {
+				return err
+			}
+			ca, ok := unm.(caddytls.CA)
+			if !ok {
+				return d.Errf("CA module '%s' is not a certificate pool provider", moduleName)
+			}
+			moduleRaw := caddyconfig.JSON(ca, nil)
+
+			moduleRaw, err = layer4.SetModuleNameInline("provider", moduleName, moduleRaw)
+			if err != nil {
+				return err
+			}
+			tls.CARaw, hasCA = moduleRaw, true
+		case "client_auth":
+			if hasClientAuth {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() == 1 {
+				_, tls.ClientCertificateAutomate = d.NextArg(), d.Val()
+			} else if d.CountRemainingArgs() == 2 {
+				_, tls.ClientCertificateFile = d.NextArg(), d.Val()
+				_, tls.ClientCertificateKeyFile = d.NextArg(), d.Val()
+			} else {
+				return d.ArgErr()
+			}
+			hasClientAuth = true
+		case "curves":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			tls.Curves = append(tls.Curves, d.RemainingArgs()...)
+		case "except_ports":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			tls.ExceptPorts = append(tls.ExceptPorts, d.RemainingArgs()...)
+		case "handshake_timeout":
+			if hasHandshakeTimeout {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			tls.HandshakeTimeout, hasHandshakeTimeout = caddy.Duration(val), true
+		case "insecure_skip_verify":
+			if hasInsecureSkipVerify {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() > 0 {
+				return d.ArgErr()
+			}
+			tls.InsecureSkipVerify, hasInsecureSkipVerify = true, true
+		case "renegotiation":
+			if hasRenegotiation {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			_, tls.Renegotiation, hasRenegotiation = d.NextArg(), d.Val(), true
+
+			switch tls.Renegotiation {
+			case "never", "once", "freely":
+				continue
+			default:
+				return d.Errf("malformed %s option '%s': unrecognized value '%s'",
+					wrapper, optionName, tls.Renegotiation)
+			}
+		case "root_ca_pem_files": // DEPRECATED
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			tls.RootCAPEMFiles = append(tls.RootCAPEMFiles, d.RemainingArgs()...)
+		case "root_ca_pool": // DEPRECATED
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			tls.RootCAPool = append(tls.RootCAPool, d.RemainingArgs()...)
+		case "server_name":
+			if hasServerName {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			_, tls.ServerName, hasServerName = d.NextArg(), d.Val(), true
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
 }
