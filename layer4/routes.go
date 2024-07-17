@@ -15,7 +15,6 @@
 package layer4
 
 import (
-	"container/ring"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,11 +107,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			return err
 		}
 
-		routesIdxRing := ring.New(len(routes))
-		for i := 0; i < len(routes); i++ {
-			routesIdxRing.Value = i
-			routesIdxRing = routesIdxRing.Next()
-		}
+		routeIdx := -1 // init with -1 because before first use we increment it
 
 		notMatchingRoutes := make(map[int]struct{}, len(routes))
 
@@ -135,13 +130,15 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 			}
 
-			// Use a ring to try routes in a strictly circular fashion.
+			// Use a wrapping routeIdx similar to a container/ring to try routes in a strictly circular fashion.
 			// After a match continue with the routes after the matched one, instead of starting at the beginning.
 			// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
 			// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
 			for j := 0; j < len(routes); j++ {
-				routeIdx := routesIdxRing.Value.(int)
-				routesIdxRing = routesIdxRing.Next()
+				routeIdx++
+				if routeIdx >= len(routes) {
+					routeIdx = 0
+				}
 
 				// Skip routes that signaled they definitely can not match
 				if _, ok := notMatchingRoutes[routeIdx]; ok {
