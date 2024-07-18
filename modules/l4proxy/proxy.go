@@ -17,11 +17,13 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -372,13 +374,24 @@ func (h *Handler) Cleanup() error {
 // UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
 //
 //	proxy [<upstreams...>] {
-//		health_checks {
-//			...
-//		}
-//		load_balancing {
-//			...
-//		}
+//		# active health check options
+//		health_interval <duration>
+//		health_port <int>
+//		health_timeout <duration>
+//
+//		# passive health check options
+//		fail_duration <duration>
+//		max_fails <int>
+//		unhealthy_connection_count <int>
+//
+//		# load balancing options
+//		lb_policy <name> [<args...>]
+//		lb_try_duration <duration>
+//		lb_try_interval <duration>
+//
 //		proxy_protocol <v1|v2>
+//
+//		# multiple upstream options are supported
 //		upstream [<args...>] {
 //			...
 //		}
@@ -397,26 +410,182 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{val}})
 	}
 
-	var hasHealthChecks, hasLoadBalancing, hasProxyProtocol bool
+	var (
+		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
+		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
+		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
+		hasProxyProtocol                                    bool
+	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
 		switch optionName {
-		case "health_checks":
-			if hasHealthChecks {
+		case "health_interval":
+			if hasHealthInterval {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
-			h.HealthChecks, hasHealthChecks = &HealthChecks{}, true
-			if err := h.HealthChecks.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
-				return err
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
 			}
-		case "load_balancing":
-			if hasLoadBalancing {
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.Interval, hasHealthInterval = caddy.Duration(dur), true
+		case "health_port":
+			if hasHealthPort {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
-			h.LoadBalancing, hasLoadBalancing = &LoadBalancing{}, true
-			if err := h.LoadBalancing.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.Port, hasHealthPort = int(val), true
+		case "health_timeout":
+			if hasHealthTimeout {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.Timeout, hasHealthTimeout = caddy.Duration(dur), true
+		case "fail_duration":
+			if hasFailDuration {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Passive: &PassiveHealthChecks{}}
+			} else if h.HealthChecks.Passive == nil {
+				h.HealthChecks.Passive = &PassiveHealthChecks{}
+			}
+			h.HealthChecks.Passive.FailDuration, hasFailDuration = caddy.Duration(dur), true
+		case "max_fails":
+			if hasMaxFails {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Passive: &PassiveHealthChecks{}}
+			} else if h.HealthChecks.Passive == nil {
+				h.HealthChecks.Passive = &PassiveHealthChecks{}
+			}
+			h.HealthChecks.Passive.MaxFails, hasMaxFails = int(val), true
+		case "unhealthy_connection_count":
+			if hasUnhealthyConnCount {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Passive: &PassiveHealthChecks{}}
+			} else if h.HealthChecks.Passive == nil {
+				h.HealthChecks.Passive = &PassiveHealthChecks{}
+			}
+			h.HealthChecks.Passive.UnhealthyConnectionCount, hasUnhealthyConnCount = int(val), true
+		case "lb_policy":
+			if hasLBPolicy {
+				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)
+			}
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			policyName := d.Val()
+
+			unm, err := caddyfile.UnmarshalModule(d, "layer4.proxy.selection_policies."+policyName)
+			if err != nil {
 				return err
 			}
+			us, ok := unm.(Selector)
+			if !ok {
+				return d.Errf("policy module '%s' is not an upstream selector", policyName)
+			}
+			policyRaw := caddyconfig.JSON(us, nil)
+
+			policyRaw, err = layer4.SetModuleNameInline("policy", policyName, policyRaw)
+			if err != nil {
+				return d.Errf("re-encoding module '%s' configuration: %v", policyName, err)
+			}
+			if h.LoadBalancing == nil {
+				h.LoadBalancing = &LoadBalancing{}
+			}
+			h.LoadBalancing.SelectionPolicyRaw, hasLBPolicy = policyRaw, true
+		case "lb_try_duration":
+			if hasLBTryDuration {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			if h.LoadBalancing == nil {
+				h.LoadBalancing = &LoadBalancing{}
+			}
+			h.LoadBalancing.TryDuration, hasLBTryDuration = caddy.Duration(dur), true
+		case "lb_try_interval":
+			if hasLBTryInterval {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			if h.LoadBalancing == nil {
+				h.LoadBalancing = &LoadBalancing{}
+			}
+			h.LoadBalancing.TryInterval, hasLBTryInterval = caddy.Duration(dur), true
 		case "proxy_protocol":
 			if hasProxyProtocol {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
