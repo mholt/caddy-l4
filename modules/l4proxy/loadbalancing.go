@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 )
@@ -69,88 +68,6 @@ func (lb LoadBalancing) tryAgain(ctx caddy.Context, start time.Time) bool {
 	case <-ctx.Done():
 		return false
 	}
-}
-
-// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
-//
-//	load_balancing {
-//		selection <policy> [<policy_options>]
-//		try_duration <duration>
-//		try_interval <duration>
-//	}
-func (lb *LoadBalancing) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	_, wrapper := d.Next(), "proxy "+d.Val() // consume wrapper name
-
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return d.ArgErr()
-	}
-
-	var hasSelection, hasTryDuration, hasTryInterval bool
-	for nesting := d.Nesting(); d.NextBlock(nesting); {
-		optionName := d.Val()
-		switch optionName {
-		case "selection":
-			if hasSelection {
-				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)
-			}
-			if !d.NextArg() {
-				return d.ArgErr()
-			}
-			policyName := d.Val()
-
-			unm, err := caddyfile.UnmarshalModule(d.NewFromNextSegment(), "layer4.proxy.selection_policies."+policyName)
-			if err != nil {
-				return err
-			}
-			us, ok := unm.(Selector)
-			if !ok {
-				return d.Errf("selection module '%s' is not an upstream selector", policyName)
-			}
-			policyRaw := caddyconfig.JSON(us, nil)
-
-			policyRaw, err = layer4.SetModuleNameInline("policy", policyName, policyRaw)
-			if err != nil {
-				return d.Errf("re-encoding module '%s' configuration: %v", policyName, err)
-			}
-			lb.SelectionPolicyRaw, hasSelection = policyRaw, true
-		case "try_duration":
-			if hasTryDuration {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			d.NextArg()
-			dur, err := caddy.ParseDuration(d.Val())
-			if err != nil {
-				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
-			}
-			lb.TryDuration, hasTryDuration = caddy.Duration(dur), true
-		case "try_interval":
-			if hasTryInterval {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			d.NextArg()
-			dur, err := caddy.ParseDuration(d.Val())
-			if err != nil {
-				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
-			}
-			lb.TryInterval, hasTryInterval = caddy.Duration(dur), true
-		default:
-			return d.ArgErr()
-		}
-
-		// No nested blocks are supported
-		if d.NextBlock(nesting + 1) {
-			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
-		}
-	}
-
-	return nil
 }
 
 // Selector selects an available upstream from the pool.
@@ -560,7 +477,6 @@ var (
 	_ caddy.Validator   = (*RandomChoiceSelection)(nil)
 	_ caddy.Provisioner = (*RandomChoiceSelection)(nil)
 
-	_ caddyfile.Unmarshaler = (*LoadBalancing)(nil)
 	_ caddyfile.Unmarshaler = (*RandomSelection)(nil)
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*LeastConnSelection)(nil)
