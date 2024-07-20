@@ -74,7 +74,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"127.0.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"127.0.0.1"}}),
 					},
 				},
 			},
@@ -92,7 +92,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"127.0.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"127.0.0.1"}}),
 					},
 				},
 			},
@@ -110,7 +110,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"172.16.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"172.16.0.1"}}),
 					},
 					{
 						provision(&MatchLocalIP{Ranges: []string{"127.0.0.1"}}),
@@ -131,7 +131,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"172.16.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"172.16.0.1"}}),
 					},
 					{
 						provision(&MatchLocalIP{Ranges: []string{"127.0.0.1"}}),
@@ -152,7 +152,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"172.16.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"172.16.0.1"}}),
 					},
 					{
 						provision(&MatchLocalIP{Ranges: []string{"127.0.0.1"}}),
@@ -173,7 +173,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"172.16.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"172.16.0.1"}}),
 						provision(&MatchLocalIP{Ranges: []string{"127.0.0.1"}}),
 					},
 				},
@@ -192,7 +192,7 @@ func TestNotMatcher(t *testing.T) {
 			matcher: MatchNot{
 				MatcherSets: []MatcherSet{
 					{
-						provision(&MatchIP{Ranges: []string{"172.16.0.1"}}),
+						provision(&MatchRemoteIP{Ranges: []string{"172.16.0.1"}}),
 						provision(&MatchLocalIP{Ranges: []string{"127.0.0.1"}}),
 					},
 				},
