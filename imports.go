@@ -22,6 +22,7 @@ import (
 	_ "github.com/mholt/caddy-l4/modules/l4postgres"
 	_ "github.com/mholt/caddy-l4/modules/l4proxy"
 	_ "github.com/mholt/caddy-l4/modules/l4proxyprotocol"
+	_ "github.com/mholt/caddy-l4/modules/l4rdp"
 	_ "github.com/mholt/caddy-l4/modules/l4socks"
 	_ "github.com/mholt/caddy-l4/modules/l4ssh"
 	_ "github.com/mholt/caddy-l4/modules/l4subroute"
