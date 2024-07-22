@@ -174,6 +174,9 @@ func Test_MatchRDP_Match(t *testing.T) {
 		{matcher: &MatchRDP{CookieHash: ""}, data: packetValid3, shouldMatch: true},
 		{matcher: &MatchRDP{CookieHash: "a0123"}, data: packetValid3, shouldMatch: true},
 		{matcher: &MatchRDP{CookieHash: "admin"}, data: packetValid3, shouldMatch: false},
+		{matcher: &MatchRDP{CookieHashRegexp: ""}, data: packetValid3, shouldMatch: true},
+		{matcher: &MatchRDP{CookieHashRegexp: "^[a-z]\\d+$"}, data: packetValid3, shouldMatch: true},
+		{matcher: &MatchRDP{CookieHashRegexp: "^[A-Z]\\d+$"}, data: packetValid3, shouldMatch: false},
 		// with filtered port
 		{matcher: &MatchRDP{CookiePorts: []uint16{}}, data: packetValid5, shouldMatch: true},
 		{matcher: &MatchRDP{CookiePorts: []uint16{3389}}, data: packetValid5, shouldMatch: true},
@@ -186,6 +189,9 @@ func Test_MatchRDP_Match(t *testing.T) {
 		{matcher: &MatchRDP{CustomInfo: ""}, data: packetValid9, shouldMatch: true},
 		{matcher: &MatchRDP{CustomInfo: "anything could be here"}, data: packetValid9, shouldMatch: true},
 		{matcher: &MatchRDP{CustomInfo: "arbitrary text"}, data: packetValid9, shouldMatch: false},
+		{matcher: &MatchRDP{CustomInfoRegexp: ""}, data: packetValid9, shouldMatch: true},
+		{matcher: &MatchRDP{CustomInfoRegexp: "^([A-Za-z0-9 ]+)$"}, data: packetValid9, shouldMatch: true},
+		{matcher: &MatchRDP{CustomInfoRegexp: "^\\x00\\x01\\x02\\x03\\x04$"}, data: packetValid9, shouldMatch: false},
 	}
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
