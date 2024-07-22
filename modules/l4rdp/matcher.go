@@ -38,6 +38,7 @@ type MatchRDP struct {
 	CookieHash  string   `json:"cookie_hash,omitempty"`
 	CookieIPs   []string `json:"cookie_ips,omitempty"`
 	CookiePorts []uint16 `json:"cookie_ports,omitempty"`
+	CustomInfo  string   `json:"custom_info,omitempty"`
 
 	cookieIPs []netip.Prefix
 }
@@ -131,8 +132,8 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 			break
 		}
 
-		// Extract hash (username truncated to 9 characters from the left)
-		// NOTE: according to the RDP protocol specification, if domain/username is provided, hash will be domain/us
+		// Extract hash (username truncated to max number of characters from the left)
+		// NOTE: according to mstsc.exe tests, if "domain" and "username" are provided, hash will be "domain/us"
 		hashBytesStart := uint16(len(RDPCookiePrefix))
 		hashBytesTotal := RDPCookieBytesTotal - hashBytesStart - 2 // exclude CR LF
 		hash := c[hashBytesStart : hashBytesStart+hashBytesTotal]
@@ -156,11 +157,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 	// Process optional RDPToken
 	var hasValidToken bool
-	for RDPNegReqBytesStart >= RDPTokenBytesMin {
-		if hasValidCookie {
-			break
-		} // RDPCookie and RDPToken are mutually exclusive
-
+	for !hasValidCookie && RDPNegReqBytesStart >= RDPTokenBytesMin {
 		RDPTokenBytesTotal := RDPNegReqBytesStart // include CR LF
 
 		// Parse RDPToken
@@ -276,10 +273,47 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		return false, nil
 	}
 
-	// Validate RDPCookie and RDPToken presence to match payload boundaries
-	// NOTE: if there is anything before CR LF, but both RDPCookie and RDPToken parsing has failed,
-	// we can technically be sure, the protocol isn't RDP.
-	if RDPNegReqBytesStart > 0 && (!hasValidCookie && !hasValidToken) {
+	// Process RDPCustom
+	var hasValidCustom bool
+	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin {
+		RDPCustomBytesTotal := RDPNegReqBytesStart // include CR LF
+
+		// Parse RDPCustom
+		c := string(payloadBuf[RDPCustomBytesStart : RDPCustomBytesStart+RDPCustomBytesTotal])
+
+		// Validate RDPCustom
+		if RDPCustomBytesTotal > RDPCustomBytesMax {
+			break
+		}
+
+		// Extract info (everything before CR LF)
+		// NOTE: according to Apache Guacamole tests, if "load balance info/cookie" option is non-empty,
+		// its contents is included into the RDP Connection Request packet without any changes
+		infoBytesTotal := RDPCustomBytesTotal - RDPCustomInfoBytesStart - 2 // exclude CR LF
+		info := c[RDPCustomInfoBytesStart : RDPCustomInfoBytesStart+infoBytesTotal]
+
+		// Add info to the replacer
+		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+		repl.Set("l4.rdp.custom_info", info)
+
+		if len(m.CustomInfo) > 0 && m.CustomInfo != info {
+			break
+		}
+
+		hasValidCustom = true
+		break
+	}
+
+	// NOTE: we can stop validation because info hasn't matched
+	if !hasValidCustom && len(m.CustomInfo) > 0 {
+		return false, nil
+	}
+
+	// Validate RDPCookie, RDPToken and RDPCustom presence to match payload boundaries
+	// NOTE: if there is anything before CR LF, but RDPCookie and RDPToken parsing has failed,
+	// we can technically be sure, the protocol isn't RDP. However, given RDPCustom has no mandatory prefix
+	// by definition (it's an extension to the official documentation), this condition can barely be met.
+	if RDPNegReqBytesStart > 0 && (!hasValidCookie && !hasValidToken && !hasValidCustom) {
 		return false, nil
 	}
 
@@ -377,18 +411,27 @@ func (m *MatchRDP) Provision(_ caddy.Context) (err error) {
 //
 //	rdp {
 //		cookie_hash <value>
+//	}
+//	rdp {
 //		cookie_ip <ranges...>
 //		cookie_port <ports...>
 //	}
+//	rdp {
+//		custom_info <value>
+//	}
 //	rdp
 //
-// Note: according to the protocol documentation, RDP cookies are optional, i.e. it depends on the client whether
-// they are included in the first packet (RDP Connection Request) or not. Besides, no valid RDP CR packet must
+// Note: according to the protocol documentation, RDP cookies and tokens are optional, i.e. it depends on the client
+// whether they are included in the first packet (RDP Connection Request) or not. Besides, no valid RDP CR packet must
 // contain cookie_hash ("mstshash") and cookie_ip:cookie_port ("msts") at the same time, i.e. Match will always return
 // false if cookie_hash and any of cookie_ip and cookie_port are set simultaneously. If this matcher has cookie_hash
-// option, but a valid RDP Connection Request packet doesn't have it, Match will return false. If this matcher has
-// a set of cookie_ip and cookie_port options, or any of them, but a valid RDP Connection Request packet doesn't
-// have them, Match will return false as well.
+// option, but a valid RDP CR packet doesn't have it, Match will return false. If this matcher has a set of cookie_ip
+// and cookie_port options, or any of them, but a valid RDP CR packet doesn't have them, Match will return false.
+//
+// There are some RDP clients (e.g. Apache Guacamole) that support any text to be included into an RDP CR packet
+// instead of "mstshash" and "msts" cookies for load balancing and/or routing purposes, parsed here as custom_info.
+// If this matcher has custom_info option, but a valid RDP CR packet doesn't have it, Match will return false.
+// If custom_info option is combined with cookie_hash, cookie_ip or cookie_port, Match will return false as well.
 func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
@@ -397,11 +440,14 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	var hasCookieHash bool
+	var hasCookieHash, hasCookieIPOrPort, hasCustomInfo bool
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
 		switch optionName {
 		case "cookie_hash":
+			if hasCookieIPOrPort || hasCustomInfo {
+				return d.Errf("%s option '%s' can't be combined with other options", wrapper, optionName)
+			}
 			if hasCookieHash {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
@@ -411,6 +457,9 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			_, val := d.NextArg(), d.Val()
 			m.CookieHash, hasCookieHash = val[:min(RDPCookieHashBytesMax, uint16(len(val)))], true
 		case "cookie_ip":
+			if hasCookieHash || hasCustomInfo {
+				return d.Errf("%s option '%s' can only be combined with 'cookie_port' option", wrapper, optionName)
+			}
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
@@ -421,7 +470,11 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			for _, prefix := range prefixes {
 				m.CookieIPs = append(m.CookieIPs, prefix.String())
 			}
+			hasCookieIPOrPort = true
 		case "cookie_port":
+			if hasCookieHash || hasCustomInfo {
+				return d.Errf("%s option '%s' can only be combined with 'cookie_ip' option", wrapper, optionName)
+			}
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
@@ -433,6 +486,19 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 				m.CookiePorts = append(m.CookiePorts, uint16(num))
 			}
+			hasCookieIPOrPort = true
+		case "custom_info":
+			if hasCookieHash || hasCookieIPOrPort {
+				return d.Errf("%s option '%s' can't be combined with other options", wrapper, optionName)
+			}
+			if hasCustomInfo {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			_, val := d.NextArg(), d.Val()
+			m.CustomInfo, hasCustomInfo = val[:min(RDPCustomInfoBytesMax, uint16(len(val)))], true
 		default:
 			return d.ArgErr()
 		}
@@ -600,10 +666,10 @@ const (
 	ASCIIByteCR uint8 = 0x0D
 	ASCIIByteLF uint8 = 0x0A
 
-	RDPCookieBytesMax            = RDPCookieBytesMin + (RDPCookieHashBytesMax - 1)
-	RDPCookieBytesMin            = uint16(len(RDPCookiePrefix) + 1 + 2) // 2 bytes for CR LF and at least 1 character
+	RDPCookieBytesMax            = uint16(X224CrqLengthMax) - (X224CrqBytesTotal - 1)
+	RDPCookieBytesMin            = uint16(len(RDPCookiePrefix)) + 1 + 2 // 2 bytes for CR LF and at least 1 character
 	RDPCookieBytesStart   uint16 = 0
-	RDPCookieHashBytesMax uint16 = 9
+	RDPCookieHashBytesMax        = RDPCookieBytesMax - (RDPCookieBytesMin - 1)
 	RDPCookiePrefix              = "Cookie: mstshash="
 
 	RDPCorrInfoBytesTotal uint16 = 36
@@ -612,6 +678,12 @@ const (
 	RDPCorrInfoLength            = RDPCorrInfoBytesTotal
 	RDPCorrInfoIdentityF4 uint8  = 0xF4
 	RDPCorrInfoReserved   uint8  = 0x00
+
+	RDPCustomBytesMax              = uint16(X224CrqLengthMax) - (X224CrqBytesTotal - 1)
+	RDPCustomBytesMin       uint16 = 1 + 2 // 2 bytes for CR LF and at least 1 character
+	RDPCustomBytesStart     uint16 = 0
+	RDPCustomInfoBytesMax          = RDPCustomBytesMax - (RDPCustomBytesMin - 1)
+	RDPCustomInfoBytesStart uint16 = 0
 
 	RDPNegReqBytesTotal    uint16 = 8
 	RDPNegReqType          uint8  = 0x01
@@ -629,7 +701,6 @@ const (
 	RDPNegReqProtocolsAll         = RDPNegReqProtoStandard | RDPNegReqProtoSSL | RDPNegReqProtoHybrid |
 		RDPNegReqProtoRDSTLS | RDPNegReqProtoHybridEx | RDPNegReqProtoRDSAAD
 
-	RDPTokenBytesMax                      = RDPTokenBytesMin + RDPTokenOptionalCookieBytesMax
 	RDPTokenBytesMin               uint16 = 11
 	RDPTokenBytesStart             uint16 = 0
 	RDPTokenVersion                uint8  = 0x03
@@ -660,15 +731,14 @@ const (
 
 	X224CrqBytesStart          = TPKTHeaderBytesStart + TPKTHeaderBytesTotal
 	X224CrqBytesTotal   uint16 = 7
+	X224CrqLengthMax    uint8  = 254  // 255 is reserved for possible extensions
 	X224CrqTypeCredit   uint8  = 0xE0 // also known as TPDU code
 	X224CrqDstRef       uint16 = 0x0000
 	X224CrqSrcRef       uint16 = 0x0000
 	X224CrqClassOptions uint8  = 0x00
 
-	RDPConnReqBytesMaxCookie = RDPConnReqBytesMin + RDPCookieBytesMax + 2 + RDPNegReqBytesTotal + RDPCorrInfoBytesTotal // 2 bytes for CR LF
-	RDPConnReqBytesMaxToken  = RDPConnReqBytesMin + RDPTokenBytesMax + RDPNegReqBytesTotal + RDPCorrInfoBytesTotal
-	RDPConnReqBytesMax       = max(RDPConnReqBytesMaxCookie, RDPConnReqBytesMaxToken)
-	RDPConnReqBytesMin       = TPKTHeaderBytesTotal + X224CrqBytesTotal
+	RDPConnReqBytesMax = TPKTHeaderBytesTotal + uint16(X224CrqLengthMax) + 1 // 1 byte for X224Crq.Length
+	RDPConnReqBytesMin = TPKTHeaderBytesTotal + X224CrqBytesTotal
 )
 
 // Variables specific to RDP Connection Request. Packet structure is described in the comments below.
@@ -740,7 +810,8 @@ var (
 //		0x436F6F6B69653A206D737473686173683D (Cookie: mstshash=)
 //		[IDENTIFIER]
 //		0x0D0A (CR LF);
-//		where a username cut to have no more than 9 symbols is commonly used as IDENTIFIER
+//		where IDENTIFIER can be a "domain/username" string truncated to 9 symbols for a native client (mstsc.exe),
+//		and an intact "username" string for Apache Guacamole (unless a load balance token/info field is set)
 //
 // 	ref: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/902b090b-9cb3-4efc-92bf-ee13373371e3
 //	5. OPTIONAL rdpNegReq (8 bytes):
