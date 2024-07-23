@@ -1,0 +1,54 @@
+{
+	layer4 {
+		:80 {
+			route {
+				throttle {
+					read_bytes_per_second 100000
+					total_read_bytes_per_second 500000
+					read_burst_size 20000
+					total_read_burst_size 100000
+					latency 2s
+				}
+				proxy localhost:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":80"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "throttle",
+									"latency": 2000000000,
+									"read_burst_size": 20000,
+									"read_bytes_per_second": 100000,
+									"total_read_burst_size": 100000,
+									"total_read_bytes_per_second": 500000
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

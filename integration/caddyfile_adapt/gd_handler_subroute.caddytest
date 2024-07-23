@@ -1,0 +1,113 @@
+{
+	layer4 {
+		:443 {
+			@tls tls
+			route @tls {
+				subroute {
+					@abc tls sni abc.example.com
+					route @abc {
+						proxy abc.machine.local:443
+					}
+					@def tls sni def.example.com
+					@ghi tls sni ghi.example.com
+					route @def @ghi {
+						proxy defghi.machine.local:443
+					}
+				}
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"tls": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"abc.machine.local:443"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"tls": {
+														"sni": [
+															"abc.example.com"
+														]
+													}
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"defghi.machine.local:443"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"tls": {
+														"sni": [
+															"def.example.com"
+														]
+													}
+												},
+												{
+													"tls": {
+														"sni": [
+															"ghi.example.com"
+														]
+													}
+												}
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

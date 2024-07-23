@@ -1,0 +1,100 @@
+{
+	layer4 {
+		0.0.0.0:443 {
+			@a not remote_ip 192.168.0.0/16
+			@b {
+				local_ip 192.168.0.0/16
+				remote_ip 192.168.0.0/16
+			}
+			@c not local_ip 192.168.0.0/16
+			route @a {
+				proxy localhost:4431
+			}
+			route @b @c {
+				proxy localhost:4432
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"not": [
+										{
+											"remote_ip": {
+												"ranges": [
+													"192.168.0.0/16"
+												]
+											}
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:4431"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"local_ip": {
+										"ranges": [
+											"192.168.0.0/16"
+										]
+									},
+									"remote_ip": {
+										"ranges": [
+											"192.168.0.0/16"
+										]
+									}
+								},
+								{
+									"not": [
+										{
+											"local_ip": {
+												"ranges": [
+													"192.168.0.0/16"
+												]
+											}
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:4432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

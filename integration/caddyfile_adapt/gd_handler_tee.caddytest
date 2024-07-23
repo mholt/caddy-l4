@@ -1,0 +1,81 @@
+{
+	layer4 {
+		0.0.0.0:443 {
+			@external not remote_ip 192.168.0.0/16
+			route @external {
+				tee {
+					proxy primary.machine.local:443
+					proxy secondary.machine.local:443
+				}
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"not": [
+										{
+											"remote_ip": {
+												"ranges": [
+													"192.168.0.0/16"
+												]
+											}
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"branch": [
+										{
+											"handler": "proxy",
+											"upstreams": [
+												{
+													"dial": [
+														"primary.machine.local:443"
+													]
+												}
+											]
+										},
+										{
+											"handler": "proxy",
+											"upstreams": [
+												{
+													"dial": [
+														"secondary.machine.local:443"
+													]
+												}
+											]
+										}
+									],
+									"handler": "tee"
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

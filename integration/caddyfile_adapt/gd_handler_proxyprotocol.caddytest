@@ -1,0 +1,88 @@
+{
+	layer4 {
+		0.0.0.0:8080 {
+			route {
+				proxy_protocol {
+					allow 10.0.0.0/8
+					timeout 5s
+				}
+				proxy 10.0.0.1:8080
+			}
+		}
+		0.0.0.0:8081 {
+			route {
+				proxy_protocol {
+					allow 10.0.0.0/8 192.168.0.0/16
+					timeout 3s
+				}
+				proxy 192.168.0.1:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8080"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"allow": [
+										"10.0.0.0/8"
+									],
+									"handler": "proxy_protocol",
+									"timeout": 5000000000
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.0.1:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"0.0.0.0:8081"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"allow": [
+										"10.0.0.0/8",
+										"192.168.0.0/16"
+									],
+									"handler": "proxy_protocol",
+									"timeout": 3000000000
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"192.168.0.1:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

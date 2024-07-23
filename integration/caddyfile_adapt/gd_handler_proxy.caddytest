@@ -1,0 +1,137 @@
+{
+	layer4 {
+		0.0.0.0:8765 {
+			route {
+				proxy {
+					health_interval 1s
+					health_port 8080
+					health_timeout 2s
+					fail_duration 5s
+					max_fails 10
+					unhealthy_connection_count 5
+					lb_policy round_robin
+					lb_try_duration 5s
+					lb_try_interval 15s
+					proxy_protocol v2
+					upstream 10.0.0.1:8080
+					upstream 10.0.0.2:8080 10.0.0.2:8888
+				}
+			}
+		}
+		0.0.0.0:9876 {
+			route {
+				proxy {
+					lb_policy random_choose 2
+					upstream {
+						dial 10.0.0.3:443 10.0.0.33:443
+						max_connections 2
+						tls
+					}
+					upstream {
+						dial 10.0.0.4:443 10.0.0.44:443
+						max_connections 4
+						tls_insecure_skip_verify
+						tls_renegotiation once
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8765"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"interval": 1000000000,
+											"port": 8080,
+											"timeout": 2000000000
+										},
+										"passive": {
+											"fail_duration": 5000000000,
+											"max_fails": 10,
+											"unhealthy_connection_count": 5
+										}
+									},
+									"load_balancing": {
+										"selection": {
+											"policy": "round_robin"
+										},
+										"try_duration": 5000000000,
+										"try_interval": 15000000000
+									},
+									"proxy_protocol": "v2",
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.0.1:8080"
+											]
+										},
+										{
+											"dial": [
+												"10.0.0.2:8080",
+												"10.0.0.2:8888"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"0.0.0.0:9876"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"load_balancing": {
+										"selection": {
+											"choose": 2,
+											"policy": "random_choose"
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.0.3:443",
+												"10.0.0.33:443"
+											],
+											"max_connections": 2,
+											"tls": {}
+										},
+										{
+											"dial": [
+												"10.0.0.4:443",
+												"10.0.0.44:443"
+											],
+											"max_connections": 4,
+											"tls": {
+												"insecure_skip_verify": true,
+												"renegotiation": "once"
+											}
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

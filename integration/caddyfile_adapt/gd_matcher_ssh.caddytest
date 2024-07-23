@@ -1,0 +1,66 @@
+{
+	layer4 {
+		:443 {
+			@a ssh
+			route @a {
+				proxy localhost:22
+			}
+			route {
+				tls
+				proxy localhost:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"ssh": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:22"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
