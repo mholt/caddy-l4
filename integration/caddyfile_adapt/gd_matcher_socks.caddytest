@@ -1,0 +1,109 @@
+{
+	layer4 {
+		:443 {
+			@s4 socks4 {
+				commands BIND GET
+				networks 10.0.0.0/8 fc::/7
+				ports 443 1080
+			}
+			route @s4 {
+				proxy socks4.machine.local:1080
+			}
+			@s5 socks5 {
+				auth_methods 1 2
+			}
+			route @s5 {
+				proxy socks5.machine.local:1080
+			}
+			route {
+				proxy fallback.machine.local:443
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"socks4": {
+										"commands": [
+											"BIND",
+											"GET"
+										],
+										"networks": [
+											"10.0.0.0/8",
+											"fc::/7"
+										],
+										"ports": [
+											443,
+											1080
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"socks4.machine.local:1080"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"socks5": {
+										"auth_methods": [
+											1,
+											2
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"socks5.machine.local:1080"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"fallback.machine.local:443"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

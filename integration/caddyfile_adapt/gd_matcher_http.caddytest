@@ -1,0 +1,121 @@
+{
+	layer4 {
+		:80 {
+			@a http host localhost
+			@b http {
+				host example.com
+				remote_ip 192.168.0.0/16
+			}
+			@c http not path /index.html
+			route @c {
+				proxy localhost:8083
+			}
+			route @a {
+				proxy localhost:8081
+			}
+			route @b {
+				proxy localhost:8082
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":80"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"http": [
+										{
+											"not": [
+												{
+													"path": [
+														"/index.html"
+													]
+												}
+											]
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8083"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"http": [
+										{
+											"host": [
+												"localhost"
+											]
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8081"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"http": [
+										{
+											"host": [
+												"example.com"
+											],
+											"remote_ip": {
+												"ranges": [
+													"192.168.0.0/16"
+												]
+											}
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8082"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

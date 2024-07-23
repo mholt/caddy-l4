@@ -1,0 +1,62 @@
+{
+	layer4 {
+		:1080 {
+			@s5 socks5
+			route @s5 {
+				socks5 {
+					commands CONNECT
+					commands ASSOCIATE
+					credentials account1 password1 account2 password2
+					credentials account3 password3
+				}
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":1080"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"socks5": {}
+								}
+							],
+							"handle": [
+								{
+									"commands": [
+										"CONNECT",
+										"ASSOCIATE"
+									],
+									"credentials": {
+										"account1": "password1",
+										"account2": "password2",
+										"account3": "password3"
+									},
+									"handler": "socks5"
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

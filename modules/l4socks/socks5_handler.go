@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/things-go/go-socks5"
 	"go.uber.org/zap"
@@ -79,9 +80,75 @@ func (h *Socks5Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 	return h.server.ServeConn(cx)
 }
 
+// UnmarshalCaddyfile sets up the Socks5Handler from Caddyfile tokens. Syntax:
+//
+//	socks5 {
+//		bind_ip <...>
+//		commands <...>
+//		credentials <username> <password> [<username> <password>]
+//	}
+//
+// Note: multiple commands and credentials options are supported, but bind_ip option can only be provided once.
+// Only plain text passwords are currently supported.
+func (h *Socks5Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasBindIP bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "bind_ip":
+			if hasBindIP {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			_, bindIP := d.NextArg(), net.ParseIP(d.Val())
+			if bindIP == nil {
+				return d.Errf("parsing %s option '%s': invalid IP address", wrapper, optionName)
+			}
+			h.BindIP, hasBindIP = bindIP.String(), true
+		case "commands":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			h.Commands = append(h.Commands, d.RemainingArgs()...)
+		case "credentials":
+			if d.CountRemainingArgs() == 0 || d.CountRemainingArgs()%2 != 0 {
+				return d.ArgErr()
+			}
+			if h.Credentials == nil {
+				h.Credentials = make(map[string]string)
+			}
+			for d.NextArg() {
+				username := d.Val()
+				if d.NextArg() {
+					h.Credentials[username] = d.Val()
+				}
+			}
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 var (
-	_ caddy.Provisioner  = (*Socks5Handler)(nil)
-	_ layer4.NextHandler = (*Socks5Handler)(nil)
+	_ caddy.Provisioner     = (*Socks5Handler)(nil)
+	_ caddyfile.Unmarshaler = (*Socks5Handler)(nil)
+	_ layer4.NextHandler    = (*Socks5Handler)(nil)
 )
 
 type socks5Logger struct {

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mastercactapus/proxyprotocol"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
@@ -164,6 +165,63 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(cx.Wrap(conn))
 }
 
+// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
+//
+//	proxy_protocol {
+//		allow <ranges...>
+//		timeout <duration>
+//	}
+//
+// proxy_protocol
+func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	var hasTimeout bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "allow":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			prefixes, err := layer4.ParseNetworks(d.RemainingArgs())
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			for _, prefix := range prefixes {
+				h.Allow = append(h.Allow, prefix.String())
+			}
+		case "timeout":
+			if hasTimeout {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			h.Timeout, hasTimeout = caddy.Duration(dur), true
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 // GetConn gets the connection which holds the information received from the PROXY protocol.
 func GetConn(cx *layer4.Connection) net.Conn {
 	if val := cx.GetVar("l4.proxy_protocol.conn"); val != nil {
@@ -174,6 +232,7 @@ func GetConn(cx *layer4.Connection) net.Conn {
 
 // Interface guards
 var (
-	_ caddy.Provisioner  = (*Handler)(nil)
-	_ layer4.NextHandler = (*Handler)(nil)
+	_ caddy.Provisioner     = (*Handler)(nil)
+	_ caddyfile.Unmarshaler = (*Handler)(nil)
+	_ layer4.NextHandler    = (*Handler)(nil)
 )

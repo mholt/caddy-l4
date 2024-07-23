@@ -1,9 +1,12 @@
 package l4socks
 
 import (
-	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"io"
+	"strconv"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
@@ -15,7 +18,7 @@ func init() {
 // use AuthMethods to exactly specify which METHODS you expect your clients to send.
 // By default only the most common methods are matched NO AUTH, GSSAPI & USERNAME/PASSWORD.
 type Socks5Matcher struct {
-	AuthMethods []uint8 `json:"auth_methods,omitempty"`
+	AuthMethods []uint16 `json:"auth_methods,omitempty"`
 }
 
 func (Socks5Matcher) CaddyModule() caddy.ModuleInfo {
@@ -27,7 +30,7 @@ func (Socks5Matcher) CaddyModule() caddy.ModuleInfo {
 
 func (m *Socks5Matcher) Provision(_ caddy.Context) error {
 	if len(m.AuthMethods) == 0 {
-		m.AuthMethods = []uint8{0, 1, 2} // NO AUTH, GSSAPI, USERNAME/PASSWORD
+		m.AuthMethods = []uint16{0, 1, 2} // NO AUTH, GSSAPI, USERNAME/PASSWORD
 	}
 	return nil
 }
@@ -57,7 +60,7 @@ func (m *Socks5Matcher) Match(cx *layer4.Connection) (bool, error) {
 
 	// match auth methods
 	for _, requestedMethod := range methods {
-		if !contains(m.AuthMethods, requestedMethod) {
+		if !contains(m.AuthMethods, uint16(requestedMethod)) {
 			return false, nil
 		}
 	}
@@ -65,12 +68,55 @@ func (m *Socks5Matcher) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
+// UnmarshalCaddyfile sets up the Socks5Matcher from Caddyfile tokens. Syntax:
+//
+//	socks5 {
+//		auth_methods <auth_methods...>
+//	}
+//
+// socks5
+func (m *Socks5Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "auth_methods":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			for d.NextArg() {
+				authMethod, err := strconv.ParseUint(d.Val(), 10, 8)
+				if err != nil {
+					return d.WrapErr(err)
+				}
+				m.AuthMethods = append(m.AuthMethods, uint16(authMethod))
+			}
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 var (
-	_ layer4.ConnMatcher = (*Socks5Matcher)(nil)
-	_ caddy.Provisioner  = (*Socks5Matcher)(nil)
+	_ layer4.ConnMatcher    = (*Socks5Matcher)(nil)
+	_ caddy.Provisioner     = (*Socks5Matcher)(nil)
+	_ caddyfile.Unmarshaler = (*Socks5Matcher)(nil)
 )
 
-func contains(values []uint8, search uint8) bool {
+func contains(values []uint16, search uint16) bool {
 	for _, value := range values {
 		if value == search {
 			return true
