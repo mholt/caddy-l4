@@ -59,8 +59,8 @@ func (b *message) ReadUint32() (r uint32) {
 
 func (b *message) ReadString() (r string) {
 	end := b.offset
-	max := uint32(len(b.data))
-	for ; end != max && b.data[end] != 0; end++ {
+	maximum := uint32(len(b.data))
+	for ; end != maximum && b.data[end] != 0; end++ {
 	}
 	r = string(b.data[b.offset:end])
 	b.offset = end + 1
