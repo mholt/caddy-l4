@@ -64,7 +64,7 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 	if err != nil {
 		return err
 	}
-	var handlers layer4.Handlers
+	handlers := make(layer4.Handlers, 0)
 	for _, mod := range mods.([]interface{}) {
 		handlers = append(handlers, mod.(layer4.NextHandler))
 	}
