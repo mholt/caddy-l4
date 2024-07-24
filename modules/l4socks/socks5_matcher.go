@@ -16,7 +16,7 @@ func init() {
 // Socks5Matcher matches SOCKSv5 connections according to RFC 1928 (https://www.rfc-editor.org/rfc/rfc1928.html).
 // Since the SOCKSv5 header is very short it could produce a lot of false positives,
 // use AuthMethods to exactly specify which METHODS you expect your clients to send.
-// By default only the most common methods are matched NO AUTH, GSSAPI & USERNAME/PASSWORD.
+// By default, only the most common methods are matched NO AUTH, GSSAPI & USERNAME/PASSWORD.
 type Socks5Matcher struct {
 	AuthMethods []uint16 `json:"auth_methods,omitempty"`
 }

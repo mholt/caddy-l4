@@ -31,7 +31,7 @@ func init() {
 
 // Handler is a layer4 handler that replicates a connection so
 // that a branch of handlers can concurrently handle it. Reads
-// happen in lock-step with all concurrent branches so as to
+// happen in lock-step with all concurrent branches to
 // avoid buffering: if one of the branches (including the main
 // handler chain) stops reading from the connection, it will
 // block all branches.
@@ -83,7 +83,7 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 
 	// this is the conn we pass to the next handler;
 	// anything read by it will be teed into the pipe
-	// (it also needs a pointer to the pipe so it can
+	// (it also needs a pointer to the pipe, so it can
 	// close the pipe when the connection closes,
 	// otherwise we'll leak the goroutine, yikes!)
 	nextc := *cx

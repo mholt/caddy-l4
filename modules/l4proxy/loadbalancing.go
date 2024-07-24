@@ -108,7 +108,7 @@ func (r RandomSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstre
 		if !upstream.available() {
 			continue
 		}
-		// (n % 1 == 0) holds for all n, therefore a
+		// (n % 1 == 0) holds for all n, therefore an
 		// upstream will always be chosen if there is at
 		// least one available
 		count++

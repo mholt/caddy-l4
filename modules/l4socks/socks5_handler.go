@@ -40,7 +40,7 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 	if len(h.Commands) == 0 {
 		rule.EnableConnect = true
 		rule.EnableAssociate = true
-		// BIND is currently not supported so we dont allow it by default
+		// BIND is currently not supported, so we don't allow it by default
 	} else {
 		for _, c := range h.Commands {
 			switch strings.ToUpper(c) {

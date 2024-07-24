@@ -116,7 +116,7 @@ func (s Server) servePacket(pc net.PacketConn) error {
 	// be removed from this map after being closed.
 	udpConns := make(map[string]*packetConn)
 	// closeCh is used to receive notifications of socket closures from
-	// packetConn, which allows us to to remove stale connections (whose
+	// packetConn, which allows us to remove stale connections (whose
 	// proxy handlers have completed) from the udpConns map.
 	closeCh := make(chan string, 10)
 	for {

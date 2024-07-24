@@ -91,7 +91,7 @@ func (h *Handler) tidyRules() {
 	})
 
 	if len(rules) > 0 {
-		// dedup
+		// deduplication
 		last := rules[0]
 		nf := rules[1:1]
 		for _, f := range rules[1:] {

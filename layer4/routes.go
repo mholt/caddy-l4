@@ -35,7 +35,7 @@ type Route struct {
 	// Matchers define the conditions upon which to execute the handlers.
 	// All matchers within the same set must match, and at least one set
 	// must match; in other words, matchers are AND'ed together within a
-	// set, but multiple sets are OR'ed together. No matchers matches all.
+	// set, but multiple sets are OR'ed together. No matchers match all.
 	MatcherSetsRaw []caddy.ModuleMap `json:"match,omitempty" caddy:"namespace=layer4.matchers"`
 
 	// Handlers define the behavior for handling the stream. They are
