@@ -23,14 +23,14 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a simple handler that writes what it reads.
 type Handler struct{}
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.echo",
 		New: func() caddy.Module { return new(Handler) },
@@ -38,7 +38,7 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 }
 
 // Handle handles the connection.
-func (Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
+func (*Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 	_, err := io.Copy(cx, cx)
 	return err
 }

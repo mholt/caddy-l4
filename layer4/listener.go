@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(ListenerWrapper{})
+	caddy.RegisterModule(&ListenerWrapper{})
 }
 
 // ListenerWrapper is a Caddy module that wraps App as a listener wrapper, it doesn't support udp.
@@ -33,7 +33,7 @@ type ListenerWrapper struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (ListenerWrapper) CaddyModule() caddy.ModuleInfo {
+func (*ListenerWrapper) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "caddy.listeners.layer4",
 		New: func() caddy.Module { return new(ListenerWrapper) },

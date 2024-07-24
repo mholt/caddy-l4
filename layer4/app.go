@@ -23,7 +23,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(App{})
+	caddy.RegisterModule(&App{})
 }
 
 // App is a Caddy app that operates closest to layer 4 of the OSI model.
@@ -40,7 +40,7 @@ type App struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (App) CaddyModule() caddy.ModuleInfo {
+func (*App) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4",
 		New: func() caddy.Module { return new(App) },
@@ -90,7 +90,7 @@ func (a *App) Start() error {
 }
 
 // Stop stops the servers and closes all listeners.
-func (a App) Stop() error {
+func (a *App) Stop() error {
 	for _, pc := range a.packetConns {
 		err := pc.Close()
 		if err != nil {

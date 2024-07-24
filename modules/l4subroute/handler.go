@@ -25,7 +25,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler implements a handler that compiles and executes routes.
@@ -43,7 +43,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.subroute",
 		New: func() caddy.Module { return new(Handler) },

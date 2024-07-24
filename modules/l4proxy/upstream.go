@@ -50,7 +50,7 @@ type Upstream struct {
 	healthCheckPolicy *PassiveHealthChecks
 }
 
-func (u Upstream) String() string {
+func (u *Upstream) String() string {
 	return strings.Join(u.Dial, ",")
 }
 

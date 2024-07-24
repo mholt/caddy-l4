@@ -23,22 +23,22 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(MatchALPN{})
+	caddy.RegisterModule(&MatchALPN{})
 }
 
 type MatchALPN []string
 
 // CaddyModule returns the Caddy module information.
-func (MatchALPN) CaddyModule() caddy.ModuleInfo {
+func (*MatchALPN) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "tls.handshake_match.alpn",
 		New: func() caddy.Module { return new(MatchALPN) },
 	}
 }
 
-func (m MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
+func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
 	clientProtocols := hello.SupportedProtos
-	for _, alpn := range m {
+	for _, alpn := range *m {
 		for _, clientProtocol := range clientProtocols {
 			if alpn == clientProtocol {
 				return true

@@ -24,14 +24,14 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(MatchXMPP{})
+	caddy.RegisterModule(&MatchXMPP{})
 }
 
 // MatchXMPP is able to match XMPP connections.
 type MatchXMPP struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchXMPP) CaddyModule() caddy.ModuleInfo {
+func (*MatchXMPP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.xmpp",
 		New: func() caddy.Module { return new(MatchXMPP) },
@@ -39,7 +39,7 @@ func (MatchXMPP) CaddyModule() caddy.ModuleInfo {
 }
 
 // Match returns true if the connection looks like XMPP.
-func (m MatchXMPP) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchXMPP) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, minXmppLength)
 	n, err := io.ReadFull(cx, p)
 	if err != nil || n < minXmppLength { // needs at least 50 (fix for adium/pidgin)

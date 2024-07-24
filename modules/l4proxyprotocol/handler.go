@@ -28,7 +28,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a connection handler that accepts the PROXY protocol.
@@ -45,7 +45,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.proxy_protocol",
 		New: func() caddy.Module { return new(Handler) },

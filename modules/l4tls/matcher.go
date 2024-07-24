@@ -27,7 +27,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(MatchTLS{})
+	caddy.RegisterModule(&MatchTLS{})
 }
 
 // MatchTLS is able to match TLS connections. Its structure
@@ -41,7 +41,7 @@ type MatchTLS struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchTLS) CaddyModule() caddy.ModuleInfo {
+func (*MatchTLS) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.tls",
 		New: func() caddy.Module { return new(MatchTLS) },
@@ -54,7 +54,7 @@ func (m *MatchTLS) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON satisfies the json.Marshaler interface.
-func (m MatchTLS) MarshalJSON() ([]byte, error) {
+func (m *MatchTLS) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.MatchersRaw)
 }
 
@@ -72,7 +72,7 @@ func (m *MatchTLS) Provision(ctx caddy.Context) error {
 }
 
 // Match returns true if the connection is a TLS handshake.
-func (m MatchTLS) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	// read the header bytes
 	const recordHeaderLen = 5
 	hdr := make([]byte, recordHeaderLen)

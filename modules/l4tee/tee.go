@@ -26,7 +26,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a layer4 handler that replicates a connection so
@@ -48,7 +48,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.tee",
 		New: func() caddy.Module { return new(Handler) },
@@ -74,7 +74,7 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 }
 
 // Handle handles the connection.
-func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// what is read by the next handler will also be
 	// read by the branch handlers; this is done by
 	// writing conn's reads into a pipe, and having

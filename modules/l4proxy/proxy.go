@@ -37,7 +37,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a handler that can proxy connections.
@@ -61,7 +61,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.proxy",
 		New: func() caddy.Module { return new(Handler) },
@@ -126,7 +126,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.LoadBalancing = new(LoadBalancing)
 	}
 	if h.LoadBalancing.SelectionPolicy == nil {
-		h.LoadBalancing.SelectionPolicy = RandomSelection{}
+		h.LoadBalancing.SelectionPolicy = &RandomSelection{}
 	}
 	if h.LoadBalancing.TryDuration > 0 && h.LoadBalancing.TryInterval == 0 {
 		// a non-zero try_duration with a zero try_interval
@@ -140,7 +140,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 // Handle handles the downstream connection.
-func (h Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
+func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 
 	start := time.Now()

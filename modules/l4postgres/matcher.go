@@ -34,7 +34,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(MatchPostgres{})
+	caddy.RegisterModule(&MatchPostgres{})
 }
 
 const (
@@ -82,7 +82,7 @@ type startupMessage struct {
 type MatchPostgres struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
+func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.postgres",
 		New: func() caddy.Module { return new(MatchPostgres) },
@@ -90,7 +90,7 @@ func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
 }
 
 // Match returns true if the connection looks like the Postgres protocol.
-func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	// Get bytes containing the message length
 	head := make([]byte, initMessageSizeLength)
 	if _, err := io.ReadFull(cx, head); err != nil {

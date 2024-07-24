@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(Socks5Handler{})
+	caddy.RegisterModule(&Socks5Handler{})
 }
 
 // Socks5Handler is a connection handler that terminates SOCKSv5 connection.
@@ -28,7 +28,7 @@ type Socks5Handler struct {
 	server *socks5.Server
 }
 
-func (Socks5Handler) CaddyModule() caddy.ModuleInfo {
+func (*Socks5Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.socks5",
 		New: func() caddy.Module { return new(Socks5Handler) },
