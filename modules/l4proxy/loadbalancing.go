@@ -99,7 +99,7 @@ func (RandomSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Select returns an available host, if any.
-func (r RandomSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Upstream {
+func (r RandomSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
 	// use reservoir sampling because the number of available
 	// hosts isn't known: https://en.wikipedia.org/wiki/Reservoir_sampling
 	var randomHost *Upstream
@@ -156,7 +156,7 @@ func (RandomChoiceSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision sets up r.
-func (r *RandomChoiceSelection) Provision(ctx caddy.Context) error {
+func (r *RandomChoiceSelection) Provision(_ caddy.Context) error {
 	if r.Choose == 0 {
 		r.Choose = 2
 	}
