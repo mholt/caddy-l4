@@ -126,7 +126,8 @@ type listener struct {
 func (l *listener) loop() {
 	for {
 		conn, err := l.Listener.Accept()
-		if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Temporary() {
 			l.logger.Error("temporary error accepting connection", zap.Error(err))
 			continue
 		}
@@ -156,8 +157,8 @@ func (l *listener) handle(conn net.Conn) {
 	var err error
 	defer func() {
 		l.wg.Done()
-		if err != errHijacked {
-			conn.Close()
+		if !errors.Is(err, errHijacked) {
+			_ = conn.Close()
 		}
 	}()
 
@@ -171,7 +172,7 @@ func (l *listener) handle(conn net.Conn) {
 	start := time.Now()
 	err = l.compiledRoute.Handle(cx)
 	duration := time.Since(start)
-	if err != nil && err != errHijacked {
+	if err != nil && !errors.Is(err, errHijacked) {
 		l.logger.Error("handling connection", zap.Error(err))
 	}
 

@@ -16,6 +16,7 @@ package layer4
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -75,7 +76,8 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 func (s Server) serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
-		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Timeout() {
 			s.logger.Error("timeout accepting connection", zap.Error(err))
 			continue
 		}
@@ -95,7 +97,8 @@ func (s Server) servePacket(pc net.PacketConn) error {
 			buf := udpBufPool.Get().([]byte)
 			n, addr, err := pc.ReadFrom(buf)
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
 					continue
 				}
 				packets <- packet{err: err}
