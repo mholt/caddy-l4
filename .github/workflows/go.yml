@@ -83,6 +83,7 @@ jobs:
         # TODO:
         # github.com/mholt/caddy-l4,
         # modules/l4echo,
+        # modules/l4postgres,
         # modules/l4ssh,
         # modules/l4subroute,
         # modules/l4tee,
