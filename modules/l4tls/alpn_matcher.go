@@ -40,7 +40,7 @@ func (m MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
 	clientProtocols := hello.SupportedProtos
 	for _, alpn := range m {
 		for _, clientProtocol := range clientProtocols {
-			if alpn == string(clientProtocol) {
+			if alpn == clientProtocol {
 				return true
 			}
 		}
