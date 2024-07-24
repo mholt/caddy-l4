@@ -145,7 +145,7 @@ func (l *listener) loop() {
 		close(l.connChan)
 	}()
 	for conn := range l.connChan {
-		conn.Close()
+		_ = conn.Close()
 	}
 }
 

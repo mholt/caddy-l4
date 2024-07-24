@@ -155,7 +155,7 @@ type nextConn struct {
 func (nc nextConn) Read(p []byte) (n int, err error) {
 	n, err = nc.Reader.Read(p)
 	if err == io.EOF {
-		nc.pipe.Close()
+		_ = nc.pipe.Close()
 	}
 	return
 }

@@ -24,8 +24,8 @@ func assertNoError(t *testing.T, err error) {
 
 func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool, error) {
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := layer4.WrapConnection(in, make([]byte, 0), zap.NewNop())
 	go func() {
@@ -211,8 +211,8 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 		}))
 
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {

@@ -152,7 +152,7 @@ func (h *Handler) doActiveHealthCheck(p *peer) error {
 		}
 		return nil
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// connection succeeded, so mark as healthy
 	swapped, err := p.setHealthy(true)

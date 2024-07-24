@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"runtime/debug"
@@ -178,7 +177,7 @@ func (h Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	// make sure upstream connections all get closed
 	defer func() {
 		for _, conn := range upConns {
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -235,7 +234,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		if err != nil {
 			h.countFailure(p)
 			for _, conn := range upConns {
-				conn.Close()
+				_ = conn.Close()
 			}
 			return nil, err
 		}
@@ -285,7 +284,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	go func() {
 		// read from downstream until connection is closed;
 		// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
-		io.Copy(ioutil.Discard, downTee)
+		_, _ = io.Copy(io.Discard, downTee)
 		downConnClosedCh <- struct{}{}
 
 		// Shut down the writing side of all upstream connections, in case
@@ -301,7 +300,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 			if conn, ok := up.(closeWriter); ok {
 				_ = conn.CloseWrite()
 			} else {
-				up.Close()
+				_ = up.Close()
 			}
 		}
 	}()
@@ -365,7 +364,7 @@ func (h *Handler) Cleanup() error {
 	// remove hosts from our config from the pool
 	for _, upstream := range h.Upstreams {
 		for _, dialAddr := range upstream.Dial {
-			peers.Delete(dialAddr)
+			_, _ = peers.Delete(dialAddr)
 		}
 	}
 	return nil

@@ -33,11 +33,11 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 		}))
 
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := WrapConnection(out, []byte{}, zap.NewNop())
-	defer cx.Close()
+	defer func() { _ = cx.Close() }()
 
 	err = compiledRoutes.Handle(cx)
 	if err != nil {

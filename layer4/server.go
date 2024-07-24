@@ -154,7 +154,7 @@ func (s Server) servePacket(pc net.PacketConn) error {
 }
 
 func (s Server) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	buf := bufPool.Get().([]byte)
 	buf = buf[:0]

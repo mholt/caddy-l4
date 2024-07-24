@@ -28,7 +28,7 @@ func TestProxyProtocolHandleV1(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV1Example)
 		assertNoError(t, err)
 	}()
@@ -66,7 +66,7 @@ func TestProxyProtocolHandleV2(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV2Example)
 		assertNoError(t, err)
 	}()
@@ -104,7 +104,7 @@ func TestProxyProtocolHandleGarbage(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write([]byte("some garbage"))
 		assertNoError(t, err)
 	}()

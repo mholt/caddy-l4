@@ -36,7 +36,7 @@ func TestProxyProtocolMatchV1(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV1Example)
 		assertNoError(t, err)
 	}()
@@ -62,7 +62,7 @@ func TestProxyProtocolMatchV2(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV2Example)
 		assertNoError(t, err)
 	}()
@@ -88,7 +88,7 @@ func TestProxyProtocolMatchGarbage(t *testing.T) {
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
-		defer out.Close()
+		defer func() { _ = out.Close() }()
 		_, err := out.Write([]byte("Hello World Hello World Hello World Hello World"))
 		assertNoError(t, err)
 	}()
