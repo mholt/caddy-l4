@@ -7,8 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 var ProxyV1Example = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")

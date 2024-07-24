@@ -22,8 +22,9 @@ import (
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func assertNoError(t *testing.T, err error) {

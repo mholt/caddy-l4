@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/caddytest"
+
 	_ "github.com/mholt/caddy-l4"
 )
 

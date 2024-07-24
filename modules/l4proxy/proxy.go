@@ -17,7 +17,6 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"io"
 	"log"
 	"net"
@@ -28,12 +27,14 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mastercactapus/proxyprotocol"
+	"go.uber.org/zap"
+
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4proxyprotocol"
 	"github.com/mholt/caddy-l4/modules/l4tls"
-	"go.uber.org/zap"
 )
 
 func init() {

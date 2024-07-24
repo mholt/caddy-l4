@@ -10,8 +10,9 @@ import (
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func replay(t *testing.T, handler *Socks5Handler, expectedError string, messages [][]byte) {
