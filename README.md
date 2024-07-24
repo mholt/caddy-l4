@@ -39,6 +39,7 @@ Current matchers:
 - **layer4.matchers.not** - matches connections that aren't matched by inner matcher sets.
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.matchers.rdp** - matches connections that look like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf).
+- **layer4.matchers.regexp** - matches connections that have the first packet bytes matching a regular expression.
 - **layer4.matchers.socks4** - matches connections that look like [SOCKSv4](https://www.openssh.com/txt/socks4.protocol).
 - **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
 - **layer4.matchers.xmpp** - matches connections that look like [XMPP](https://xmpp.org/about/technology-overview/).

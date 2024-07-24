@@ -1,0 +1,110 @@
+{
+	layer4 {
+		:12345 {
+			# regexp reads only 4 bytes by default
+			@r1 regexp \d+
+			route @r1 {
+				proxy r1.machine.local:10001
+			}
+			@r2 regexp \xFF\xEE\xDD\xCC\xBB\xAA 6
+			route @r2 {
+				proxy r2.machine.local:10001
+			}
+			@r3 regexp ^(b|c|r)at(.*)\x00\x00$ 10
+			route @r3 {
+				proxy r3.machine.local:10001
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":12345"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"regexp": {
+										"pattern": "\\d+"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"r1.machine.local:10001"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"regexp": {
+										"count": 6,
+										"pattern": "\\xFF\\xEE\\xDD\\xCC\\xBB\\xAA"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"r2.machine.local:10001"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"regexp": {
+										"count": 10,
+										"pattern": "^(b|c|r)at(.*)\\x00\\x00$"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"r3.machine.local:10001"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
