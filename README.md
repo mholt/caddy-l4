@@ -74,7 +74,7 @@ Alternatively, to hack on the plugin code, you can clone it down, then build and
 
 ## Writing config
 
-Since this app does not support Caddyfile (yet?), you will have to use Caddy's native JSON format to configure it. I highly recommend [this caddy-json-schema plugin by @abiosoft](https://github.com/abiosoft/caddy-json-schema) which can give you auto-complete and documentation right in your editor as you write your config!
+This app supports Caddyfile, but you may also use Caddy's native JSON format to configure it. I highly recommend [this caddy-json-schema plugin by @abiosoft](https://github.com/abiosoft/caddy-json-schema) which can give you auto-complete and documentation right in your editor as you write your config!
 
 See below for some examples to help you get started.
 
