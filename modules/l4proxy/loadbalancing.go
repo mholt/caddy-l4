@@ -82,8 +82,6 @@ func init() {
 	caddy.RegisterModule(&RoundRobinSelection{})
 	caddy.RegisterModule(&FirstSelection{})
 	caddy.RegisterModule(&IPHashSelection{})
-
-	weakrand.Seed(time.Now().UTC().UnixNano())
 }
 
 // RandomSelection is a policy that selects
