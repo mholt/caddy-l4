@@ -10,7 +10,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -149,12 +149,13 @@ func (m *Socks4Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			cidrs, err := layer4.ParseNetworks(d.RemainingArgs())
-			if err != nil {
-				return err
-			}
-			for _, cidr := range cidrs {
-				m.Networks = append(m.Networks, cidr.String())
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					m.Networks = append(m.Networks, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				m.Networks = append(m.Networks, val)
 			}
 		case "ports":
 			if d.CountRemainingArgs() == 0 {

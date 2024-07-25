@@ -23,6 +23,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
 )
 
@@ -173,13 +174,13 @@ func (m *MatchRemoteIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	prefixes, err := ParseNetworks(d.RemainingArgs())
-	if err != nil {
-		return err
-	}
-
-	for _, prefix := range prefixes {
-		m.Ranges = append(m.Ranges, prefix.String())
+	for d.NextArg() {
+		val := d.Val()
+		if val == "private_ranges" {
+			m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
+			continue
+		}
+		m.Ranges = append(m.Ranges, val)
 	}
 
 	// No blocks are supported
@@ -255,13 +256,13 @@ func (m *MatchLocalIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	prefixes, err := ParseNetworks(d.RemainingArgs())
-	if err != nil {
-		return err
-	}
-
-	for _, prefix := range prefixes {
-		m.Ranges = append(m.Ranges, prefix.String())
+	for d.NextArg() {
+		val := d.Val()
+		if val == "private_ranges" {
+			m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
+			continue
+		}
+		m.Ranges = append(m.Ranges, val)
 	}
 
 	// No blocks are supported

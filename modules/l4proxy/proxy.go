@@ -401,13 +401,8 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
 	// Treat all same-line options as upstream addresses
-	for i := 0; d.NextArg(); i++ {
-		val := d.Val()
-		_, err := caddy.ParseNetworkAddress(val)
-		if err != nil {
-			return d.Errf("parsing %s upstream on position %d: %v", wrapper, i, err)
-		}
-		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{val}})
+	for d.NextArg() {
+		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{d.Val()}})
 	}
 
 	var (

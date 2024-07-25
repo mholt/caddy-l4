@@ -22,6 +22,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mastercactapus/proxyprotocol"
 	"go.uber.org/zap"
 
@@ -190,12 +191,13 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			prefixes, err := layer4.ParseNetworks(d.RemainingArgs())
-			if err != nil {
-				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
-			}
-			for _, prefix := range prefixes {
-				h.Allow = append(h.Allow, prefix.String())
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					h.Allow = append(h.Allow, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				h.Allow = append(h.Allow, val)
 			}
 		case "timeout":
 			if hasTimeout {

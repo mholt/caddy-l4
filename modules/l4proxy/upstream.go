@@ -368,13 +368,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	if len(shortcutArgs) == 0 {
 		return d.Errf("malformed %s block: at least one %s address must be provided", wrapper, shortcutOptionName)
 	}
-	for _, arg := range shortcutArgs {
-		_, err := caddy.ParseNetworkAddress(arg)
-		if err != nil {
-			return d.Errf("parsing %s option '%s': %v", wrapper, shortcutOptionName, err)
-		}
-		u.Dial = append(u.Dial, arg)
-	}
+	u.Dial = append(u.Dial, shortcutArgs...)
 
 	return nil
 }

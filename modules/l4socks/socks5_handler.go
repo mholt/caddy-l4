@@ -84,8 +84,8 @@ func (h *Socks5Handler) Handle(cx *layer4.Connection, _ layer4.Handler) error {
 // UnmarshalCaddyfile sets up the Socks5Handler from Caddyfile tokens. Syntax:
 //
 //	socks5 {
-//		bind_ip <...>
-//		commands <...>
+//		bind_ip <address>
+//		commands <values...>
 //		credentials <username> <password> [<username> <password>]
 //	}
 //
@@ -110,11 +110,7 @@ func (h *Socks5Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() != 1 {
 				return d.ArgErr()
 			}
-			_, bindIP := d.NextArg(), net.ParseIP(d.Val())
-			if bindIP == nil {
-				return d.Errf("parsing %s option '%s': invalid IP address", wrapper, optionName)
-			}
-			h.BindIP, hasBindIP = bindIP.String(), true
+			_, h.BindIP, hasBindIP = d.NextArg(), d.Val(), true
 		case "commands":
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()

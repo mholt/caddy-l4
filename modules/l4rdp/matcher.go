@@ -27,7 +27,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -508,12 +508,13 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			prefixes, err := layer4.ParseNetworks(d.RemainingArgs())
-			if err != nil {
-				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
-			}
-			for _, prefix := range prefixes {
-				m.CookieIPs = append(m.CookieIPs, prefix.String())
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					m.CookieIPs = append(m.CookieIPs, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				m.CookieIPs = append(m.CookieIPs, val)
 			}
 			hasCookieIPOrPort = true
 		case "cookie_port":
