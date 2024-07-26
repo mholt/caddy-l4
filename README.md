@@ -583,3 +583,14 @@ While only allowing connections from a specific network and requiring a username
 }
 ```
 </details>
+
+## Placeholders support
+
+Environment variables having `{$VAR}` syntax are supported in Caddyfile only. They are evaluated once at launch before Caddyfile is parsed.
+
+Runtime placeholders having `{...}` syntax, including environment variables referenced as `{env.VAR}`, are supported in both Caddyfile and pure JSON, with some caveats described below.
+- Options of *int*, *float*, *big.int*, *duration*, and other numeric types don't support runtime placeholders at all.
+- Options of *string* type containing IPs or CIDRs (e.g. `dial` in `upstream` of `proxy` handler), regular expressions (e.g. `cookie_hash_regexp` of `rdp` matcher), or special values (e.g. `commands` and `credentials` of `socks5` handler)  support runtime placeholders, but they are evaluated __once at provision__ due to the existing optimizations.
+- Other options of *string* type (e.g. `alpn` of `tls` matcher) generally support runtime placeholders, and they are evaluated __each time at match or handle__. However, there are some exceptions, e.g. `tls_*` options inside `upstream` of `proxy` handler, and all options inside `connection_policy` of `tls` handler, that don't support runtime placeholders at all.
+
+Please note that runtime placeholders support depends on handler/matcher implementations. Given some matchers and handlers are outside of this repository, it's up to their developers to support or restrict usage of runtime placeholders.
