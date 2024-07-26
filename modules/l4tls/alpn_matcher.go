@@ -37,8 +37,10 @@ func (*MatchALPN) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
+	repl := hello.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 	clientProtocols := hello.SupportedProtos
 	for _, alpn := range *m {
+		alpn = repl.ReplaceAll(alpn, "")
 		for _, clientProtocol := range clientProtocols {
 			if alpn == clientProtocol {
 				return true

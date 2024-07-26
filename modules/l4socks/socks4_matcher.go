@@ -45,8 +45,9 @@ func (m *Socks4Matcher) Provision(_ caddy.Context) error {
 	if len(m.Commands) == 0 {
 		m.commands = []uint8{1, 2} // CONNECT & BIND
 	} else {
+		repl := caddy.NewReplacer()
 		for _, c := range m.Commands {
-			switch strings.ToUpper(c) {
+			switch strings.ToUpper(repl.ReplaceAll(c, "")) {
 			case "CONNECT":
 				m.commands = append(m.commands, 1)
 			case "BIND":

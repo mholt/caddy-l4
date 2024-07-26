@@ -60,6 +60,13 @@ func (m *MatchRDP) CaddyModule() caddy.ModuleInfo {
 
 // Match returns true if the connection looks like RDP.
 func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
+	// Replace placeholders in filters
+	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	cookieHash := repl.ReplaceAll(m.CookieHash, "")
+	cookieHash = cookieHash[:min(RDPCookieHashBytesMax, uint16(len(cookieHash)))]
+	customInfo := repl.ReplaceAll(m.CustomInfo, "")
+	customInfo = customInfo[:min(RDPCustomInfoBytesMax, uint16(len(customInfo)))]
+
 	// Read a number of bytes to parse headers
 	headerBuf := make([]byte, RDPConnReqBytesMin)
 	n, err := io.ReadFull(cx, headerBuf)
@@ -146,11 +153,10 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		hash := c[hashBytesStart : hashBytesStart+hashBytesTotal]
 
 		// Add hash to the replacer
-		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 		repl.Set("l4.rdp.cookie_hash", hash)
 
 		// Full match
-		if len(m.CookieHash) > 0 && m.CookieHash != hash {
+		if len(cookieHash) > 0 && cookieHash != hash {
 			break
 		}
 
@@ -164,7 +170,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// NOTE: we can stop validation because hash hasn't matched
-	if !hasValidCookie && (len(m.CookieHash) > 0 || len(m.CookieHashRegexp) > 0) {
+	if !hasValidCookie && (len(cookieHash) > 0 || len(m.CookieHashRegexp) > 0) {
 		return false, nil
 	}
 
@@ -247,7 +253,6 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		// Add IP and port to the replacer
-		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 		repl.Set("l4.rdp.cookie_ip", ipVal.String())
 		repl.Set("l4.rdp.cookie_port", strconv.Itoa(int(portVal)))
 
@@ -306,11 +311,10 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		info := c[RDPCustomInfoBytesStart : RDPCustomInfoBytesStart+infoBytesTotal]
 
 		// Add info to the replacer
-		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 		repl.Set("l4.rdp.custom_info", info)
 
 		// Full match
-		if len(m.CustomInfo) > 0 && m.CustomInfo != info {
+		if len(customInfo) > 0 && customInfo != info {
 			break
 		}
 
@@ -324,7 +328,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// NOTE: we can stop validation because info hasn't matched
-	if !hasValidCustom && (len(m.CustomInfo) > 0 || len(m.CustomInfoRegexp) > 0) {
+	if !hasValidCustom && (len(customInfo) > 0 || len(m.CustomInfoRegexp) > 0) {
 		return false, nil
 	}
 
@@ -403,7 +407,6 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Add base64 of identity bytes to the replacer
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 	repl.Set("l4.rdp.correlation_id", base64.StdEncoding.EncodeToString(i.Identity[:]))
 
 	// Validate RDPCorrInfo (3/3)
@@ -428,11 +431,11 @@ func (m *MatchRDP) Provision(_ caddy.Context) (err error) {
 		}
 		m.cookieIPs = append(m.cookieIPs, prefix)
 	}
-	m.cookieHashRegexp, err = regexp.Compile(m.CookieHashRegexp)
+	m.cookieHashRegexp, err = regexp.Compile(repl.ReplaceAll(m.CookieHashRegexp, ""))
 	if err != nil {
 		return err
 	}
-	m.customInfoRegexp, err = regexp.Compile(m.CustomInfoRegexp)
+	m.customInfoRegexp, err = regexp.Compile(repl.ReplaceAll(m.CustomInfoRegexp, ""))
 	if err != nil {
 		return err
 	}
@@ -493,7 +496,7 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			_, val := d.NextArg(), d.Val()
-			m.CookieHash, hasCookieHash = val[:min(RDPCookieHashBytesMax, uint16(len(val)))], true
+			m.CookieHash, hasCookieHash = val, true
 		case "cookie_hash_regexp":
 			if hasCookieIPOrPort || hasCustomInfo {
 				return d.Errf("%s option '%s' can't be combined with other options", wrapper, optionName)
@@ -505,7 +508,7 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			_, val := d.NextArg(), d.Val()
-			m.CookieHashRegexp, hasCookieHash = val[:min(RDPCookieHashBytesMax, uint16(len(val)))], true
+			m.CookieHashRegexp, hasCookieHash = val, true
 		case "cookie_ip":
 			if hasCookieHash || hasCustomInfo {
 				return d.Errf("%s option '%s' can only be combined with 'cookie_port' option", wrapper, optionName)
@@ -549,7 +552,7 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			_, val := d.NextArg(), d.Val()
-			m.CustomInfo, hasCustomInfo = val[:min(RDPCustomInfoBytesMax, uint16(len(val)))], true
+			m.CustomInfo, hasCustomInfo = val, true
 		case "custom_info_regexp":
 			if hasCookieHash || hasCookieIPOrPort {
 				return d.Errf("%s option '%s' can't be combined with other options", wrapper, optionName)
@@ -561,7 +564,7 @@ func (m *MatchRDP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			_, val := d.NextArg(), d.Val()
-			m.CustomInfoRegexp, hasCustomInfo = val[:min(RDPCustomInfoBytesMax, uint16(len(val)))], true
+			m.CustomInfoRegexp, hasCustomInfo = val, true
 		default:
 			return d.ArgErr()
 		}

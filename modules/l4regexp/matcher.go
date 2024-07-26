@@ -59,10 +59,11 @@ func (m *MatchRegexp) Match(cx *layer4.Connection) (bool, error) {
 
 // Provision parses m's regular expression and sets m's minimum read bytes count.
 func (m *MatchRegexp) Provision(_ caddy.Context) (err error) {
+	repl := caddy.NewReplacer()
 	if m.Count == 0 {
 		m.Count = minCount
 	}
-	m.compiled, err = regexp.Compile(m.Pattern)
+	m.compiled, err = regexp.Compile(repl.ReplaceAll(m.Pattern, ""))
 	if err != nil {
 		return err
 	}

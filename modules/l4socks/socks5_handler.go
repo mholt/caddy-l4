@@ -37,6 +37,8 @@ func (*Socks5Handler) CaddyModule() caddy.ModuleInfo {
 }
 
 func (h *Socks5Handler) Provision(ctx caddy.Context) error {
+	repl := caddy.NewReplacer()
+
 	rule := &socks5.PermitCommand{EnableConnect: false, EnableAssociate: false, EnableBind: false}
 	if len(h.Commands) == 0 {
 		rule.EnableConnect = true
@@ -44,7 +46,7 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 		// BIND is currently not supported, so we don't allow it by default
 	} else {
 		for _, c := range h.Commands {
-			switch strings.ToUpper(c) {
+			switch strings.ToUpper(repl.ReplaceAll(c, "")) {
 			case "CONNECT":
 				rule.EnableConnect = true
 			case "ASSOCIATE":
@@ -57,11 +59,19 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 		}
 	}
 
+	credentials := make(map[string]string, len(h.Credentials))
+	for k, v := range h.Credentials {
+		k, v = repl.ReplaceAll(k, ""), repl.ReplaceAll(v, "")
+		if len(k) > 0 {
+			credentials[k] = v
+		}
+	}
+
 	authMethods := []socks5.Authenticator{socks5.NoAuthAuthenticator{}}
 	if len(h.Credentials) > 0 {
 		authMethods = []socks5.Authenticator{
 			socks5.UserPassAuthenticator{
-				Credentials: socks5.StaticCredentials(h.Credentials),
+				Credentials: socks5.StaticCredentials(credentials),
 			},
 		}
 	}
