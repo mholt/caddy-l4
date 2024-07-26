@@ -41,7 +41,7 @@ func (*Socks4Matcher) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-func (m *Socks4Matcher) Provision(_ caddy.Context) (err error) {
+func (m *Socks4Matcher) Provision(_ caddy.Context) error {
 	if len(m.Commands) == 0 {
 		m.commands = []uint8{1, 2} // CONNECT & BIND
 	} else {
@@ -56,9 +56,14 @@ func (m *Socks4Matcher) Provision(_ caddy.Context) (err error) {
 			}
 		}
 	}
-	m.cidrs, err = layer4.ParseNetworks(m.Networks)
-	if err != nil {
-		return err
+	repl := caddy.NewReplacer()
+	for _, networkAddrOrCIDR := range m.Networks {
+		networkAddrOrCIDR = repl.ReplaceAll(networkAddrOrCIDR, "")
+		prefix, err := caddyhttp.CIDRExpressionToPrefix(networkAddrOrCIDR)
+		if err != nil {
+			return err
+		}
+		m.cidrs = append(m.cidrs, prefix)
 	}
 	return nil
 }

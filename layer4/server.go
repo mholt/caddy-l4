@@ -56,7 +56,9 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
 
+	repl := caddy.NewReplacer()
 	for i, address := range s.Listen {
+		address = repl.ReplaceAll(address, "")
 		addr, err := caddy.ParseNetworkAddress(address)
 		if err != nil {
 			return fmt.Errorf("parsing listener address '%s' in position %d: %v", address, i, err)

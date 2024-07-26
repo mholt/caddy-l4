@@ -56,19 +56,23 @@ func (u *Upstream) String() string {
 }
 
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
+	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
+		// replace runtime placeholders
+		replDialAddr := repl.ReplaceAll(dialAddr, "")
+
 		// parse and validate address
-		addr, err := caddy.ParseNetworkAddress(dialAddr)
+		addr, err := caddy.ParseNetworkAddress(replDialAddr)
 		if err != nil {
 			return err
 		}
 		if addr.PortRangeSize() != 1 {
-			return fmt.Errorf("%s: port ranges not currently supported", dialAddr)
+			return fmt.Errorf("%s: port ranges not currently supported", replDialAddr)
 		}
 
 		// create or load peer info
 		p := &peer{address: addr}
-		existingPeer, loaded := peers.LoadOrStore(dialAddr, p)
+		existingPeer, loaded := peers.LoadOrStore(dialAddr, p) // peers are deleted in Handler.Cleanup
 		if loaded {
 			p = existingPeer.(*peer)
 		}

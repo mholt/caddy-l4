@@ -56,10 +56,12 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the module.
 func (h *Handler) Provision(ctx caddy.Context) error {
-	for _, s := range h.Allow {
-		_, n, err := net.ParseCIDR(s)
+	repl := caddy.NewReplacer()
+	for _, allowCIDR := range h.Allow {
+		allowCIDR = repl.ReplaceAll(allowCIDR, "")
+		_, n, err := net.ParseCIDR(allowCIDR)
 		if err != nil {
-			return fmt.Errorf("invalid subnet '%s': %w", s, err)
+			return fmt.Errorf("invalid subnet '%s': %w", allowCIDR, err)
 		}
 		h.rules = append(h.rules, proxyprotocol.Rule{Timeout: time.Duration(h.Timeout), Subnet: n})
 	}

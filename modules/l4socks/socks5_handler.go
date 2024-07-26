@@ -69,7 +69,7 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 	h.server = socks5.NewServer(
 		socks5.WithLogger(&socks5Logger{l: ctx.Logger(h)}),
 		socks5.WithRule(rule),
-		socks5.WithBindIP(net.ParseIP(h.BindIP)),
+		socks5.WithBindIP(net.ParseIP(caddy.NewReplacer().ReplaceAll(h.BindIP, ""))),
 		socks5.WithAuthMethods(authMethods),
 	)
 

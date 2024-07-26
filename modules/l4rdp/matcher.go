@@ -419,9 +419,14 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions, and regular expressions.
 func (m *MatchRDP) Provision(_ caddy.Context) (err error) {
-	m.cookieIPs, err = layer4.ParseNetworks(m.CookieIPs)
-	if err != nil {
-		return err
+	repl := caddy.NewReplacer()
+	for _, cookieAddrOrCIDR := range m.CookieIPs {
+		cookieAddrOrCIDR = repl.ReplaceAll(cookieAddrOrCIDR, "")
+		prefix, err := caddyhttp.CIDRExpressionToPrefix(cookieAddrOrCIDR)
+		if err != nil {
+			return err
+		}
+		m.cookieIPs = append(m.cookieIPs, prefix)
 	}
 	m.cookieHashRegexp, err = regexp.Compile(m.CookieHashRegexp)
 	if err != nil {
