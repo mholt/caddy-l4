@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -403,29 +402,3 @@ var (
 	_ ConnMatcher           = (*MatchNot)(nil)
 	_ caddyfile.Unmarshaler = (*MatchNot)(nil)
 )
-
-// ParseNetworks parses a list of string IP addresses or CIDR subnets into a slice of net.IPNet's.
-// It accepts for example ["127.0.0.1", "127.0.0.0/8", "::1", "2001:db8::/32"].
-func ParseNetworks(networks []string) (ipNets []netip.Prefix, err error) {
-	for _, str := range networks {
-		if strings.Contains(str, "/") {
-			ipNet, err := netip.ParsePrefix(str)
-			if err != nil {
-				return nil, fmt.Errorf("parsing CIDR expression: %v", err)
-			}
-			ipNets = append(ipNets, ipNet)
-			continue
-		}
-
-		addr, err := netip.ParseAddr(str)
-		if err != nil {
-			return nil, err
-		}
-		bits := 32
-		if addr.Is6() {
-			bits = 128
-		}
-		ipNets = append(ipNets, netip.PrefixFrom(addr, bits))
-	}
-	return ipNets, nil
-}
