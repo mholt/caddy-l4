@@ -1,0 +1,153 @@
+{
+	layer4 {
+		:8080 {
+			@night_m clock before 05:00:00
+			@morning clock 05:00:00 12:00:00
+			@afternoon clock 12:00:00 17:00:00
+			@evening clock 17:00:00 21:00:00
+			@night_e clock after 21:00:00
+			route @night_m @night_e {
+				proxy 00.upstream.local:8080
+			}
+			route @morning {
+				proxy 01.upstream.local:8080 02.upstream.local:8080
+			}
+			route @afternoon {
+				proxy 03.upstream.local:8080 04.upstream.local:8080 05.upstream.local:8080
+			}
+			route @evening {
+				proxy 06.upstream.local:8080 07.upstream.local:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":8080"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"clock": {
+										"after": "00:00:00",
+										"before": "05:00:00"
+									}
+								},
+								{
+									"clock": {
+										"after": "21:00:00",
+										"before": "00:00:00"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"00.upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"clock": {
+										"after": "05:00:00",
+										"before": "12:00:00"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"01.upstream.local:8080"
+											]
+										},
+										{
+											"dial": [
+												"02.upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"clock": {
+										"after": "12:00:00",
+										"before": "17:00:00"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"03.upstream.local:8080"
+											]
+										},
+										{
+											"dial": [
+												"04.upstream.local:8080"
+											]
+										},
+										{
+											"dial": [
+												"05.upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"clock": {
+										"after": "17:00:00",
+										"before": "21:00:00"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"06.upstream.local:8080"
+											]
+										},
+										{
+											"dial": [
+												"07.upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

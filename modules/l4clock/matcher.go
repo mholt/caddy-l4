@@ -1,0 +1,156 @@
+// Copyright 2024 VNXME
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package l4clock
+
+import (
+	"strings"
+	"time"
+
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
+	"github.com/mholt/caddy-l4/layer4"
+)
+
+func init() {
+	caddy.RegisterModule(&MatchClock{})
+}
+
+// MatchClock is able to match any connections using the time when they are wrapped/matched.
+type MatchClock struct {
+	After  string `json:"after,omitempty"`
+	Before string `json:"before,omitempty"`
+
+	secondsAfter  int
+	secondsBefore int
+}
+
+// CaddyModule returns the Caddy module information.
+func (m *MatchClock) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.clock",
+		New: func() caddy.Module { return new(MatchClock) },
+	}
+}
+
+// Match returns true if the connection wrapping/matching occurs within m's time points.
+func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
+	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	t, known := repl.Get(timeKey)
+	if !known {
+		t = time.Now()
+		repl.Set(timeKey, t)
+	}
+	secondsNow := timeToSeconds(t.(time.Time))
+	if secondsNow >= m.secondsAfter && secondsNow < m.secondsBefore {
+		return true, nil
+	}
+	return false, nil
+}
+
+// Provision parses m's time points.
+func (m *MatchClock) Provision(_ caddy.Context) (err error) {
+	repl := caddy.NewReplacer()
+	after, before := repl.ReplaceAll(m.After, ""), repl.ReplaceAll(m.Before, "")
+
+	if m.secondsAfter, err = timeParseSeconds(after, 0); err != nil {
+		return
+	}
+
+	if m.secondsBefore, err = timeParseSeconds(before, 0); err != nil {
+		return
+	}
+
+	// Treat secondsBefore of 00:00:00 as 24:00:00
+	if m.secondsBefore == 0 {
+		m.secondsBefore = 86400
+	}
+
+	// Swap time points, if secondsAfter is greater than secondsBefore
+	if m.secondsBefore < m.secondsAfter {
+		m.secondsAfter, m.secondsBefore = m.secondsBefore, m.secondsAfter
+	}
+
+	return nil
+}
+
+// UnmarshalCaddyfile sets up the MatchClock from Caddyfile tokens. Syntax:
+//
+//	clock <time_after> <time_before>
+//	clock <after|from> <time_after>
+//	clock <before|till|to|until> <time_before>
+//
+// Note: MatchClock checks if time_now is greater than or equal to time_after AND less than time_before.
+// The lowest value is 00:00:00. If time_before equals 00:00:00, it is treated as 24:00:00. If time_after is greater
+// than time_before, they are swapped. Both "after 00:00:00" and "before 00:00:00" match all day.
+func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// Two same-line arguments must be provided
+	if d.CountRemainingArgs() != 2 {
+		return d.ArgErr()
+	}
+
+	_, first, _, second := d.NextArg(), d.Val(), d.NextArg(), d.Val()
+	switch strings.ToLower(first) {
+	case "before", "till", "to", "until":
+		first = timeMin
+		break
+	case "after", "from":
+		first = timeMax
+		second, first = first, second
+		break
+	}
+	m.After, m.Before = first, second
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s matcher: blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
+const (
+	timeKey    = "l4.conn.wrap_time"
+	timeLayout = time.TimeOnly
+	timeMax    = "00:00:00"
+	timeMin    = "00:00:00"
+)
+
+// Interface guards
+var (
+	_ caddy.Provisioner     = (*MatchClock)(nil)
+	_ caddyfile.Unmarshaler = (*MatchClock)(nil)
+	_ layer4.ConnMatcher    = (*MatchClock)(nil)
+)
+
+// timeToSeconds gets time and returns the number of seconds passed from the beginning of the current day.
+func timeToSeconds(t time.Time) int {
+	hh, mm, ss := t.Clock()
+	return hh*3600 + mm*60 + ss
+}
+
+// timeParseSeconds parses time string and returns seconds passed from the beginning of the current day.
+func timeParseSeconds(src string, def int) (int, error) {
+	if len(src) == 0 {
+		return def, nil
+	}
+	t, err := time.Parse(timeLayout, src)
+	if err != nil {
+		return def, err
+	}
+	return timeToSeconds(t), nil
+}

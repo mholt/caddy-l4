@@ -30,6 +30,7 @@ This app works similarly to the `http` app. You define servers, and each server 
 
 Current matchers:
 
+- **layer4.matchers.clock** - matches connections on the time they are wrapped/matched.
 - **layer4.matchers.http** - matches connections that start with HTTP requests. In addition, any [`http.matchers` modules](https://caddyserver.com/docs/modules/) can be used for matching on HTTP-specific properties of requests, such as header or path. Note that only the first request of each connection can be used for matching.
 - **layer4.matchers.tls** - matches connections that start with TLS handshakes. In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
 - **layer4.matchers.ssh** - matches connections that look like SSH connections.
