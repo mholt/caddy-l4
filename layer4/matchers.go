@@ -164,7 +164,7 @@ func (m *MatchRemoteIP) getRemoteIP(cx *Connection) (netip.Addr, error) {
 
 // UnmarshalCaddyfile sets up the MatchRemoteIP from Caddyfile tokens. Syntax:
 //
-//	ip <ranges...>
+//	remote_ip <ranges...>
 func (m *MatchRemoteIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
