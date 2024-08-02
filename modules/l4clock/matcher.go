@@ -31,8 +31,17 @@ func init() {
 
 // MatchClock is able to match any connections using the time when they are wrapped/matched.
 type MatchClock struct {
-	After    string `json:"after,omitempty"`
-	Before   string `json:"before,omitempty"`
+	// After is a mandatory field that must have a value in 15:04:05 format representing the lowest valid time point.
+	// Placeholders are supported and evaluated at provision. If Before is lower than After, their values are swapped
+	// at provision.
+	After string `json:"after,omitempty"`
+	// Before is a mandatory field that must have a value in 15:04:05 format representing the highest valid time point
+	// plus one second. Placeholders are supported and evaluated at provision. 00:00:00 is treated here as 24:00:00.
+	// If Before is lower than After, their values are swapped at provision.
+	Before string `json:"before,omitempty"`
+	// Timezone is an optional field that may be an IANA time zone location (e.g. America/Los_Angeles), a fixed offset
+	// to the east of UTC (e.g. +02, -03:30, or even +12:34:56) or Local (to use the system's local time zone).
+	// If Timezone is empty, UTC is used by default.
 	Timezone string `json:"timezone,omitempty"`
 
 	location      *time.Location
