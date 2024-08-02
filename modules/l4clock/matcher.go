@@ -88,8 +88,20 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 	}
 
 	timezone := repl.ReplaceAll(m.Timezone, "")
-	if m.location, err = time.LoadLocation(timezone); err != nil {
-		return
+	for _, layout := range tzLayouts {
+		if len(layout) != len(timezone) {
+			continue
+		}
+		if t, e := time.Parse(layout, timezone); e == nil {
+			_, offset := t.Zone()
+			m.location = time.FixedZone(timezone, offset)
+			break
+		}
+	}
+	if m.location == nil {
+		if m.location, err = time.LoadLocation(timezone); err != nil {
+			return
+		}
 	}
 
 	return nil
@@ -144,6 +156,8 @@ const (
 	timeMax    = "00:00:00"
 	timeMin    = "00:00:00"
 )
+
+var tzLayouts = [...]string{"-07", "-07:00", "-07:00:00"}
 
 // Interface guards
 var (
