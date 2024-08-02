@@ -172,10 +172,12 @@ func (m *MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Re
 			return err
 		}
 		if frame.Header().Type == http2.FrameHeaders {
+			maxAttempts = 0
 			break
-		} else if i == maxAttempts-1 {
-			return fmt.Errorf("failed to read a http2 headers frame after %d attempts", maxAttempts)
 		}
+	}
+	if maxAttempts != 0 {
+		return fmt.Errorf("failed to read a http2 headers frame after %d attempts", maxAttempts)
 	}
 
 	decoder := hpack.NewDecoder(4096, nil) // max table size 4096 from http2.initialHeaderTableSize
