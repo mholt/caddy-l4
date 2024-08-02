@@ -19,6 +19,16 @@
 				proxy 06.upstream.local:8080 07.upstream.local:8080
 			}
 		}
+		:8888 {
+			@la_is_awake clock 08:00:00 20:00:00 America/Los_Angeles
+			route @la_is_awake {
+				proxy existing.machine.local:8888
+			}
+			@la_is_asleep not clock 08:00:00 20:00:00 America/Los_Angeles
+			route @la_is_asleep {
+				proxy non-existing.machine.local:8888
+			}
+		}
 	}
 }
 ----------
@@ -139,6 +149,63 @@
 										{
 											"dial": [
 												"07.upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						":8888"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"clock": {
+										"after": "08:00:00",
+										"before": "20:00:00",
+										"timezone": "America/Los_Angeles"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"existing.machine.local:8888"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"not": [
+										{
+											"clock": {
+												"after": "08:00:00",
+												"before": "20:00:00",
+												"timezone": "America/Los_Angeles"
+											}
+										}
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"non-existing.machine.local:8888"
 											]
 										}
 									]

@@ -17,6 +17,7 @@ package l4clock
 import (
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -30,9 +31,11 @@ func init() {
 
 // MatchClock is able to match any connections using the time when they are wrapped/matched.
 type MatchClock struct {
-	After  string `json:"after,omitempty"`
-	Before string `json:"before,omitempty"`
+	After    string `json:"after,omitempty"`
+	Before   string `json:"before,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 
+	location      *time.Location
 	secondsAfter  int
 	secondsBefore int
 }
@@ -53,22 +56,23 @@ func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
 		t = time.Now()
 		repl.Set(timeKey, t)
 	}
-	secondsNow := timeToSeconds(t.(time.Time))
+	secondsNow := timeToSeconds(t.(time.Time).In(m.location))
 	if secondsNow >= m.secondsAfter && secondsNow < m.secondsBefore {
 		return true, nil
 	}
 	return false, nil
 }
 
-// Provision parses m's time points.
+// Provision parses m's time points and a time zone (the system's local time zone is used by default).
 func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 	repl := caddy.NewReplacer()
-	after, before := repl.ReplaceAll(m.After, ""), repl.ReplaceAll(m.Before, "")
 
+	after := repl.ReplaceAll(m.After, "")
 	if m.secondsAfter, err = timeParseSeconds(after, 0); err != nil {
 		return
 	}
 
+	before := repl.ReplaceAll(m.Before, "")
 	if m.secondsBefore, err = timeParseSeconds(before, 0); err != nil {
 		return
 	}
@@ -83,23 +87,31 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 		m.secondsAfter, m.secondsBefore = m.secondsBefore, m.secondsAfter
 	}
 
+	timezone := repl.ReplaceAll(m.Timezone, "")
+	if timezone == "" {
+		m.location = time.Local
+	} else if m.location, err = time.LoadLocation(timezone); err != nil {
+		return
+	}
+
 	return nil
 }
 
 // UnmarshalCaddyfile sets up the MatchClock from Caddyfile tokens. Syntax:
 //
-//	clock <time_after> <time_before>
-//	clock <after|from> <time_after>
-//	clock <before|till|to|until> <time_before>
+//	clock <time_after> <time_before> [<time_zone>]
+//	clock <after|from> <time_after> [<time_zone>]
+//	clock <before|till|to|until> <time_before> [<time_zone>]
 //
 // Note: MatchClock checks if time_now is greater than or equal to time_after AND less than time_before.
 // The lowest value is 00:00:00. If time_before equals 00:00:00, it is treated as 24:00:00. If time_after is greater
-// than time_before, they are swapped. Both "after 00:00:00" and "before 00:00:00" match all day.
+// than time_before, they are swapped. Both "after 00:00:00" and "before 00:00:00" match all day. An IANA time zone
+// location should be used as a value for time_zone. If time_zone is empty, the system's local time zone is used.
 func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
-	// Two same-line arguments must be provided
-	if d.CountRemainingArgs() != 2 {
+	// Only two or three same-line arguments are supported
+	if d.CountRemainingArgs() < 2 || d.CountRemainingArgs() > 3 {
 		return d.ArgErr()
 	}
 
@@ -114,6 +126,10 @@ func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		break
 	}
 	m.After, m.Before = first, second
+
+	if d.NextArg() {
+		m.Timezone = d.Val()
+	}
 
 	// No blocks are supported
 	if d.NextBlock(d.Nesting()) {
