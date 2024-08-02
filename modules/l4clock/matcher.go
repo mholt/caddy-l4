@@ -53,7 +53,7 @@ func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 	t, known := repl.Get(timeKey)
 	if !known {
-		t = time.Now()
+		t = time.Now().UTC()
 		repl.Set(timeKey, t)
 	}
 	secondsNow := timeToSeconds(t.(time.Time).In(m.location))
@@ -63,7 +63,7 @@ func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
 	return false, nil
 }
 
-// Provision parses m's time points and a time zone (the system's local time zone is used by default).
+// Provision parses m's time points and a time zone (UTC is used by default).
 func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 	repl := caddy.NewReplacer()
 
@@ -88,9 +88,7 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 	}
 
 	timezone := repl.ReplaceAll(m.Timezone, "")
-	if timezone == "" {
-		m.location = time.Local
-	} else if m.location, err = time.LoadLocation(timezone); err != nil {
+	if m.location, err = time.LoadLocation(timezone); err != nil {
 		return
 	}
 
@@ -106,7 +104,8 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 // Note: MatchClock checks if time_now is greater than or equal to time_after AND less than time_before.
 // The lowest value is 00:00:00. If time_before equals 00:00:00, it is treated as 24:00:00. If time_after is greater
 // than time_before, they are swapped. Both "after 00:00:00" and "before 00:00:00" match all day. An IANA time zone
-// location should be used as a value for time_zone. If time_zone is empty, the system's local time zone is used.
+// location should be used as a value for time_zone. The system's local time zone may be used with "Local" value.
+// If time_zone is empty, UTC is used.
 func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
