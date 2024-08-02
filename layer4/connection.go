@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
@@ -33,6 +34,7 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 	repl := caddy.NewReplacer()
 	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
 	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
+	repl.Set("l4.conn.wrap_time", time.Now().UTC())
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
