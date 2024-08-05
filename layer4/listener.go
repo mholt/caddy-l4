@@ -172,7 +172,11 @@ func (l *listener) handle(conn net.Conn) {
 	err = l.compiledRoute.Handle(cx)
 	duration := time.Since(start)
 	if err != nil && err != errHijacked {
-		l.logger.Error("handling connection", zap.Error(err))
+		logFunc := l.logger.Error
+		if errors.Is(err, ErrMatchingTimeout) {
+			logFunc = l.logger.Warn
+		}
+		logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 	}
 
 	l.logger.Debug("connection stats",

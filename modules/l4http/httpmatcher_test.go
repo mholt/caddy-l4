@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -52,7 +53,6 @@ func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool,
 		}))
 
 	err = compiledRoute.Handle(cx)
-	assertNoError(t, err)
 
 	return matched, err
 }
@@ -234,9 +234,11 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	matchers := json.RawMessage("[{\"host\":[\"localhost\"]}]")
 
 	matched, err := httpMatchTester(t, matchers, []byte("not a valid http request"))
-	assertNoError(t, err)
 	if matched {
 		t.Fatalf("matcher did match")
+	}
+	if !errors.Is(err, layer4.ErrMatchingTimeout) {
+		t.Fatalf("Unexpected error: %s\n", err)
 	}
 
 	validHttp2MagicWithoutHeadersFrame, err := base64.StdEncoding.DecodeString("UFJJICogSFRUUC8yLjANCg0KU00NCg0KAAASBAAAAAAAAAMAAABkAAQCAAAAAAIAAAAATm8gbG9uZ2VyIHZhbGlkIGh0dHAyIHJlcXVlc3QgZnJhbWVz")
@@ -244,6 +246,9 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	matched, err = httpMatchTester(t, matchers, validHttp2MagicWithoutHeadersFrame)
 	if matched {
 		t.Fatalf("matcher did match")
+	}
+	if !errors.Is(err, layer4.ErrMatchingTimeout) {
+		t.Fatalf("Unexpected error: %s\n", err)
 	}
 }
 

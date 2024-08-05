@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -67,10 +68,11 @@ type Connection struct {
 
 	Logger *zap.Logger
 
-	buf          []byte // stores matching data
-	offset       int
-	frozenOffset int
-	matching     bool
+	buf                      []byte // stores matching data
+	offset                   int
+	frozenOffset             int
+	matching                 bool
+	shouldPrefetchBeforeRead bool // indicates prefetch should be called before a Read
 
 	bytesRead, bytesWritten uint64
 }
@@ -83,6 +85,16 @@ var ErrMatchingBufferFull = errors.New("matching buffer is full")
 // and once depleted (or if there isn't one), it continues
 // reading from the underlying connection.
 func (cx *Connection) Read(p []byte) (n int, err error) {
+	// Lazy prefetch to support protocols where the server speaks first,
+	// see https://github.com/mholt/caddy-l4/issues/228 & https://github.com/mholt/caddy-l4/issues/212
+	if cx.matching && cx.shouldPrefetchBeforeRead {
+		err = cx.prefetch()
+		cx.shouldPrefetchBeforeRead = false
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	// if we are matching and consumed the buffer exit with error
 	if cx.matching && (len(cx.buf) == 0 || len(cx.buf) == cx.offset) {
 		return 0, ErrConsumedAllPrefetchedBytes
@@ -122,14 +134,16 @@ func (cx *Connection) Write(p []byte) (n int, err error) {
 // our Connection type (for example, `tls.Server()`).
 func (cx *Connection) Wrap(conn net.Conn) *Connection {
 	return &Connection{
-		Conn:         conn,
-		Context:      cx.Context,
-		Logger:       cx.Logger,
-		buf:          cx.buf,
-		offset:       cx.offset,
-		matching:     cx.matching,
-		bytesRead:    cx.bytesRead,
-		bytesWritten: cx.bytesWritten,
+		Conn:                     conn,
+		Context:                  cx.Context,
+		Logger:                   cx.Logger,
+		buf:                      cx.buf,
+		offset:                   cx.offset,
+		frozenOffset:             cx.frozenOffset,
+		matching:                 cx.matching,
+		shouldPrefetchBeforeRead: cx.shouldPrefetchBeforeRead,
+		bytesRead:                cx.bytesRead,
+		bytesWritten:             cx.bytesWritten,
 	}
 }
 
@@ -156,6 +170,9 @@ func (cx *Connection) prefetch() (err error) {
 		cx.bytesRead += uint64(n)
 
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				err = ErrMatchingTimeout
+			}
 			return err
 		}
 
@@ -215,8 +232,18 @@ func (cx *Connection) GetVar(key string) interface{} {
 
 // MatchingBytes returns all bytes currently available for matching. This is only intended for reading.
 // Do not write into the slice. It's a view of the internal buffer and you will likely mess up the connection.
-func (cx *Connection) MatchingBytes() []byte {
-	return cx.buf[cx.offset:]
+func (cx *Connection) MatchingBytes() ([]byte, error) {
+	// Lazy prefetch to support protocols where the server speaks first,
+	// see https://github.com/mholt/caddy-l4/issues/228 & https://github.com/mholt/caddy-l4/issues/212
+	if cx.matching && cx.shouldPrefetchBeforeRead {
+		err := cx.prefetch()
+		cx.shouldPrefetchBeforeRead = false
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return cx.buf[cx.offset:], nil
 }
 
 var (

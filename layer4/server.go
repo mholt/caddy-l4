@@ -16,6 +16,7 @@ package layer4
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -166,7 +167,11 @@ func (s Server) handle(conn net.Conn) {
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
 	if err != nil {
-		s.logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+		logFunc := s.logger.Error
+		if errors.Is(err, ErrMatchingTimeout) {
+			logFunc = s.logger.Warn
+		}
+		logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 	}
 
 	s.logger.Debug("connection stats",

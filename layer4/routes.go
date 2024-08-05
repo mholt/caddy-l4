@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -107,45 +106,26 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			return err
 		}
 
-		routeIdx := -1 // init with -1 because before first use we increment it
-
 		notMatchingRoutes := make(map[int]struct{}, len(routes))
 
-	router:
 		for i := 0; i < 10000; i++ { // Limit number of tries to mitigate endless matching bugs.
 
 			// Do not call prefetch if this is the first loop iteration and there already is some data available,
 			// since this means we are at the start of a subroute handler and previous prefetch calls likely already fetched all bytes available from the client.
 			// Which means it would block the subroute handler. In the second iteration (if no subroute routes match) blocking is the correct behaviour.
 			if i != 0 || cx.buf == nil || len(cx.buf[cx.offset:]) == 0 {
-				err = cx.prefetch()
-				if err != nil {
-					logFunc := logger.Error
-					if errors.Is(err, os.ErrDeadlineExceeded) {
-						err = ErrMatchingTimeout
-						logFunc = logger.Warn
-					}
-					logFunc("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
-					return nil // return nil so the error does not get logged again
-				}
+				cx.shouldPrefetchBeforeRead = true
 			}
 
 			// Use a wrapping routeIdx similar to a container/ring to try routes in a strictly circular fashion.
 			// After a match continue with the routes after the matched one, instead of starting at the beginning.
 			// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
 			// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
-			for j := 0; j < len(routes); j++ {
-				routeIdx++
-				if routeIdx >= len(routes) {
-					routeIdx = 0
-				}
-
+			for routeIdx, route := range routes {
 				// Skip routes that signaled they definitely can not match
 				if _, ok := notMatchingRoutes[routeIdx]; ok {
 					continue
 				}
-
-				route := routes[routeIdx]
 
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
@@ -153,8 +133,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					continue // ignore and try next route
 				}
 				if err != nil {
-					logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
-					return nil
+					return err
 				}
 				if matched {
 					// remove deadline after we matched
@@ -179,7 +158,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					}
 					err = handler.Handle(cx)
 					if err != nil {
-						return err
+						logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+						return nil // return nil so the error does not get logged again
 					}
 
 					// If handler is terminal we stop routing
@@ -196,9 +176,12 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					// For example if the current route required multiple prefetch calls until it matched.
 					// Then routes with an index after the current one where also tried on this now old/consumed data.
 					clear(notMatchingRoutes)
-					// We jump back to the router loop to call prefetch again after the match,
-					// because the handler likely consumed all data.
-					continue router
+
+					// If all data was consumed by the handler
+					// enable prefetch and continue with next route
+					if len(cx.buf[cx.offset:]) == 0 {
+						cx.shouldPrefetchBeforeRead = true
+					}
 				} else {
 					// Remember to not try this route again
 					notMatchingRoutes[routeIdx] = struct{}{}
@@ -212,7 +195,6 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			}
 		}
 
-		logger.Error("matching connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(errors.New("number of prefetch calls exhausted")))
-		return nil
+		return errors.New("number of matching tries exhausted")
 	})
 }
