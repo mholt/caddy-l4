@@ -16,6 +16,7 @@ package l4clock
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -41,8 +42,8 @@ func Test_MatchClock_Match(t *testing.T) {
 		shouldMatch bool
 	}
 
-	tNowMinus5Minutes := time.Now().Add(time.Minute * 5 * (-1)).Format(time.TimeOnly)
-	tNowPlus5Minutes := time.Now().Add(time.Minute * 5).Format(time.TimeOnly)
+	tNowMinus5Minutes := time.Now().UTC().Add(time.Minute * 5 * (-1)).Format(time.TimeOnly)
+	tNowPlus5Minutes := time.Now().UTC().Add(time.Minute * 5).Format(time.TimeOnly)
 
 	tests := []test{
 		{matcher: &MatchClock{}, data: []byte{}, shouldMatch: true},
@@ -59,7 +60,7 @@ func Test_MatchClock_Match(t *testing.T) {
 	defer cancel()
 
 	for i, tc := range tests {
-		func() {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			err := tc.matcher.Provision(ctx)
 			assertNoError(t, err)
 
@@ -81,11 +82,11 @@ func Test_MatchClock_Match(t *testing.T) {
 
 			if matched != tc.shouldMatch {
 				if tc.shouldMatch {
-					t.Fatalf("test %d: matcher did not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher did not match | %+v\n", tc.matcher)
 				} else {
-					t.Fatalf("test %d: matcher should not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher should not match | %+v\n", tc.matcher)
 				}
 			}
-		}()
+		})
 	}
 }
