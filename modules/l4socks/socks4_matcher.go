@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -117,7 +119,68 @@ func (m *Socks4Matcher) Match(cx *layer4.Connection) (bool, error) {
 	return true, nil
 }
 
+// UnmarshalCaddyfile sets up the Socks4Matcher from Caddyfile tokens. Syntax:
+//
+//	socks4 {
+//		commands <commands...>
+//		networks <ranges...>
+//		ports <ports...>
+//	}
+//
+// socks4
+func (m *Socks4Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "commands":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			m.Commands = append(m.Commands, d.RemainingArgs()...)
+		case "networks":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			cidrs, err := layer4.ParseNetworks(d.RemainingArgs())
+			if err != nil {
+				return err
+			}
+			for _, cidr := range cidrs {
+				m.Networks = append(m.Networks, cidr.String())
+			}
+		case "ports":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			for d.NextArg() {
+				port, err := strconv.ParseUint(d.Val(), 10, 16)
+				if err != nil {
+					return d.WrapErr(err)
+				}
+				m.Ports = append(m.Ports, uint16(port))
+			}
+		default:
+			return d.ArgErr()
+		}
+
+		// No nested blocks are supported
+		if d.NextBlock(nesting + 1) {
+			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
+		}
+	}
+
+	return nil
+}
+
 var (
-	_ layer4.ConnMatcher = (*Socks4Matcher)(nil)
-	_ caddy.Provisioner  = (*Socks4Matcher)(nil)
+	_ layer4.ConnMatcher    = (*Socks4Matcher)(nil)
+	_ caddy.Provisioner     = (*Socks4Matcher)(nil)
+	_ caddyfile.Unmarshaler = (*Socks4Matcher)(nil)
 )

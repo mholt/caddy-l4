@@ -1,0 +1,247 @@
+{
+	layer4 {
+		:443 {
+			@h1 tls alpn http/1 http/1.1
+			route @h1 {
+				tls
+				subroute {
+					@alpha http host alpha.example.com
+					route @alpha {
+						proxy alpha.machine.local:80
+					}
+					@beta http host beta.example.com
+					route @beta {
+						proxy beta.machine.local:80
+					}
+					route {
+						proxy gamma.machine.local:80
+					}
+				}
+			}
+			@h2a tls {
+				alpn http/2
+				sni alpha.example.com
+			}
+			route @h2a {
+				tls {
+					connection_policy {
+						curves x25519
+						cert_selection {
+							serial_number 123456789012
+						}
+					}
+				}
+				proxy alpha.machine.local:80
+			}
+			@h2b tls {
+				alpn http/2
+				sni beta.example.com
+			}
+			route @h2b {
+				tls {
+					connection_policy {
+						curves secp256r1
+						cert_selection {
+							serial_number 123456789012
+						}
+					}
+				}
+				proxy beta.machine.local:80
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"tls": {
+										"alpn": [
+											"http/1",
+											"http/1.1"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"alpha.machine.local:80"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"http": [
+														{
+															"host": [
+																"alpha.example.com"
+															]
+														}
+													]
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"beta.machine.local:80"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"http": [
+														{
+															"host": [
+																"beta.example.com"
+															]
+														}
+													]
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"gamma.machine.local:80"
+															]
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"tls": {
+										"alpn": [
+											"http/2"
+										],
+										"sni": [
+											"alpha.example.com"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"connection_policies": [
+										{
+											"certificate_selection": {
+												"serial_number": [
+													"123456789012"
+												]
+											},
+											"curves": [
+												"x25519"
+											]
+										}
+									],
+									"handler": "tls"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"alpha.machine.local:80"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"tls": {
+										"alpn": [
+											"http/2"
+										],
+										"sni": [
+											"beta.example.com"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"connection_policies": [
+										{
+											"certificate_selection": {
+												"serial_number": [
+													"123456789012"
+												]
+											},
+											"curves": [
+												"secp256r1"
+											]
+										}
+									],
+									"handler": "tls"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"beta.machine.local:80"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

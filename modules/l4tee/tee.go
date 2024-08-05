@@ -20,6 +20,7 @@ import (
 	"net"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 )
@@ -110,6 +111,27 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(&nextc)
 }
 
+// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
+//
+//	tee {
+//		<handler>
+//		<handler> [<args>]
+//	}
+func (t *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	if err := layer4.ParseCaddyfileNestedHandlers(d, &t.HandlersRaw); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // teeConn is a connection wrapper that reads
 // from a different reader.
 type teeConn struct {
@@ -138,5 +160,8 @@ func (nc nextConn) Read(p []byte) (n int, err error) {
 	return
 }
 
-// Interface guard
-var _ layer4.NextHandler = (*Handler)(nil)
+// Interface guards
+var (
+	_ caddyfile.Unmarshaler = (*Handler)(nil)
+	_ layer4.NextHandler    = (*Handler)(nil)
+)

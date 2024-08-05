@@ -19,6 +19,7 @@ import (
 	"io"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -60,5 +61,27 @@ func (m MatchProxyProtocol) Match(cx *layer4.Connection) (bool, error) {
 	return false, nil
 }
 
-// Interface guard
-var _ layer4.ConnMatcher = (*MatchProxyProtocol)(nil)
+// UnmarshalCaddyfile sets up the MatchProxyProtocol from Caddyfile tokens. Syntax:
+//
+//	proxy_protocol
+func (m *MatchProxyProtocol) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
+// Interface guards
+var (
+	_ layer4.ConnMatcher    = (*MatchProxyProtocol)(nil)
+	_ caddyfile.Unmarshaler = (*MatchProxyProtocol)(nil)
+)

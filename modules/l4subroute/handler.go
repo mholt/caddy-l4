@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 )
@@ -75,8 +76,46 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return subroute.Handle(cx)
 }
 
+// UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
+//
+//	subroute {
+//		matching_timeout <duration>
+//		@a <matcher> [<matcher_args>]
+//		@b {
+//			<matcher> [<matcher_args>]
+//			<matcher> [<matcher_args>]
+//		}
+//		route @a @b {
+//			<handler> [<handler_args>]
+//		}
+//		@c <matcher> {
+//			<matcher_option> [<matcher_option_args>]
+//		}
+//		route @c {
+//			<handler> [<handler_args>]
+//			<handler> {
+//				<handler_option> [<handler_option_args>]
+//			}
+//		}
+//	}
+func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	if err := layer4.ParseCaddyfileNestedRoutes(d, &h.Routes, &h.MatchingTimeout); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Interface guards
 var (
-	_ caddy.Provisioner  = (*Handler)(nil)
-	_ layer4.NextHandler = (*Handler)(nil)
+	_ caddy.Provisioner     = (*Handler)(nil)
+	_ caddyfile.Unmarshaler = (*Handler)(nil)
+	_ layer4.NextHandler    = (*Handler)(nil)
 )

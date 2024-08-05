@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"go.uber.org/zap"
 )
 
@@ -69,6 +70,43 @@ func (lw *ListenerWrapper) WrapListener(l net.Listener) net.Listener {
 	}
 	go li.loop()
 	return li
+}
+
+// UnmarshalCaddyfile sets up the ListenerWrapper from Caddyfile tokens. Syntax:
+//
+//	layer4 {
+//		matching_timeout <duration>
+//		@a <matcher> [<matcher_args>]
+//		@b {
+//			<matcher> [<matcher_args>]
+//			<matcher> [<matcher_args>]
+//		}
+//		route @a @b {
+//			<handler> [<handler_args>]
+//		}
+//		@c <matcher> {
+//			<matcher_option> [<matcher_option_args>]
+//		}
+//		route @c {
+//			<handler> [<handler_args>]
+//			<handler> {
+//				<handler_option> [<handler_option_args>]
+//			}
+//		}
+//	}
+func (lw *ListenerWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	if err := ParseCaddyfileNestedRoutes(d, &lw.Routes, &lw.MatchingTimeout); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type listener struct {
@@ -185,4 +223,5 @@ func (tc *tlsConnection) ConnectionState() tls.ConnectionState {
 var (
 	_ caddy.Module          = (*ListenerWrapper)(nil)
 	_ caddy.ListenerWrapper = (*ListenerWrapper)(nil)
+	_ caddyfile.Unmarshaler = (*ListenerWrapper)(nil)
 )

@@ -1,0 +1,44 @@
+{
+	servers {
+		listener_wrappers {
+			layer4
+			tls
+		}
+	}
+}
+:80 {
+	respond 200 "OK"
+}
+----------
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":80"
+					],
+					"listener_wrappers": [
+						{
+							"wrapper": "layer4"
+						},
+						{
+							"wrapper": "tls"
+						}
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"body": "200",
+									"handler": "static_response",
+									"status_code": "OK"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

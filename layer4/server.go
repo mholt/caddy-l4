@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"go.uber.org/zap"
 )
 
@@ -176,6 +177,45 @@ func (s Server) handle(conn net.Conn) {
 	)
 }
 
+// UnmarshalCaddyfile sets up the Server from Caddyfile tokens. Syntax:
+//
+//	<addresses> {
+//		matching_timeout <duration>
+//		@a <matcher> [<matcher_args>]
+//		@b {
+//			<matcher> [<matcher_args>]
+//			<matcher> [<matcher_args>]
+//		}
+//		route @a @b {
+//			<handler> [<handler_args>]
+//		}
+//		@c <matcher> {
+//			<matcher_option> [<matcher_option_args>]
+//		}
+//		route @c {
+//			<handler> [<handler_args>]
+//			<handler> {
+//				<handler_option> [<handler_option_args>]
+//			}
+//		}
+//	}
+func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	// Wrapper name and all same-line options are treated as network addresses
+	for ok := true; ok; ok = d.NextArg() {
+		addr := d.Val()
+		if _, err := caddy.ParseNetworkAddress(addr); err != nil {
+			return d.Errf("parsing network address '%s': %v", addr, err)
+		}
+		s.Listen = append(s.Listen, addr)
+	}
+
+	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type packet struct {
 	// The underlying bytes slice that was gotten from udpBufPool.  It's up to
 	// packetConn to return it to udpBufPool once it's consumed.
@@ -279,3 +319,6 @@ var udpBufPool = sync.Pool{
 		return make([]byte, 9000)
 	},
 }
+
+// Interface guard
+var _ caddyfile.Unmarshaler = (*Server)(nil)

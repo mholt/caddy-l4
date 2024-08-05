@@ -22,11 +22,12 @@ import (
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"go.uber.org/zap"
 )
 
 func init() {
-	caddy.RegisterModule(MatchIP{})
+	caddy.RegisterModule(MatchRemoteIP{})
 	caddy.RegisterModule(MatchLocalIP{})
 	caddy.RegisterModule(MatchNot{})
 }
@@ -109,22 +110,22 @@ func (mss *MatcherSets) FromInterface(matcherSets interface{}) error {
 	return nil
 }
 
-// MatchIP matches requests by remote IP (or CIDR range).
-type MatchIP struct {
+// MatchRemoteIP matches requests by remote IP (or CIDR range).
+type MatchRemoteIP struct {
 	Ranges []string `json:"ranges,omitempty"`
 	cidrs  []netip.Prefix
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchIP) CaddyModule() caddy.ModuleInfo {
+func (MatchRemoteIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.ip",
-		New: func() caddy.Module { return new(MatchIP) },
+		ID:  "layer4.matchers.remote_ip",
+		New: func() caddy.Module { return new(MatchRemoteIP) },
 	}
 }
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
-func (m *MatchIP) Provision(_ caddy.Context) (err error) {
+func (m *MatchRemoteIP) Provision(_ caddy.Context) (err error) {
 	m.cidrs, err = ParseNetworks(m.Ranges)
 	if err != nil {
 		return err
@@ -133,10 +134,10 @@ func (m *MatchIP) Provision(_ caddy.Context) (err error) {
 }
 
 // Match returns true if the connection is from one of the designated IP ranges.
-func (m MatchIP) Match(cx *Connection) (bool, error) {
-	clientIP, err := m.getClientIP(cx)
+func (m MatchRemoteIP) Match(cx *Connection) (bool, error) {
+	clientIP, err := m.getRemoteIP(cx)
 	if err != nil {
-		return false, fmt.Errorf("getting client IP: %v", err)
+		return false, fmt.Errorf("getting remote IP: %v", err)
 	}
 	for _, ipRange := range m.cidrs {
 		if ipRange.Contains(clientIP) {
@@ -146,7 +147,7 @@ func (m MatchIP) Match(cx *Connection) (bool, error) {
 	return false, nil
 }
 
-func (m MatchIP) getClientIP(cx *Connection) (netip.Addr, error) {
+func (m MatchRemoteIP) getRemoteIP(cx *Connection) (netip.Addr, error) {
 	remote := cx.Conn.RemoteAddr().String()
 
 	ipStr, _, err := net.SplitHostPort(remote)
@@ -156,9 +157,37 @@ func (m MatchIP) getClientIP(cx *Connection) (netip.Addr, error) {
 
 	ip, err := netip.ParseAddr(ipStr)
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("invalid client IP address: %s", ipStr)
+		return netip.Addr{}, fmt.Errorf("invalid remote IP address: %s", ipStr)
 	}
 	return ip, nil
+}
+
+// UnmarshalCaddyfile sets up the MatchRemoteIP from Caddyfile tokens. Syntax:
+//
+//	ip <ranges...>
+func (m *MatchRemoteIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// At least one same-line option must be provided
+	if d.CountRemainingArgs() == 0 {
+		return d.ArgErr()
+	}
+
+	prefixes, err := ParseNetworks(d.RemainingArgs())
+	if err != nil {
+		return err
+	}
+
+	for _, prefix := range prefixes {
+		m.Ranges = append(m.Ranges, prefix.String())
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
+	}
+
+	return nil
 }
 
 // MatchLocalIP matches requests by local IP (or CIDR range).
@@ -213,6 +242,34 @@ func (m MatchLocalIP) getLocalIP(cx *Connection) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("invalid local IP address: %s", ipStr)
 	}
 	return ip, nil
+}
+
+// UnmarshalCaddyfile sets up the MatchLocalIP from Caddyfile tokens. Syntax:
+//
+//	local_ip <ranges...>
+func (m *MatchLocalIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// At least one same-line option must be provided
+	if d.CountRemainingArgs() == 0 {
+		return d.ArgErr()
+	}
+
+	prefixes, err := ParseNetworks(d.RemainingArgs())
+	if err != nil {
+		return err
+	}
+
+	for _, prefix := range prefixes {
+		m.Ranges = append(m.Ranges, prefix.String())
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
+	}
+
+	return nil
 }
 
 // MatchNot matches requests by negating the results of its matcher
@@ -294,20 +351,50 @@ func (m MatchNot) Match(r *Connection) (bool, error) {
 	return true, nil
 }
 
+// UnmarshalCaddyfile sets up the MatchNot from Caddyfile tokens. Syntax:
+//
+//	not {
+//		<matcher> {
+//			<submatcher> [<args...>]
+//		}
+//		<matcher>
+//	}
+//	not <matcher> {
+//		<submatcher> [<args...>]
+//	}
+//	not <matcher>
+//
+// Note: all matchers inside a not block are parsed into a single matcher set, i.e. they are ANDed. Multiple matcher
+// sets, that are ORed, aren't supported. Instead, use multiple named matcher sets, each containing a not matcher.
+func (m *MatchNot) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	matcherSet, err := ParseCaddyfileNestedMatcherSet(d)
+	if err != nil {
+		return err
+	}
+	m.MatcherSetsRaw = append(m.MatcherSetsRaw, matcherSet)
+
+	return nil
+}
+
 // Interface guards
 var (
-	_ caddy.Module      = (*MatchIP)(nil)
-	_ ConnMatcher       = (*MatchIP)(nil)
-	_ caddy.Provisioner = (*MatchIP)(nil)
-	_ caddy.Module      = (*MatchLocalIP)(nil)
-	_ ConnMatcher       = (*MatchLocalIP)(nil)
-	_ caddy.Provisioner = (*MatchLocalIP)(nil)
-	_ caddy.Module      = (*MatchNot)(nil)
-	_ caddy.Provisioner = (*MatchNot)(nil)
-	_ ConnMatcher       = (*MatchNot)(nil)
+	_ caddy.Module          = (*MatchRemoteIP)(nil)
+	_ ConnMatcher           = (*MatchRemoteIP)(nil)
+	_ caddy.Provisioner     = (*MatchRemoteIP)(nil)
+	_ caddyfile.Unmarshaler = (*MatchRemoteIP)(nil)
+	_ caddy.Module          = (*MatchLocalIP)(nil)
+	_ ConnMatcher           = (*MatchLocalIP)(nil)
+	_ caddy.Provisioner     = (*MatchLocalIP)(nil)
+	_ caddyfile.Unmarshaler = (*MatchLocalIP)(nil)
+	_ caddy.Module          = (*MatchNot)(nil)
+	_ caddy.Provisioner     = (*MatchNot)(nil)
+	_ ConnMatcher           = (*MatchNot)(nil)
+	_ caddyfile.Unmarshaler = (*MatchNot)(nil)
 )
 
-// ParseNetworks parses a list of string IP addresses or CDIR subnets into a slice of net.IPNet's.
+// ParseNetworks parses a list of string IP addresses or CIDR subnets into a slice of net.IPNet's.
 // It accepts for example ["127.0.0.1", "127.0.0.0/8", "::1", "2001:db8::/32"].
 func ParseNetworks(networks []string) (ipNets []netip.Prefix, err error) {
 	for _, str := range networks {

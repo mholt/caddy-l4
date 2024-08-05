@@ -30,14 +30,14 @@ func TestSocks5Matcher_Match(t *testing.T) {
 		{matcher: &Socks5Matcher{}, data: []byte("Hello World"), shouldMatch: false},
 
 		// match only no auth
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{0}}, data: curlSocks5Example1, shouldMatch: false},
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{0}}, data: curlSocks5Example2, shouldMatch: false},
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{0}}, data: firefoxSocks5Example, shouldMatch: true},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{0}}, data: curlSocks5Example1, shouldMatch: false},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{0}}, data: curlSocks5Example2, shouldMatch: false},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{0}}, data: firefoxSocks5Example, shouldMatch: true},
 
 		// match custom auth
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{129}}, data: curlSocks5Example1, shouldMatch: false},
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{129}}, data: firefoxSocks5Example, shouldMatch: false},
-		{matcher: &Socks5Matcher{AuthMethods: []uint8{129}}, data: []byte{0x05, 0x01, 0x81}, shouldMatch: true},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{129}}, data: curlSocks5Example1, shouldMatch: false},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{129}}, data: firefoxSocks5Example, shouldMatch: false},
+		{matcher: &Socks5Matcher{AuthMethods: []uint16{129}}, data: []byte{0x05, 0x01, 0x81}, shouldMatch: true},
 	}
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
