@@ -17,6 +17,8 @@ package l4rdp
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -145,19 +147,20 @@ func Test_MatchRDP_Match(t *testing.T) {
 		matcher     *MatchRDP
 		data        []byte
 		shouldMatch bool
+		shortErr    bool
 	}
 
 	tests := []test{
 		// without filters
-		{matcher: &MatchRDP{}, data: packetTooShort, shouldMatch: false},
+		{matcher: &MatchRDP{}, data: packetTooShort, shouldMatch: false, shortErr: true},
 		{matcher: &MatchRDP{}, data: packetInvalid1, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetInvalid2, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetInvalid3, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetInvalid4, shouldMatch: false},
-		{matcher: &MatchRDP{}, data: packetInvalid5, shouldMatch: false},
+		{matcher: &MatchRDP{}, data: packetInvalid5, shouldMatch: false, shortErr: true},
 		{matcher: &MatchRDP{}, data: packetInvalid6, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetSemiValid1, shouldMatch: false},
-		{matcher: &MatchRDP{}, data: packetSemiValid2, shouldMatch: false},
+		{matcher: &MatchRDP{}, data: packetSemiValid2, shouldMatch: false, shortErr: true},
 		{matcher: &MatchRDP{}, data: packetSemiValid3, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetSemiValid4, shouldMatch: false},
 		{matcher: &MatchRDP{}, data: packetValid1, shouldMatch: true},
@@ -198,7 +201,7 @@ func Test_MatchRDP_Match(t *testing.T) {
 	defer cancel()
 
 	for i, tc := range tests {
-		func() {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			err := tc.matcher.Provision(ctx)
 			assertNoError(t, err)
 
@@ -216,16 +219,18 @@ func Test_MatchRDP_Match(t *testing.T) {
 			}()
 
 			matched, err := tc.matcher.Match(cx)
-			assertNoError(t, err)
+			if !(tc.shortErr && errors.Is(err, io.ErrUnexpectedEOF)) {
+				assertNoError(t, err)
+			}
 
 			if matched != tc.shouldMatch {
 				if tc.shouldMatch {
-					t.Fatalf("test %d: matcher did not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher did not match | %+v\n", tc.matcher)
 				} else {
-					t.Fatalf("test %d: matcher should not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher should not match | %+v\n", tc.matcher)
 				}
 			}
-		}()
+		})
 	}
 }
 

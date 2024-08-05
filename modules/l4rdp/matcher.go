@@ -61,9 +61,9 @@ func (m *MatchRDP) CaddyModule() caddy.ModuleInfo {
 func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	// Read a number of bytes to parse headers
 	headerBuf := make([]byte, RDPConnReqBytesMin)
-	n, err := io.ReadFull(cx, headerBuf)
-	if err != nil || n < int(RDPConnReqBytesMin) {
-		return false, nil
+	_, err := io.ReadFull(cx, headerBuf)
+	if err != nil {
+		return false, err
 	}
 
 	// Parse TPKTHeader
@@ -102,16 +102,16 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 	// Read a number of bytes to parse payload
 	payloadBuf := make([]byte, payloadBytesTotal)
-	n, err = io.ReadFull(cx, payloadBuf)
-	if err != nil || n < int(payloadBytesTotal) {
-		return false, nil
+	_, err = io.ReadFull(cx, payloadBuf)
+	if err != nil {
+		return false, err
 	}
 
 	// Validate the remaining connection buffer
 	// NOTE: if at least 1 byte remains, we can technically be sure, the protocol isn't RDP.
 	// This behaviour may be changed in the future if there are many false negative matches.
 	extraBuf := make([]byte, 1)
-	n, err = io.ReadFull(cx, extraBuf)
+	n, err := io.ReadFull(cx, extraBuf)
 	if err == nil && n == len(extraBuf) {
 		return false, nil
 	}
