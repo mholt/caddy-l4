@@ -16,6 +16,8 @@ package l4regexp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -37,6 +39,7 @@ func Test_MatchRegexp_Match(t *testing.T) {
 		matcher     *MatchRegexp
 		data        []byte
 		shouldMatch bool
+		shortErr    bool
 	}
 
 	tests := []test{
@@ -45,7 +48,7 @@ func Test_MatchRegexp_Match(t *testing.T) {
 		{matcher: &MatchRegexp{Pattern: "12"}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^0123$"}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^012$"}, data: packet0123, shouldMatch: false},
-		{matcher: &MatchRegexp{Pattern: "^0123$", Count: 5}, data: packet0123, shouldMatch: false},
+		{matcher: &MatchRegexp{Pattern: "^0123$", Count: 5}, data: packet0123, shouldMatch: false, shortErr: true},
 		{matcher: &MatchRegexp{Pattern: "^012$", Count: 3}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^\\d+$"}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^\\d+$", Count: 0}, data: packet0123, shouldMatch: true},
@@ -56,7 +59,7 @@ func Test_MatchRegexp_Match(t *testing.T) {
 	defer cancel()
 
 	for i, tc := range tests {
-		func() {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			err := tc.matcher.Provision(ctx)
 			assertNoError(t, err)
 
@@ -74,16 +77,18 @@ func Test_MatchRegexp_Match(t *testing.T) {
 			}()
 
 			matched, err := tc.matcher.Match(cx)
-			assertNoError(t, err)
+			if !(tc.shortErr && errors.Is(err, io.ErrUnexpectedEOF)) {
+				assertNoError(t, err)
+			}
 
 			if matched != tc.shouldMatch {
 				if tc.shouldMatch {
-					t.Fatalf("test %d: matcher did not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher did not match | %+v\n", tc.matcher)
 				} else {
-					t.Fatalf("test %d: matcher should not match | %+v\n", i, tc.matcher)
+					t.Fatalf("matcher should not match | %+v\n", tc.matcher)
 				}
 			}
-		}()
+		})
 	}
 }
 

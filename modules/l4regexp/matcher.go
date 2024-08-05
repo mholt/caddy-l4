@@ -48,9 +48,9 @@ func (m *MatchRegexp) CaddyModule() caddy.ModuleInfo {
 func (m *MatchRegexp) Match(cx *layer4.Connection) (bool, error) {
 	// Read a number of bytes
 	buf := make([]byte, m.Count)
-	n, err := io.ReadFull(cx, buf)
-	if err != nil || n < int(m.Count) {
-		return false, nil
+	_, err := io.ReadFull(cx, buf)
+	if err != nil {
+		return false, err
 	}
 
 	// Match these bytes against the regular expression
