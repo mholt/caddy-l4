@@ -117,10 +117,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				cx.shouldPrefetchBeforeRead = true
 			}
 
-			// Use a wrapping routeIdx similar to a container/ring to try routes in a strictly circular fashion.
-			// After a match continue with the routes after the matched one, instead of starting at the beginning.
-			// This is done for backwards compatibility with configs written before the "Non blocking matchers & matching timeout" rewrite.
-			// See https://github.com/mholt/caddy-l4/pull/192 and https://github.com/mholt/caddy-l4/pull/192#issuecomment-2143681952.
+			// Try routes in a strictly circular fashion.
+			// After a match continue with the routes after the matched one.
 			for routeIdx, route := range routes {
 				// Skip routes that signaled they definitely can not match
 				if _, ok := notMatchingRoutes[routeIdx]; ok {
