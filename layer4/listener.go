@@ -149,14 +149,13 @@ func (l *listener) loop() {
 	}
 }
 
-// errHijacked is used when a handler takes over the connection, it's lifetime is not managed by handle
-var errHijacked = errors.New("hijacked connection")
-
 func (l *listener) handle(conn net.Conn) {
 	var err error
 	defer func() {
 		l.wg.Done()
-		if err != errHijacked {
+		// If there is no err the connection was successfully hijacked
+		// by the caddy http app which is now responsible for closing it
+		if err != nil {
 			conn.Close()
 		}
 	}()
@@ -171,7 +170,7 @@ func (l *listener) handle(conn net.Conn) {
 	start := time.Now()
 	err = l.compiledRoute.Handle(cx)
 	duration := time.Since(start)
-	if err != nil && err != errHijacked {
+	if err != nil {
 		logFunc := l.logger.Error
 		if errors.Is(err, ErrMatchingTimeout) {
 			logFunc = l.logger.Warn
@@ -210,7 +209,7 @@ func (l *listener) pipeConnection(conn *Connection) error {
 	} else {
 		l.connChan <- conn
 	}
-	return errHijacked
+	return nil
 }
 
 // tlsConnection implements ConnectionState interface to use it with h2
