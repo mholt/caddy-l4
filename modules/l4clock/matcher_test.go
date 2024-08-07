@@ -41,8 +41,8 @@ func Test_MatchClock_Match(t *testing.T) {
 		shouldMatch bool
 	}
 
-	tNowMinus5Minutes := time.Now().Add(time.Minute * 5 * (-1)).Format(time.TimeOnly)
-	tNowPlus5Minutes := time.Now().Add(time.Minute * 5).Format(time.TimeOnly)
+	tNowMinus5Minutes := time.Now().UTC().Add(time.Minute * 5 * (-1)).Format(time.TimeOnly)
+	tNowPlus5Minutes := time.Now().UTC().Add(time.Minute * 5).Format(time.TimeOnly)
 
 	tests := []test{
 		{matcher: &MatchClock{}, data: []byte{}, shouldMatch: true},
