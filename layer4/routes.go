@@ -125,9 +125,9 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			return err
 		}
 		for {
-			// only read more because there is no buffered data or matchers require more.
+			// only read more because matchers require more (no matcher in the simplest case).
 			// can happen if this routes list is embedded in another
-			if len(cx.buf) == 0 || matcherNeedMore {
+			if matcherNeedMore {
 				err = cx.prefetch()
 				if err != nil {
 					logFunc := logger.Error
