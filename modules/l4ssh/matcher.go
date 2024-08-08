@@ -20,18 +20,19 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(MatchSSH{})
+	caddy.RegisterModule(&MatchSSH{})
 }
 
 // MatchSSH is able to match SSH connections.
 type MatchSSH struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchSSH) CaddyModule() caddy.ModuleInfo {
+func (*MatchSSH) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.ssh",
 		New: func() caddy.Module { return new(MatchSSH) },
@@ -39,7 +40,7 @@ func (MatchSSH) CaddyModule() caddy.ModuleInfo {
 }
 
 // Match returns true if the connection looks like SSH.
-func (m MatchSSH) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchSSH) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, len(sshPrefix))
 	n, err := io.ReadFull(cx, p)
 	if err != nil || n < len(sshPrefix) {

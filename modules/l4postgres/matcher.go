@@ -30,11 +30,12 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(MatchPostgres{})
+	caddy.RegisterModule(&MatchPostgres{})
 }
 
 const (
@@ -59,8 +60,8 @@ func (b *message) ReadUint32() (r uint32) {
 
 func (b *message) ReadString() (r string) {
 	end := b.offset
-	max := uint32(len(b.data))
-	for ; end != max && b.data[end] != 0; end++ {
+	maximum := uint32(len(b.data))
+	for ; end != maximum && b.data[end] != 0; end++ {
 	}
 	r = string(b.data[b.offset:end])
 	b.offset = end + 1
@@ -82,7 +83,7 @@ type startupMessage struct {
 type MatchPostgres struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
+func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.postgres",
 		New: func() caddy.Module { return new(MatchPostgres) },
@@ -90,7 +91,7 @@ func (MatchPostgres) CaddyModule() caddy.ModuleInfo {
 }
 
 // Match returns true if the connection looks like the Postgres protocol.
-func (m MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	// Get bytes containing the message length
 	head := make([]byte, initMessageSizeLength)
 	if _, err := io.ReadFull(cx, head); err != nil {

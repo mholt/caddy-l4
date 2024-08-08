@@ -26,14 +26,15 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/mholt/caddy-l4/layer4"
-	"github.com/mholt/caddy-l4/modules/l4tls"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
+
+	"github.com/mholt/caddy-l4/layer4"
+	"github.com/mholt/caddy-l4/modules/l4tls"
 )
 
 func init() {
-	caddy.RegisterModule(MatchHTTP{})
+	caddy.RegisterModule(&MatchHTTP{})
 }
 
 // MatchHTTP is able to match HTTP connections. The auto-generated
@@ -45,7 +46,7 @@ type MatchHTTP struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchHTTP) CaddyModule() caddy.ModuleInfo {
+func (*MatchHTTP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.http",
 		New: func() caddy.Module { return new(MatchHTTP) },
@@ -58,7 +59,7 @@ func (m *MatchHTTP) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON satisfies the json.Marshaler interface.
-func (m MatchHTTP) MarshalJSON() ([]byte, error) {
+func (m *MatchHTTP) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.MatcherSetsRaw)
 }
 
@@ -76,7 +77,7 @@ func (m *MatchHTTP) Provision(ctx caddy.Context) error {
 }
 
 // Match returns true if the conn starts with an HTTP request.
-func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	// TODO: do we need a more standardized way to amortize matchers? or at least to remember decoded results from previous matchers?
 	req, ok := cx.GetVar("http_request").(*http.Request)
 	if !ok {
@@ -123,7 +124,7 @@ func (m MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	return m.matcherSets.AnyMatch(req), nil
 }
 
-func (m MatchHTTP) isHttp(data []byte) bool {
+func (m *MatchHTTP) isHttp(data []byte) bool {
 	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
 	if i < 10 {
@@ -141,7 +142,7 @@ func (m MatchHTTP) isHttp(data []byte) bool {
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
-func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Request) error {
+func (m *MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Request) error {
 	// Does req contain a valid http2 magic?
 	// https://github.com/golang/net/blob/a630d4f3e7a22f21271532b4b88e1693824a838f/http2/h2c/h2c.go#L74
 	if req.Method != "PRI" || len(req.Header) != 0 || req.URL.Path != "*" || req.Proto != "HTTP/2.0" {
@@ -164,18 +165,19 @@ func (m MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Req
 
 	// read the first 10 frames until we get a headers frame (skipping settings, window update & priority frames)
 	var frame http2.Frame
-	for i := 0; i < 10; i++ {
+	maxAttempts := 10
+	for i := 0; i < maxAttempts; i++ {
 		frame, err = framer.ReadFrame()
 		if err != nil {
 			return err
 		}
 		if frame.Header().Type == http2.FrameHeaders {
+			maxAttempts = 0
 			break
 		}
 	}
-
-	if frame.Header().Type != http2.FrameHeaders {
-		return fmt.Errorf("failed to read a http2 headers frame after 10 attempts")
+	if maxAttempts != 0 {
+		return fmt.Errorf("failed to read a http2 headers frame after %d attempts", maxAttempts)
 	}
 
 	decoder := hpack.NewDecoder(4096, nil) // max table size 4096 from http2.initialHeaderTableSize

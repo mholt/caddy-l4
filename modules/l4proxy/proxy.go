@@ -17,9 +17,7 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"runtime/debug"
@@ -29,16 +27,18 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mastercactapus/proxyprotocol"
+	"go.uber.org/zap"
+
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4proxyprotocol"
 	"github.com/mholt/caddy-l4/modules/l4tls"
-	"go.uber.org/zap"
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a handler that can proxy connections.
@@ -62,7 +62,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.proxy",
 		New: func() caddy.Module { return new(Handler) },
@@ -127,7 +127,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.LoadBalancing = new(LoadBalancing)
 	}
 	if h.LoadBalancing.SelectionPolicy == nil {
-		h.LoadBalancing.SelectionPolicy = RandomSelection{}
+		h.LoadBalancing.SelectionPolicy = &RandomSelection{}
 	}
 	if h.LoadBalancing.TryDuration > 0 && h.LoadBalancing.TryInterval == 0 {
 		// a non-zero try_duration with a zero try_interval
@@ -141,7 +141,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 // Handle handles the downstream connection.
-func (h Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
+func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 
 	start := time.Now()
@@ -178,7 +178,7 @@ func (h Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	// make sure upstream connections all get closed
 	defer func() {
 		for _, conn := range upConns {
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -235,7 +235,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		if err != nil {
 			h.countFailure(p)
 			for _, conn := range upConns {
-				conn.Close()
+				_ = conn.Close()
 			}
 			return nil, err
 		}
@@ -285,7 +285,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	go func() {
 		// read from downstream until connection is closed;
 		// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
-		io.Copy(ioutil.Discard, downTee)
+		_, _ = io.Copy(io.Discard, downTee)
 		downConnClosedCh <- struct{}{}
 
 		// Shut down the writing side of all upstream connections, in case
@@ -301,7 +301,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 			if conn, ok := up.(closeWriter); ok {
 				_ = conn.CloseWrite()
 			} else {
-				up.Close()
+				_ = up.Close()
 			}
 		}
 	}()
@@ -365,7 +365,7 @@ func (h *Handler) Cleanup() error {
 	// remove hosts from our config from the pool
 	for _, upstream := range h.Upstreams {
 		for _, dialAddr := range upstream.Dial {
-			peers.Delete(dialAddr)
+			_, _ = peers.Delete(dialAddr)
 		}
 	}
 	return nil

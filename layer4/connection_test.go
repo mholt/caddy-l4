@@ -10,11 +10,11 @@ import (
 
 func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := WrapConnection(out, []byte{}, zap.NewNop())
-	defer cx.Close()
+	defer func() { _ = cx.Close() }()
 
 	matcherData := []byte("foo")
 	consumeData := []byte("bar")
@@ -22,8 +22,8 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	buf := make([]byte, len(matcherData))
 
 	go func() {
-		in.Write(matcherData)
-		in.Write(consumeData)
+		_, _ = in.Write(matcherData)
+		_, _ = in.Write(consumeData)
 	}()
 
 	// prefetch like server handler would

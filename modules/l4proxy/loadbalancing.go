@@ -26,6 +26,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -76,14 +77,12 @@ type Selector interface {
 }
 
 func init() {
-	caddy.RegisterModule(RandomSelection{})
-	caddy.RegisterModule(RandomChoiceSelection{})
-	caddy.RegisterModule(LeastConnSelection{})
-	caddy.RegisterModule(RoundRobinSelection{})
-	caddy.RegisterModule(FirstSelection{})
-	caddy.RegisterModule(IPHashSelection{})
-
-	weakrand.Seed(time.Now().UTC().UnixNano())
+	caddy.RegisterModule(&RandomSelection{})
+	caddy.RegisterModule(&RandomChoiceSelection{})
+	caddy.RegisterModule(&LeastConnSelection{})
+	caddy.RegisterModule(&RoundRobinSelection{})
+	caddy.RegisterModule(&FirstSelection{})
+	caddy.RegisterModule(&IPHashSelection{})
 }
 
 // RandomSelection is a policy that selects
@@ -91,7 +90,7 @@ func init() {
 type RandomSelection struct{}
 
 // CaddyModule returns the Caddy module information.
-func (RandomSelection) CaddyModule() caddy.ModuleInfo {
+func (*RandomSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.random",
 		New: func() caddy.Module { return new(RandomSelection) },
@@ -99,7 +98,7 @@ func (RandomSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Select returns an available host, if any.
-func (r RandomSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Upstream {
+func (r *RandomSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
 	// use reservoir sampling because the number of available
 	// hosts isn't known: https://en.wikipedia.org/wiki/Reservoir_sampling
 	var randomHost *Upstream
@@ -108,7 +107,7 @@ func (r RandomSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Ups
 		if !upstream.available() {
 			continue
 		}
-		// (n % 1 == 0) holds for all n, therefore a
+		// (n % 1 == 0) holds for all n, therefore an
 		// upstream will always be chosen if there is at
 		// least one available
 		count++
@@ -148,7 +147,7 @@ type RandomChoiceSelection struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (RandomChoiceSelection) CaddyModule() caddy.ModuleInfo {
+func (*RandomChoiceSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.random_choose",
 		New: func() caddy.Module { return new(RandomChoiceSelection) },
@@ -156,7 +155,7 @@ func (RandomChoiceSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision sets up r.
-func (r *RandomChoiceSelection) Provision(ctx caddy.Context) error {
+func (r *RandomChoiceSelection) Provision(_ caddy.Context) error {
 	if r.Choose == 0 {
 		r.Choose = 2
 	}
@@ -164,7 +163,7 @@ func (r *RandomChoiceSelection) Provision(ctx caddy.Context) error {
 }
 
 // Validate ensures that r's configuration is valid.
-func (r RandomChoiceSelection) Validate() error {
+func (r *RandomChoiceSelection) Validate() error {
 	if r.Choose < 2 {
 		return fmt.Errorf("choose must be at least 2")
 	}
@@ -172,7 +171,7 @@ func (r RandomChoiceSelection) Validate() error {
 }
 
 // Select returns an available host, if any.
-func (r RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
+func (r *RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
 	k := r.Choose
 	if k > len(pool) {
 		k = len(pool)
@@ -224,7 +223,7 @@ func (r *RandomChoiceSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error
 type LeastConnSelection struct{}
 
 // CaddyModule returns the Caddy module information.
-func (LeastConnSelection) CaddyModule() caddy.ModuleInfo {
+func (*LeastConnSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.least_conn",
 		New: func() caddy.Module { return new(LeastConnSelection) },
@@ -234,7 +233,7 @@ func (LeastConnSelection) CaddyModule() caddy.ModuleInfo {
 // Select selects the up host with the least number of connections in the
 // pool. If more than one host has the same least number of connections,
 // one of the hosts is chosen at random.
-func (LeastConnSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
+func (*LeastConnSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
 	var best *Upstream
 	var count int
 	leastConns := -1
@@ -288,7 +287,7 @@ type RoundRobinSelection struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (RoundRobinSelection) CaddyModule() caddy.ModuleInfo {
+func (*RoundRobinSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.round_robin",
 		New: func() caddy.Module { return new(RoundRobinSelection) },
@@ -335,7 +334,7 @@ func (r *RoundRobinSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 type FirstSelection struct{}
 
 // CaddyModule returns the Caddy module information.
-func (FirstSelection) CaddyModule() caddy.ModuleInfo {
+func (*FirstSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.first",
 		New: func() caddy.Module { return new(FirstSelection) },
@@ -343,7 +342,7 @@ func (FirstSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Select returns an available host, if any.
-func (FirstSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
+func (*FirstSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
 	for _, host := range pool {
 		if host.available() {
 			return host
@@ -376,7 +375,7 @@ func (r *FirstSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 type IPHashSelection struct{}
 
 // CaddyModule returns the Caddy module information.
-func (IPHashSelection) CaddyModule() caddy.ModuleInfo {
+func (*IPHashSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.proxy.selection_policies.ip_hash",
 		New: func() caddy.Module { return new(IPHashSelection) },
@@ -384,7 +383,7 @@ func (IPHashSelection) CaddyModule() caddy.ModuleInfo {
 }
 
 // Select returns an available host, if any.
-func (IPHashSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Upstream {
+func (*IPHashSelection) Select(pool UpstreamPool, conn *layer4.Connection) *Upstream {
 	remoteAddr := conn.Conn.RemoteAddr().String()
 	clientIP, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {

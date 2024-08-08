@@ -16,6 +16,7 @@ package layer4
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -72,10 +73,11 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	return nil
 }
 
-func (s Server) serve(ln net.Listener) error {
+func (s *Server) serve(ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
-		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Timeout() {
 			s.logger.Error("timeout accepting connection", zap.Error(err))
 			continue
 		}
@@ -86,7 +88,7 @@ func (s Server) serve(ln net.Listener) error {
 	}
 }
 
-func (s Server) servePacket(pc net.PacketConn) error {
+func (s *Server) servePacket(pc net.PacketConn) error {
 	// Spawn a goroutine whose only job is to consume packets from the socket
 	// and send to the packets channel.
 	packets := make(chan packet, 10)
@@ -95,7 +97,8 @@ func (s Server) servePacket(pc net.PacketConn) error {
 			buf := udpBufPool.Get().([]byte)
 			n, addr, err := pc.ReadFrom(buf)
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
 					continue
 				}
 				packets <- packet{err: err}
@@ -113,7 +116,7 @@ func (s Server) servePacket(pc net.PacketConn) error {
 	// be removed from this map after being closed.
 	udpConns := make(map[string]*packetConn)
 	// closeCh is used to receive notifications of socket closures from
-	// packetConn, which allows us to to remove stale connections (whose
+	// packetConn, which allows us to remove stale connections (whose
 	// proxy handlers have completed) from the udpConns map.
 	closeCh := make(chan string, 10)
 	for {
@@ -153,8 +156,8 @@ func (s Server) servePacket(pc net.PacketConn) error {
 	}
 }
 
-func (s Server) handle(conn net.Conn) {
-	defer conn.Close()
+func (s *Server) handle(conn net.Conn) {
+	defer func() { _ = conn.Close() }()
 
 	buf := bufPool.Get().([]byte)
 	buf = buf[:0]
@@ -285,7 +288,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	return 0, io.EOF
 }
 
-func (pc packetConn) Write(b []byte) (n int, err error) {
+func (pc *packetConn) Write(b []byte) (n int, err error) {
 	return pc.PacketConn.WriteTo(b, pc.addr)
 }
 
@@ -308,7 +311,7 @@ func (pc *packetConn) Close() error {
 	return nil
 }
 
-func (pc packetConn) RemoteAddr() net.Addr { return pc.addr }
+func (pc *packetConn) RemoteAddr() net.Addr { return pc.addr }
 
 var udpBufPool = sync.Pool{
 	New: func() interface{} {

@@ -21,17 +21,18 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a layer4 handler that replicates a connection so
 // that a branch of handlers can concurrently handle it. Reads
-// happen in lock-step with all concurrent branches so as to
+// happen in lock-step with all concurrent branches to
 // avoid buffering: if one of the branches (including the main
 // handler chain) stops reading from the connection, it will
 // block all branches.
@@ -48,7 +49,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.tee",
 		New: func() caddy.Module { return new(Handler) },
@@ -64,7 +65,7 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 	if err != nil {
 		return err
 	}
-	var handlers layer4.Handlers
+	handlers := make(layer4.Handlers, 0)
 	for _, mod := range mods.([]interface{}) {
 		handlers = append(handlers, mod.(layer4.NextHandler))
 	}
@@ -74,7 +75,7 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 }
 
 // Handle handles the connection.
-func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// what is read by the next handler will also be
 	// read by the branch handlers; this is done by
 	// writing conn's reads into a pipe, and having
@@ -83,7 +84,7 @@ func (t Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 
 	// this is the conn we pass to the next handler;
 	// anything read by it will be teed into the pipe
-	// (it also needs a pointer to the pipe so it can
+	// (it also needs a pointer to the pipe, so it can
 	// close the pipe when the connection closes,
 	// otherwise we'll leak the goroutine, yikes!)
 	nextc := *cx
@@ -155,7 +156,7 @@ type nextConn struct {
 func (nc nextConn) Read(p []byte) (n int, err error) {
 	n, err = nc.Reader.Read(p)
 	if err == io.EOF {
-		nc.pipe.Close()
+		_ = nc.pipe.Close()
 	}
 	return
 }

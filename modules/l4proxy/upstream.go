@@ -26,6 +26,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -50,7 +51,7 @@ type Upstream struct {
 	healthCheckPolicy *PassiveHealthChecks
 }
 
-func (u Upstream) String() string {
+func (u *Upstream) String() string {
 	return strings.Join(u.Dial, ",")
 }
 
@@ -85,7 +86,7 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 
 	// if the passive health checker has a non-zero UnhealthyConnectionCount
 	// but the upstream has no MaxConnections set (they are the same thing,
-	// but the passive health checker is a default value for for upstreams
+	// but the passive health checker is a default value for upstreams
 	// without MaxConnections), copy the value into this upstream, since the
 	// value in the upstream (MaxConnections) is what is used during
 	// availability checks

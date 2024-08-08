@@ -11,8 +11,9 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func assertNoError(t *testing.T, err error) {
@@ -24,8 +25,8 @@ func assertNoError(t *testing.T, err error) {
 
 func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool, error) {
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := layer4.WrapConnection(in, make([]byte, 0), zap.NewNop())
 	go func() {
@@ -211,8 +212,8 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 		}))
 
 	in, out := net.Pipe()
-	defer in.Close()
-	defer out.Close()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
 	go func() {
@@ -290,7 +291,7 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched := MatchHTTP{}.isHttp(tc.data)
+			matched := (&MatchHTTP{}).isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
 			}

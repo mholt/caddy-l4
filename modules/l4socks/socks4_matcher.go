@@ -10,17 +10,18 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(Socks4Matcher{})
+	caddy.RegisterModule(&Socks4Matcher{})
 }
 
 // Socks4Matcher matches SOCKSv4 connections according to https://www.openssh.com/txt/socks4.protocol.
 // Since the SOCKSv4 header is very short it could produce a lot of false positives.
 // To improve the matching use Commands, Ports and Networks to specify to which destinations you expect clients to connect to.
-// By default CONNECT & BIND commands are matched with any destination ip and port.
+// By default, CONNECT & BIND commands are matched with any destination ip and port.
 type Socks4Matcher struct {
 	// Only match on these commands. Default: ["CONNECT", "BIND"]
 	Commands []string `json:"commands,omitempty"`
@@ -33,7 +34,7 @@ type Socks4Matcher struct {
 	cidrs    []netip.Prefix
 }
 
-func (Socks4Matcher) CaddyModule() caddy.ModuleInfo {
+func (*Socks4Matcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.socks4",
 		New: func() caddy.Module { return new(Socks4Matcher) },

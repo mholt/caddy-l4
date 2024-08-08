@@ -32,29 +32,29 @@ Current matchers:
 
 - **layer4.matchers.clock** - matches connections on the time they are wrapped/matched.
 - **layer4.matchers.http** - matches connections that start with HTTP requests. In addition, any [`http.matchers` modules](https://caddyserver.com/docs/modules/) can be used for matching on HTTP-specific properties of requests, such as header or path. Note that only the first request of each connection can be used for matching.
-- **layer4.matchers.tls** - matches connections that start with TLS handshakes. In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
-- **layer4.matchers.ssh** - matches connections that look like SSH connections.
-- **layer4.matchers.postgres** - matches connections that look like Postgres connections.
-- **layer4.matchers.remote_ip** - matches connections based on remote IP (or CIDR range).
 - **layer4.matchers.local_ip** - matches connections based on local IP (or CIDR range).
 - **layer4.matchers.not** - matches connections that aren't matched by inner matcher sets.
+- **layer4.matchers.postgres** - matches connections that look like Postgres connections.
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.matchers.rdp** - matches connections that look like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf).
 - **layer4.matchers.regexp** - matches connections that have the first packet bytes matching a regular expression.
+- **layer4.matchers.remote_ip** - matches connections based on remote IP (or CIDR range).
 - **layer4.matchers.socks4** - matches connections that look like [SOCKSv4](https://www.openssh.com/txt/socks4.protocol).
 - **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
+- **layer4.matchers.ssh** - matches connections that look like SSH connections.
+- **layer4.matchers.tls** - matches connections that start with TLS handshakes. In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
 - **layer4.matchers.xmpp** - matches connections that look like [XMPP](https://xmpp.org/about/technology-overview/).
 
 Current handlers:
 
 - **layer4.handlers.echo** - An echo server.
 - **layer4.handlers.proxy** - Powerful layer 4 proxy, capable of multiple upstreams (with load balancing and health checks) and establishing new TLS connections to backends. Optionally supports sending the [HAProxy proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
+- **layer4.handlers.proxy_protocol** - Accepts the [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) on the receiving side.
+- **layer4.handlers.socks5** - Handles [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html) proxy protocol connections.
 - **layer4.handlers.subroute** - Implements recursion logic, i.e. allows to match and handle already matched connections.
 - **layer4.handlers.tee** - Branches the handling of a connection into a concurrent handler chain.
 - **layer4.handlers.throttle** - Throttle connections to simulate slowness and latency.
 - **layer4.handlers.tls** - TLS termination.
-- **layer4.handlers.proxy_protocol** - Accepts the [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) on the receiving side.
-- **layer4.handlers.socks5** - Handles [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html) proxy protocol connections.
 
 Like the `http` app, some handlers are "terminal" meaning that they don't call the next handler in the chain. For example: `echo` and `proxy` are terminal handlers because they consume the client's input.
 
@@ -75,7 +75,7 @@ Alternatively, to hack on the plugin code, you can clone it down, then build and
 
 ## Writing config
 
-Since this app does not support Caddyfile (yet?), you will have to use Caddy's native JSON format to configure it. I highly recommend [this caddy-json-schema plugin by @abiosoft](https://github.com/abiosoft/caddy-json-schema) which can give you auto-complete and documentation right in your editor as you write your config!
+This app supports Caddyfile, but you may also use Caddy's native JSON format to configure it. I highly recommend [this caddy-json-schema plugin by @abiosoft](https://github.com/abiosoft/caddy-json-schema) which can give you auto-complete and documentation right in your editor as you write your config!
 
 See below for some examples to help you get started.
 

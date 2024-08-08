@@ -23,13 +23,14 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler throttles connections using leaky bucket rate limiting.
@@ -58,7 +59,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.throttle",
 		New: func() caddy.Module { return new(Handler) },
@@ -93,7 +94,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 // Handle handles the connection.
-func (h Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	var localLimiter *rate.Limiter
 	if h.ReadBytesPerSecond > 0 || h.ReadBurstSize > 0 {
 		localLimiter = rate.NewLimiter(rate.Limit(h.ReadBytesPerSecond), h.ReadBurstSize)

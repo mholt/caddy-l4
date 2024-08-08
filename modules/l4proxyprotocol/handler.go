@@ -23,12 +23,13 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mastercactapus/proxyprotocol"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(Handler{})
+	caddy.RegisterModule(&Handler{})
 }
 
 // Handler is a connection handler that accepts the PROXY protocol.
@@ -45,7 +46,7 @@ type Handler struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (Handler) CaddyModule() caddy.ModuleInfo {
+func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.proxy_protocol",
 		New: func() caddy.Module { return new(Handler) },
@@ -91,7 +92,7 @@ func (h *Handler) tidyRules() {
 	})
 
 	if len(rules) > 0 {
-		// dedup
+		// deduplication
 		last := rules[0]
 		nf := rules[1:1]
 		for _, f := range rules[1:] {

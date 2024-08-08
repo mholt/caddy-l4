@@ -20,6 +20,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -30,13 +31,13 @@ var (
 )
 
 func init() {
-	caddy.RegisterModule(MatchProxyProtocol{})
+	caddy.RegisterModule(&MatchProxyProtocol{})
 }
 
 type MatchProxyProtocol struct{}
 
 // CaddyModule returns the Caddy module information.
-func (MatchProxyProtocol) CaddyModule() caddy.ModuleInfo {
+func (*MatchProxyProtocol) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.proxy_protocol",
 		New: func() caddy.Module { return new(MatchProxyProtocol) },
@@ -44,7 +45,7 @@ func (MatchProxyProtocol) CaddyModule() caddy.ModuleInfo {
 }
 
 // Match returns true if the connection looks like it is using the Proxy Protocol.
-func (m MatchProxyProtocol) Match(cx *layer4.Connection) (bool, error) {
+func (m *MatchProxyProtocol) Match(cx *layer4.Connection) (bool, error) {
 	buf := make([]byte, len(headerV2Prefix))
 	_, err := io.ReadFull(cx, buf)
 	if err != nil {

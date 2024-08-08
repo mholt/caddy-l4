@@ -27,9 +27,9 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(MatchRemoteIP{})
-	caddy.RegisterModule(MatchLocalIP{})
-	caddy.RegisterModule(MatchNot{})
+	caddy.RegisterModule(&MatchRemoteIP{})
+	caddy.RegisterModule(&MatchLocalIP{})
+	caddy.RegisterModule(&MatchNot{})
 }
 
 // ConnMatcher is a type that can match a connection.
@@ -83,14 +83,14 @@ type MatcherSets []MatcherSet
 // AnyMatch returns true if the connection matches any of the matcher sets
 // in mss or if there are no matchers, in which case the request always
 // matches. Any error terminates matching.
-func (mss MatcherSets) AnyMatch(cx *Connection) (matched bool, err error) {
-	for _, m := range mss {
+func (mss *MatcherSets) AnyMatch(cx *Connection) (matched bool, err error) {
+	for _, m := range *mss {
 		matched, err = m.Match(cx)
 		if matched || err != nil {
 			return
 		}
 	}
-	matched = len(mss) == 0
+	matched = len(*mss) == 0
 	return
 }
 
@@ -117,7 +117,7 @@ type MatchRemoteIP struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchRemoteIP) CaddyModule() caddy.ModuleInfo {
+func (*MatchRemoteIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.remote_ip",
 		New: func() caddy.Module { return new(MatchRemoteIP) },
@@ -134,7 +134,7 @@ func (m *MatchRemoteIP) Provision(_ caddy.Context) (err error) {
 }
 
 // Match returns true if the connection is from one of the designated IP ranges.
-func (m MatchRemoteIP) Match(cx *Connection) (bool, error) {
+func (m *MatchRemoteIP) Match(cx *Connection) (bool, error) {
 	clientIP, err := m.getRemoteIP(cx)
 	if err != nil {
 		return false, fmt.Errorf("getting remote IP: %v", err)
@@ -147,7 +147,7 @@ func (m MatchRemoteIP) Match(cx *Connection) (bool, error) {
 	return false, nil
 }
 
-func (m MatchRemoteIP) getRemoteIP(cx *Connection) (netip.Addr, error) {
+func (m *MatchRemoteIP) getRemoteIP(cx *Connection) (netip.Addr, error) {
 	remote := cx.Conn.RemoteAddr().String()
 
 	ipStr, _, err := net.SplitHostPort(remote)
@@ -164,7 +164,7 @@ func (m MatchRemoteIP) getRemoteIP(cx *Connection) (netip.Addr, error) {
 
 // UnmarshalCaddyfile sets up the MatchRemoteIP from Caddyfile tokens. Syntax:
 //
-//	ip <ranges...>
+//	remote_ip <ranges...>
 func (m *MatchRemoteIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
@@ -198,7 +198,7 @@ type MatchLocalIP struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (MatchLocalIP) CaddyModule() caddy.ModuleInfo {
+func (*MatchLocalIP) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.local_ip",
 		New: func() caddy.Module { return new(MatchLocalIP) },
@@ -206,7 +206,7 @@ func (MatchLocalIP) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
-func (m *MatchLocalIP) Provision(ctx caddy.Context) error {
+func (m *MatchLocalIP) Provision(_ caddy.Context) error {
 	ipnets, err := ParseNetworks(m.Ranges)
 	if err != nil {
 		return err
@@ -216,7 +216,7 @@ func (m *MatchLocalIP) Provision(ctx caddy.Context) error {
 }
 
 // Match returns true if the connection is from one of the designated IP ranges.
-func (m MatchLocalIP) Match(cx *Connection) (bool, error) {
+func (m *MatchLocalIP) Match(cx *Connection) (bool, error) {
 	localIP, err := m.getLocalIP(cx)
 	if err != nil {
 		return false, fmt.Errorf("getting local IP: %v", err)
@@ -229,7 +229,7 @@ func (m MatchLocalIP) Match(cx *Connection) (bool, error) {
 	return false, nil
 }
 
-func (m MatchLocalIP) getLocalIP(cx *Connection) (netip.Addr, error) {
+func (m *MatchLocalIP) getLocalIP(cx *Connection) (netip.Addr, error) {
 	remote := cx.Conn.LocalAddr().String()
 
 	ipStr, _, err := net.SplitHostPort(remote)
@@ -300,7 +300,7 @@ type MatchNot struct {
 }
 
 // CaddyModule implements caddy.Module.
-func (MatchNot) CaddyModule() caddy.ModuleInfo {
+func (*MatchNot) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.not",
 		New: func() caddy.Module { return new(MatchNot) },
@@ -315,7 +315,7 @@ func (m *MatchNot) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON satisfies json.Marshaler by marshaling
 // m's raw matcher sets.
-func (m MatchNot) MarshalJSON() ([]byte, error) {
+func (m *MatchNot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.MatcherSetsRaw)
 }
 
@@ -338,7 +338,7 @@ func (m *MatchNot) Provision(ctx caddy.Context) error {
 // Match returns true if r matches m. Since this matcher negates
 // the embedded matchers, false is returned if any of its matcher
 // sets return true.
-func (m MatchNot) Match(r *Connection) (bool, error) {
+func (m *MatchNot) Match(r *Connection) (bool, error) {
 	for _, ms := range m.MatcherSets {
 		match, err := ms.Match(r)
 		if err != nil {

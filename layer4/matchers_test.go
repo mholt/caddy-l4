@@ -48,7 +48,7 @@ type provisionableMatcher interface {
 }
 
 func provision(in provisionableMatcher) ConnMatcher {
-	in.Provision(caddy.Context{})
+	_ = in.Provision(caddy.Context{})
 	return in
 }
 func TestNotMatcher(t *testing.T) {

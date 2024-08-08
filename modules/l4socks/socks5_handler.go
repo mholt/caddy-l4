@@ -7,13 +7,14 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mholt/caddy-l4/layer4"
 	"github.com/things-go/go-socks5"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
-	caddy.RegisterModule(Socks5Handler{})
+	caddy.RegisterModule(&Socks5Handler{})
 }
 
 // Socks5Handler is a connection handler that terminates SOCKSv5 connection.
@@ -28,7 +29,7 @@ type Socks5Handler struct {
 	server *socks5.Server
 }
 
-func (Socks5Handler) CaddyModule() caddy.ModuleInfo {
+func (*Socks5Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.socks5",
 		New: func() caddy.Module { return new(Socks5Handler) },
@@ -40,7 +41,7 @@ func (h *Socks5Handler) Provision(ctx caddy.Context) error {
 	if len(h.Commands) == 0 {
 		rule.EnableConnect = true
 		rule.EnableAssociate = true
-		// BIND is currently not supported so we dont allow it by default
+		// BIND is currently not supported, so we don't allow it by default
 	} else {
 		for _, c := range h.Commands {
 			switch strings.ToUpper(c) {

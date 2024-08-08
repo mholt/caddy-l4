@@ -10,8 +10,9 @@ import (
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func replay(t *testing.T, handler *Socks5Handler, expectedError string, messages [][]byte) {
@@ -62,7 +63,7 @@ func TestSocks5Handler_Defaults(t *testing.T) {
 	// target for the socks handler to connect to (using free random port)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	assertNoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	// transform random listening port into bytes
 	_, portStr, err := net.SplitHostPort(listener.Addr().String())
