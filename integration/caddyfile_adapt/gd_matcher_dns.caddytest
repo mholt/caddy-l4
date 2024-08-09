@@ -1,0 +1,183 @@
+{
+	layer4 {
+		tcp/:8053 {
+			@a dns {
+				allow_regexp ^(|[-0-9a-z]+\\.)example\\.com\\.$
+			}
+			route @a {
+				proxy tcp/one.one.one.one:53
+			}
+			@b tls
+			route @b {
+				tls
+				subroute {
+					@c dns {
+						allow example.com. NS
+						deny * * IN
+						default_deny
+						prefer_allow
+					}
+					route @c {
+						proxy tcp/one.one.one.one:53
+					}
+					@d http
+					route @d {
+						proxy localhost:80
+					}
+				}
+			}
+		}
+		udp/:53 {
+			@d dns {
+				deny_regexp * ^(MX|NS)$
+			}
+			route @d {
+				proxy udp/one.one.one.one:53
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"tcp/:8053"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"dns": {
+										"allow": [
+											{
+												"name_regexp": "^(|[-0-9a-z]+\\\\.)example\\\\.com\\\\.$"
+											}
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"tcp/one.one.one.one:53"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"tls": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"tcp/one.one.one.one:53"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"dns": {
+														"allow": [
+															{
+																"name": "example.com.",
+																"type": "NS"
+															}
+														],
+														"default_deny": true,
+														"deny": [
+															{
+																"class": "IN"
+															}
+														],
+														"prefer_allow": true
+													}
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"localhost:80"
+															]
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"http": [
+														{}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"udp/:53"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"dns": {
+										"deny": [
+											{
+												"type_regexp": "^(MX|NS)$"
+											}
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"udp/one.one.one.one:53"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

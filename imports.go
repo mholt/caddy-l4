@@ -18,6 +18,7 @@ import (
 	// plugging in the standard modules for the layer4 app
 	_ "github.com/mholt/caddy-l4/layer4"
 	_ "github.com/mholt/caddy-l4/modules/l4clock"
+	_ "github.com/mholt/caddy-l4/modules/l4dns"
 	_ "github.com/mholt/caddy-l4/modules/l4echo"
 	_ "github.com/mholt/caddy-l4/modules/l4http"
 	_ "github.com/mholt/caddy-l4/modules/l4postgres"
