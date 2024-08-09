@@ -106,7 +106,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			return err
 		}
 
-		notMatchingRoutes := make(map[int]struct{}, len(routes))
+		routesToSkip := make(map[int]struct{}, len(routes))
 
 		for i := 0; i < 10000; i++ { // Limit number of tries to mitigate endless matching bugs.
 
@@ -120,8 +120,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			// Try routes in a strictly circular fashion.
 			// After a match continue with the routes after the matched one.
 			for routeIdx, route := range routes {
-				// Skip routes that signaled they definitely can not match
-				if _, ok := notMatchingRoutes[routeIdx]; ok {
+				// Skip routes that signaled they definitely can not match or are before the last matched route.
+				if _, ok := routesToSkip[routeIdx]; ok {
 					continue
 				}
 
@@ -169,26 +169,32 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					if err != nil {
 						return err
 					}
-					// After a match all routes should get a chance again.
-					// Because it could happen that the correct next route already was marked unmatchable based on data for this handler.
-					// For example if the current route required multiple prefetch calls until it matched.
-					// Then routes with an index after the current one where also tried on this now old/consumed data.
-					clear(notMatchingRoutes)
 
-					// If all data was consumed by the handler
-					// enable prefetch and continue with next route
+					// If all data was consumed by the handler enable prefetch for the next matcher
 					if len(cx.buf[cx.offset:]) == 0 {
 						cx.shouldPrefetchBeforeRead = true
 					}
+
+					// After a match clear routesToSkip and mark the matched route and all previous routes for skipping.
+					// The route itself and all previous ones are skipped because we don't want to allow double matching
+					// and only want to allow route processing in the order specified in the config.
+					// Routes after the matched one should get a chance again because it could happen
+					// that the correct next route was already marked unmatchable based on data for this handler.
+					// For example if the current route required multiple prefetch calls until it matched,
+					// then routes after it were also tried on this now old/consumed data.
+					clear(routesToSkip)
+					for r := 0; r <= routeIdx; r++ {
+						routesToSkip[r] = struct{}{}
+					}
 				} else {
 					// Remember to not try this route again
-					notMatchingRoutes[routeIdx] = struct{}{}
+					routesToSkip[routeIdx] = struct{}{}
 				}
 			}
 
-			// If all routes signaled they definitely can not be matched even with more data,
-			// we stop matching and directly call the fallback handler. This fixes https://github.com/mholt/caddy-l4/issues/207.
-			if len(notMatchingRoutes) == len(routes) {
+			// If all routes are marked for skipping, we stop matching and directly call the fallback handler.
+			// This fixes https://github.com/mholt/caddy-l4/issues/207.
+			if len(routesToSkip) == len(routes) {
 				return next.Handle(cx, nopHandler{})
 			}
 		}
