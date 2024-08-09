@@ -34,6 +34,10 @@ func init() {
 }
 
 // MatchDNS is able to match connections that look like DNS protocol.
+// Note: DNS messages sent via TCP are 2 bytes longer then those sent via UDP. Consequently, if Caddy listens on TCP,
+// it has to proxy DNS messages to TCP upstreams only. The same is true for UDP. No TCP/UDP mixing is allowed.
+// However, it's technically possible: an intermediary handler is required to add/strip 2 bytes before/after proxy.
+// Please open a feature request and describe your use case if you need TCP/UDP mixing.
 type MatchDNS struct {
 	// Allow contains an optional list of rules to match the question section of the DNS request message against.
 	// The matcher returns false if not matched by any of them (in the absence of any deny rules).
