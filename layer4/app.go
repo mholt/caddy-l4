@@ -76,11 +76,15 @@ func (a *App) Start() error {
 				case net.Listener:
 					a.listeners = append(a.listeners, ln)
 					lnAddr = caddy.JoinNetworkAddress(ln.Addr().Network(), ln.Addr().String(), "")
-					go func() { _ = s.serve(ln) }()
+					go func(s *Server, ln net.Listener) {
+						_ = s.serve(ln)
+					}(s, ln)
 				case net.PacketConn:
 					a.packetConns = append(a.packetConns, ln)
 					lnAddr = caddy.JoinNetworkAddress(ln.LocalAddr().Network(), ln.LocalAddr().String(), "")
-					go func() { _ = s.servePacket(ln) }()
+					go func(s *Server, pc net.PacketConn) {
+						_ = s.servePacket(pc)
+					}(s, ln)
 				}
 				s.logger.Debug("listening", zap.String("address", lnAddr))
 			}
