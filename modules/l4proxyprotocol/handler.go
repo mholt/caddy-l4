@@ -22,6 +22,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mastercactapus/proxyprotocol"
 	"go.uber.org/zap"
 
@@ -55,10 +56,12 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the module.
 func (h *Handler) Provision(ctx caddy.Context) error {
-	for _, s := range h.Allow {
-		_, n, err := net.ParseCIDR(s)
+	repl := caddy.NewReplacer()
+	for _, allowCIDR := range h.Allow {
+		allowCIDR = repl.ReplaceAll(allowCIDR, "")
+		_, n, err := net.ParseCIDR(allowCIDR)
 		if err != nil {
-			return fmt.Errorf("invalid subnet '%s': %w", s, err)
+			return fmt.Errorf("invalid subnet '%s': %w", allowCIDR, err)
 		}
 		h.rules = append(h.rules, proxyprotocol.Rule{Timeout: time.Duration(h.Timeout), Subnet: n})
 	}
@@ -190,12 +193,13 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			prefixes, err := layer4.ParseNetworks(d.RemainingArgs())
-			if err != nil {
-				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
-			}
-			for _, prefix := range prefixes {
-				h.Allow = append(h.Allow, prefix.String())
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					h.Allow = append(h.Allow, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				h.Allow = append(h.Allow, val)
 			}
 		case "timeout":
 			if hasTimeout {

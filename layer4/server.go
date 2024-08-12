@@ -56,7 +56,9 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
 
+	repl := caddy.NewReplacer()
 	for i, address := range s.Listen {
+		address = repl.ReplaceAll(address, "")
 		addr, err := caddy.ParseNetworkAddress(address)
 		if err != nil {
 			return fmt.Errorf("parsing listener address '%s' in position %d: %v", address, i, err)
@@ -182,7 +184,7 @@ func (s *Server) handle(conn net.Conn) {
 
 // UnmarshalCaddyfile sets up the Server from Caddyfile tokens. Syntax:
 //
-//	<addresses> {
+//	<address:port> [<address:port>] {
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -205,11 +207,7 @@ func (s *Server) handle(conn net.Conn) {
 func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	// Wrapper name and all same-line options are treated as network addresses
 	for ok := true; ok; ok = d.NextArg() {
-		addr := d.Val()
-		if _, err := caddy.ParseNetworkAddress(addr); err != nil {
-			return d.Errf("parsing network address '%s': %v", addr, err)
-		}
-		s.Listen = append(s.Listen, addr)
+		s.Listen = append(s.Listen, d.Val())
 	}
 
 	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout); err != nil {

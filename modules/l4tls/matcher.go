@@ -21,6 +21,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 	"go.uber.org/zap"
 
@@ -234,12 +235,13 @@ func unmarshalCaddyfileMatchLocalIP(d *caddyfile.Dispenser) (*caddytls.MatchLoca
 			return nil, d.ArgErr()
 		}
 
-		prefixes, err := layer4.ParseNetworks(d.RemainingArgs())
-		if err != nil {
-			return nil, err
-		}
-		for _, prefix := range prefixes {
-			m.Ranges = append(m.Ranges, prefix.String())
+		for d.NextArg() {
+			val := d.Val()
+			if val == "private_ranges" {
+				m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
+				continue
+			}
+			m.Ranges = append(m.Ranges, val)
 		}
 
 		// No blocks are supported
@@ -268,30 +270,21 @@ func unmarshalCaddyfileMatchRemoteIP(d *caddyfile.Dispenser) (*caddytls.MatchRem
 			return nil, d.ArgErr()
 		}
 
-		rangesRaw, notRangesRaw := make([]string, 0, d.CountRemainingArgs()), make([]string, 0, d.CountRemainingArgs())
 		for d.NextArg() {
 			val := d.Val()
+			var exclamation bool
 			if len(val) > 1 && val[0] == '!' {
-				notRangesRaw = append(notRangesRaw, val[1:])
-			} else {
-				rangesRaw = append(rangesRaw, val)
+				exclamation, val = true, val[1:]
 			}
-		}
-
-		prefixes, err := layer4.ParseNetworks(rangesRaw)
-		if err != nil {
-			return nil, err
-		}
-		for _, prefix := range prefixes {
-			m.Ranges = append(m.Ranges, prefix.String())
-		}
-
-		notPrefixes, err := layer4.ParseNetworks(notRangesRaw)
-		if err != nil {
-			return nil, err
-		}
-		for _, notPrefix := range notPrefixes {
-			m.NotRanges = append(m.NotRanges, notPrefix.String())
+			ranges := []string{val}
+			if val == "private_ranges" {
+				ranges = caddyhttp.PrivateRangesCIDR()
+			}
+			if exclamation {
+				m.NotRanges = append(m.NotRanges, ranges...)
+			} else {
+				m.Ranges = append(m.Ranges, ranges...)
+			}
 		}
 
 		// No blocks are supported

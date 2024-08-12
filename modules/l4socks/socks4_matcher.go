@@ -10,7 +10,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -41,12 +41,13 @@ func (*Socks4Matcher) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-func (m *Socks4Matcher) Provision(_ caddy.Context) (err error) {
+func (m *Socks4Matcher) Provision(_ caddy.Context) error {
 	if len(m.Commands) == 0 {
 		m.commands = []uint8{1, 2} // CONNECT & BIND
 	} else {
+		repl := caddy.NewReplacer()
 		for _, c := range m.Commands {
-			switch strings.ToUpper(c) {
+			switch strings.ToUpper(repl.ReplaceAll(c, "")) {
 			case "CONNECT":
 				m.commands = append(m.commands, 1)
 			case "BIND":
@@ -56,9 +57,14 @@ func (m *Socks4Matcher) Provision(_ caddy.Context) (err error) {
 			}
 		}
 	}
-	m.cidrs, err = layer4.ParseNetworks(m.Networks)
-	if err != nil {
-		return err
+	repl := caddy.NewReplacer()
+	for _, networkAddrOrCIDR := range m.Networks {
+		networkAddrOrCIDR = repl.ReplaceAll(networkAddrOrCIDR, "")
+		prefix, err := caddyhttp.CIDRExpressionToPrefix(networkAddrOrCIDR)
+		if err != nil {
+			return err
+		}
+		m.cidrs = append(m.cidrs, prefix)
 	}
 	return nil
 }
@@ -149,12 +155,13 @@ func (m *Socks4Matcher) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			cidrs, err := layer4.ParseNetworks(d.RemainingArgs())
-			if err != nil {
-				return err
-			}
-			for _, cidr := range cidrs {
-				m.Networks = append(m.Networks, cidr.String())
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					m.Networks = append(m.Networks, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				m.Networks = append(m.Networks, val)
 			}
 		case "ports":
 			if d.CountRemainingArgs() == 0 {

@@ -57,6 +57,8 @@ type Handler struct {
 	// Ref: https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
 	ProxyProtocol string `json:"proxy_protocol,omitempty"`
 
+	proxyProtocolVersion uint8
+
 	ctx    caddy.Context
 	logger *zap.Logger
 }
@@ -83,8 +85,14 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.LoadBalancing.SelectionPolicy = mod.(Selector)
 	}
 
-	if h.ProxyProtocol != "" && h.ProxyProtocol != "v1" && h.ProxyProtocol != "v2" {
-		return fmt.Errorf("proxy_protocol: \"%s\" should be empty, or one of \"v1\" \"v2\"", h.ProxyProtocol)
+	repl := caddy.NewReplacer()
+	proxyProtocol := repl.ReplaceAll(h.ProxyProtocol, "")
+	if proxyProtocol == "v1" {
+		h.proxyProtocolVersion = 1
+	} else if proxyProtocol == "v2" {
+		h.proxyProtocolVersion = 2
+	} else if proxyProtocol != "" {
+		return fmt.Errorf("proxy_protocol: \"%s\" should be empty, or one of \"v1\" \"v2\"", proxyProtocol)
 	}
 
 	// prepare upstreams
@@ -220,12 +228,12 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		// Send the PROXY protocol header.
 		if err == nil {
 			downConn := l4proxyprotocol.GetConn(down)
-			switch h.ProxyProtocol {
-			case "v1":
+			switch h.proxyProtocolVersion {
+			case 1:
 				var h proxyprotocol.HeaderV1
 				h.FromConn(downConn, false)
 				_, err = h.WriteTo(up)
-			case "v2":
+			case 2:
 				var h proxyprotocol.HeaderV2
 				h.FromConn(downConn, false)
 				_, err = h.WriteTo(up)
@@ -401,13 +409,8 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
 	// Treat all same-line options as upstream addresses
-	for i := 0; d.NextArg(); i++ {
-		val := d.Val()
-		_, err := caddy.ParseNetworkAddress(val)
-		if err != nil {
-			return d.Errf("parsing %s upstream on position %d: %v", wrapper, i, err)
-		}
-		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{val}})
+	for d.NextArg() {
+		h.Upstreams = append(h.Upstreams, &Upstream{Dial: []string{d.Val()}})
 	}
 
 	var (
@@ -591,13 +594,6 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
 			_, h.ProxyProtocol, hasProxyProtocol = d.NextArg(), d.Val(), true
-			switch h.ProxyProtocol {
-			case "v1", "v2":
-				continue
-			default:
-				return d.Errf("malformed %s option '%s': unrecognized value '%s'",
-					wrapper, optionName, h.ProxyProtocol)
-			}
 		case "upstream":
 			u := &Upstream{}
 			if err := u.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {

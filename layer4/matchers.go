@@ -19,10 +19,10 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
 )
 
@@ -125,10 +125,15 @@ func (*MatchRemoteIP) CaddyModule() caddy.ModuleInfo {
 }
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
-func (m *MatchRemoteIP) Provision(_ caddy.Context) (err error) {
-	m.cidrs, err = ParseNetworks(m.Ranges)
-	if err != nil {
-		return err
+func (m *MatchRemoteIP) Provision(_ caddy.Context) error {
+	repl := caddy.NewReplacer()
+	for _, addrOrCIDR := range m.Ranges {
+		addrOrCIDR = repl.ReplaceAll(addrOrCIDR, "")
+		prefix, err := caddyhttp.CIDRExpressionToPrefix(addrOrCIDR)
+		if err != nil {
+			return err
+		}
+		m.cidrs = append(m.cidrs, prefix)
 	}
 	return nil
 }
@@ -173,13 +178,13 @@ func (m *MatchRemoteIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	prefixes, err := ParseNetworks(d.RemainingArgs())
-	if err != nil {
-		return err
-	}
-
-	for _, prefix := range prefixes {
-		m.Ranges = append(m.Ranges, prefix.String())
+	for d.NextArg() {
+		val := d.Val()
+		if val == "private_ranges" {
+			m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
+			continue
+		}
+		m.Ranges = append(m.Ranges, val)
 	}
 
 	// No blocks are supported
@@ -207,11 +212,15 @@ func (*MatchLocalIP) CaddyModule() caddy.ModuleInfo {
 
 // Provision parses m's IP ranges, either from IP or CIDR expressions.
 func (m *MatchLocalIP) Provision(_ caddy.Context) error {
-	ipnets, err := ParseNetworks(m.Ranges)
-	if err != nil {
-		return err
+	repl := caddy.NewReplacer()
+	for _, addrOrCIDR := range m.Ranges {
+		addrOrCIDR = repl.ReplaceAll(addrOrCIDR, "")
+		prefix, err := caddyhttp.CIDRExpressionToPrefix(addrOrCIDR)
+		if err != nil {
+			return err
+		}
+		m.cidrs = append(m.cidrs, prefix)
 	}
-	m.cidrs = ipnets
 	return nil
 }
 
@@ -255,13 +264,13 @@ func (m *MatchLocalIP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	prefixes, err := ParseNetworks(d.RemainingArgs())
-	if err != nil {
-		return err
-	}
-
-	for _, prefix := range prefixes {
-		m.Ranges = append(m.Ranges, prefix.String())
+	for d.NextArg() {
+		val := d.Val()
+		if val == "private_ranges" {
+			m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
+			continue
+		}
+		m.Ranges = append(m.Ranges, val)
 	}
 
 	// No blocks are supported
@@ -393,29 +402,3 @@ var (
 	_ ConnMatcher           = (*MatchNot)(nil)
 	_ caddyfile.Unmarshaler = (*MatchNot)(nil)
 )
-
-// ParseNetworks parses a list of string IP addresses or CIDR subnets into a slice of net.IPNet's.
-// It accepts for example ["127.0.0.1", "127.0.0.0/8", "::1", "2001:db8::/32"].
-func ParseNetworks(networks []string) (ipNets []netip.Prefix, err error) {
-	for _, str := range networks {
-		if strings.Contains(str, "/") {
-			ipNet, err := netip.ParsePrefix(str)
-			if err != nil {
-				return nil, fmt.Errorf("parsing CIDR expression: %v", err)
-			}
-			ipNets = append(ipNets, ipNet)
-			continue
-		}
-
-		addr, err := netip.ParseAddr(str)
-		if err != nil {
-			return nil, err
-		}
-		bits := 32
-		if addr.Is6() {
-			bits = 128
-		}
-		ipNets = append(ipNets, netip.PrefixFrom(addr, bits))
-	}
-	return ipNets, nil
-}
