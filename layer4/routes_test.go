@@ -2,7 +2,10 @@ package layer4
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -13,11 +16,33 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+type testIoMatcher struct {
+}
+
+func (testIoMatcher) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.testIoMatcher",
+		New: func() caddy.Module { return new(testIoMatcher) },
+	}
+}
+
+func (m *testIoMatcher) Match(cx *Connection) (bool, error) {
+	buf := make([]byte, 1)
+	n, err := io.ReadFull(cx, buf)
+	return n > 0, err
+}
+
 func TestMatchingTimeoutWorks(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	routes := RouteList{&Route{}}
+	caddy.RegisterModule(testIoMatcher{})
+
+	routes := RouteList{&Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"testIoMatcher": json.RawMessage("{}")}, // any io using matcher
+		},
+	}}
 
 	err := routes.Provision(ctx)
 	if err != nil {
@@ -27,9 +52,9 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	matched := false
 	loggerCore, logs := observer.New(zapcore.WarnLevel)
 	compiledRoutes := routes.Compile(zap.New(loggerCore), 5*time.Millisecond,
-		NextHandlerFunc(func(con *Connection, next Handler) error {
+		HandlerFunc(func(con *Connection) error {
 			matched = true
-			return next.Handle(con)
+			return nil
 		}))
 
 	in, out := net.Pipe()

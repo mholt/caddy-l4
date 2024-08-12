@@ -23,6 +23,28 @@ func assertNoError(t *testing.T, err error) {
 	}
 }
 
+// testHandler is a connection handler that will set a variable to let us know it was called.
+type testHandler struct {
+}
+
+// CaddyModule returns the Caddy module information.
+func (testHandler) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.handlers.test_handler",
+		New: func() caddy.Module { return new(testHandler) },
+	}
+}
+
+// Handle handles the connections.
+func (h *testHandler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+	cx.SetVar("test_handler_called", true)
+	return next.Handle(cx)
+}
+
+func init() {
+	caddy.RegisterModule(testHandler{})
+}
+
 func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool, error) {
 	in, out := net.Pipe()
 	defer func() { _ = in.Close() }()
@@ -41,14 +63,15 @@ func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool,
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
 			caddy.ModuleMap{"http": matchers},
 		},
+		HandlersRaw: []json.RawMessage{json.RawMessage("{\"handler\":\"test_handler\"}")},
 	}}
 	err := routes.Provision(ctx)
 	assertNoError(t, err)
 
 	matched := false
 	compiledRoute := routes.Compile(zap.NewNop(), 10*time.Millisecond,
-		layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
-			matched = true
+		layer4.HandlerFunc(func(con *layer4.Connection) error {
+			matched = con.GetVar("test_handler_called") != nil
 			return nil
 		}))
 
@@ -206,7 +229,7 @@ func TestHttpMatchingByProtocolWithHttps(t *testing.T) {
 
 	handlerCalled := false
 	compiledRoute := routes.Compile(zap.NewNop(), 100*time.Millisecond,
-		layer4.NextHandlerFunc(func(con *layer4.Connection, _ layer4.Handler) error {
+		layer4.HandlerFunc(func(con *layer4.Connection) error {
 			handlerCalled = true
 			return nil
 		}))
@@ -291,7 +314,7 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			matched := (&MatchHTTP{}).isHttp(tc.data)
+			_, matched := MatchHTTP{}.isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
 			}

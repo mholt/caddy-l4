@@ -42,9 +42,9 @@ func (*MatchXMPP) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection looks like XMPP.
 func (m *MatchXMPP) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, minXmppLength)
-	n, err := io.ReadFull(cx, p)
-	if err != nil || n < minXmppLength { // needs at least 50 (fix for adium/pidgin)
-		return false, nil
+	_, err := io.ReadFull(cx, p)
+	if err != nil { // needs at least 50 (fix for adium/pidgin)
+		return false, err
 	}
 	return strings.Contains(string(p), xmppWord), nil
 }

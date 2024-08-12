@@ -42,9 +42,9 @@ func (*MatchSSH) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection looks like SSH.
 func (m *MatchSSH) Match(cx *layer4.Connection) (bool, error) {
 	p := make([]byte, len(sshPrefix))
-	n, err := io.ReadFull(cx, p)
-	if err != nil || n < len(sshPrefix) {
-		return false, nil
+	_, err := io.ReadFull(cx, p)
+	if err != nil {
+		return false, err
 	}
 	return bytes.Equal(p, sshPrefix), nil
 }

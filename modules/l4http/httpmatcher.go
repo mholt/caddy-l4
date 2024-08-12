@@ -84,7 +84,14 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 		var err error
 
 		data := cx.MatchingBytes()
-		if !m.isHttp(data) {
+		needMore, matched := m.isHttp(data)
+		if needMore {
+			if len(data) >= layer4.MaxMatchingBytes {
+				return false, layer4.ErrMatchingBufferFull
+			}
+			return false, layer4.ErrConsumedAllPrefetchedBytes
+		}
+		if !matched {
 			return false, nil
 		}
 
@@ -124,11 +131,13 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	return m.matcherSets.AnyMatch(req), nil
 }
 
-func (m *MatchHTTP) isHttp(data []byte) bool {
+// isHttp test if the buffered data looks like HTTP by looking at the first line.
+// first boolean determines if more data is required
+func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
 	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
 	if i < 10 {
-		return false
+		return true, false
 	}
 	// assume only \n line ending
 	start := i - 9 // position of space in front of HTTP
@@ -138,7 +147,7 @@ func (m *MatchHTTP) isHttp(data []byte) bool {
 		start -= 1
 		end -= 1
 	}
-	return bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
+	return false, bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
