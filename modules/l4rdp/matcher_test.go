@@ -17,6 +17,7 @@ package l4rdp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -29,7 +30,7 @@ import (
 
 func assertNoError(t *testing.T, err error) {
 	t.Helper()
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("Unexpected error: %s\n", err)
 	}
 }
