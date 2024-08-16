@@ -50,7 +50,7 @@ func (m *MatchRegexp) Match(cx *layer4.Connection) (bool, error) {
 	buf := make([]byte, m.Count)
 	n, err := io.ReadFull(cx, buf)
 	if err != nil || n < int(m.Count) {
-		return false, nil
+		return false, err
 	}
 
 	// Match these bytes against the regular expression
