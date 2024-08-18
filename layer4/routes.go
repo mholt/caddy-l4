@@ -157,6 +157,10 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
 					lastNeedsMoreIdx = i
 					routesStatus[i] = routeNeedsMore
+					// the first time a matcher requires more data, exit the loop to force a prefetch
+					if !matcherNeedMore {
+						break
+					}
 					continue // ignore and try next route
 				}
 				if err != nil {
