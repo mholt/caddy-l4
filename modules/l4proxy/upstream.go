@@ -59,7 +59,9 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
 		// replace runtime placeholders
-		replDialAddr := repl.ReplaceAll(dialAddr, "")
+		// Note: ReplaceKnown is used here instead of ReplaceAll to let unknown placeholders be replaced later
+		// in Handler.dialPeers. E.g. {l4.tls.server_name}:443 will allow for dynamic TLS SNI based upstreams.
+		replDialAddr := repl.ReplaceKnown(dialAddr, "")
 
 		// parse and validate address
 		addr, err := caddy.ParseNetworkAddress(replDialAddr)
