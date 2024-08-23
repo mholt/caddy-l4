@@ -85,7 +85,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 		msgBuf = make([]byte, msgBytes)
 		_, err = io.ReadFull(cx, msgBuf)
 		if err != nil {
-			return false, nil
+			return false, err
 		}
 
 		// Validate the remaining connection buffer
@@ -101,7 +101,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 		msgBuf = make([]byte, dnsHeaderBytes)
 		n, err := io.ReadAtLeast(cx, msgBuf, int(dnsHeaderBytes))
 		if err != nil {
-			return false, nil
+			return false, err
 		}
 
 		// Read the remaining bytes and validate their length

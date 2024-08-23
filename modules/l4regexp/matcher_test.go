@@ -16,18 +16,20 @@ package l4regexp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func assertNoError(t *testing.T, err error) {
 	t.Helper()
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("Unexpected error: %s\n", err)
 	}
 }

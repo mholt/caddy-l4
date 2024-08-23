@@ -71,7 +71,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	headerBuf := make([]byte, RDPConnReqBytesMin)
 	n, err := io.ReadFull(cx, headerBuf)
 	if err != nil || n < int(RDPConnReqBytesMin) {
-		return false, nil
+		return false, err
 	}
 
 	// Parse TPKTHeader
@@ -112,7 +112,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	payloadBuf := make([]byte, payloadBytesTotal)
 	n, err = io.ReadFull(cx, payloadBuf)
 	if err != nil || n < int(payloadBytesTotal) {
-		return false, nil
+		return false, err
 	}
 
 	// Validate the remaining connection buffer
@@ -121,7 +121,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	extraBuf := make([]byte, 1)
 	n, err = io.ReadFull(cx, extraBuf)
 	if err == nil && n == len(extraBuf) {
-		return false, nil
+		return false, err
 	}
 
 	// Find CRLF which divides token/cookie from RDPNegReq and RDPCorrInfo
