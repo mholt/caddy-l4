@@ -1,0 +1,80 @@
+{
+	layer4 {
+		udp/:51820 {
+			@wg0 wireguard
+			route @wg0 {
+				proxy udp/wg.machine.local:51820
+			}
+			@wgX wireguard 4285988864
+			route @wgX {
+				proxy udp/wg.machine.local:51821
+			}
+			route {
+				echo
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"udp/:51820"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"wireguard": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"udp/wg.machine.local:51820"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"wireguard": {
+										"zero": 4285988864
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"udp/wg.machine.local:51821"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "echo"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
