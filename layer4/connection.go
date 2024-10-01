@@ -227,7 +227,8 @@ var (
 	listenerCtxKey caddy.CtxKey = "listener"
 )
 
-const prefetchChunkSize = 1024
+// the prefetch chunk size is a very large 2kb, in order to completely fetch the ~1.7kb X25519Kyber768Draft00 based TLS ClientHello. https://pq.cloudflareresearch.com/
+const prefetchChunkSize = 2048
 
 // MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
 // This is probably most relevant for the http matcher since http requests do not have a size limit.
