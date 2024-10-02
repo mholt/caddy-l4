@@ -241,6 +241,12 @@ type packetConn struct {
 	lastBuf    *bytes.Buffer
 }
 
+// SetReadDeadline prevents deadline from being set on the underlying net.PacketConn.
+// TODO: works alongside the idle timeout in Read
+func (pc *packetConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
 func (pc *packetConn) Read(b []byte) (n int, err error) {
 	if pc.lastPacket != nil {
 		// There is a partial buffer to continue reading from the previous
