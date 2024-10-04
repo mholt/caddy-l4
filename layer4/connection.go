@@ -137,6 +137,11 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 func (cx *Connection) prefetch() (err error) {
 	var n int
 
+        // TODO: FreeBSD will not match TLS with X25519Kyber768Draft00 based TLS ClientHello.
+        // Adding a short sleep here mitigates this behavior and makes TLS match.
+        // This needs a proper solution in the future.
+        time.Sleep(1 * time.Millisecond)
+
 	// read once
 	if len(cx.buf) < MaxMatchingBytes {
 		free := cap(cx.buf) - len(cx.buf)
