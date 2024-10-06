@@ -5,6 +5,7 @@ go 1.21.0
 require (
 	github.com/caddyserver/caddy/v2 v2.8.4
 	github.com/mastercactapus/proxyprotocol v0.0.4
+	github.com/miekg/dns v1.1.59
 	github.com/things-go/go-socks5 v0.0.5
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.23.0
@@ -77,7 +78,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mholt/acmez/v2 v2.0.1 // indirect
-	github.com/miekg/dns v1.1.59 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
