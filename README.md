@@ -34,6 +34,7 @@ Current matchers:
 - **layer4.matchers.http** - matches connections that start with HTTP requests. In addition, any [`http.matchers` modules](https://caddyserver.com/docs/modules/) can be used for matching on HTTP-specific properties of requests, such as header or path. Note that only the first request of each connection can be used for matching.
 - **layer4.matchers.local_ip** - matches connections based on local IP (or CIDR range).
 - **layer4.matchers.not** - matches connections that aren't matched by inner matcher sets.
+- **layer4.matchers.openvpn** - matches connections that look like [OpenVPN](https://openvpn.net/community-resources/openvpn-protocol/) connections.
 - **layer4.matchers.postgres** - matches connections that look like Postgres connections.
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
 - **layer4.matchers.rdp** - matches connections that look like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf).

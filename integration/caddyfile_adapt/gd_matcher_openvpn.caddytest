@@ -1,0 +1,169 @@
+{
+	layer4 {
+		:8843 {
+			@plain openvpn {
+				modes plain
+			}
+			route @plain {
+				proxy localhost:1194
+			}
+			@auth openvpn {
+				modes auth
+				auth_digest sha256
+				group_key_direction normal
+				group_key_file /etc/openvpn/ta.key
+			}
+			route @auth {
+				proxy localhost:1195
+			}
+			@crypt openvpn {
+				modes crypt
+				group_key 21d94830510107f8753d3b6f3145e01ded37075115afcb0538ecdd8503ee96637218c9ed38d908d594231d7d143c73da5055310f89d336da99c8b3dcb18909c79dd44f540670ebc0f120beb7211e96839cb542572c48bfa7ffaa9a22cb8304b7869b92f4442918e598745bb78ac8877f02b00a7cdef3f2446c130d39a7c451269ef399fd6029cdfc80a7c604041312ab0a969bc906bdee6e6d707afdcbe8c7fb97beb66049c3d328340775025433ceba1e38008a826cf92443d903106199373bdadd9c2c735cf481e580db4e81b99f12e3f46b6159c687cd1b9e689f7712573c0f02735a45573dfb5cd55cf4649423892c7e91f439bdd7337a8ceebd302cfbfa
+			}
+			route @crypt {
+				proxy localhost:1196
+			}
+			@crypt2 openvpn {
+				modes crypt2
+				server_key_file /etc/openvpn/v2-server.key
+			}
+			route @crypt2 {
+				proxy localhost:1197
+			}
+			route {
+				tls
+				proxy localhost:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":8843"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"openvpn": {
+										"modes": [
+											"plain"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:1194"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"openvpn": {
+										"modes": [
+											"auth"
+										],
+										"group_key_file": "/etc/openvpn/ta.key",
+										"auth_digest": "sha256",
+										"group_key_direction": "normal"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:1195"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"openvpn": {
+										"modes": [
+											"crypt"
+										],
+										"group_key": "21d94830510107f8753d3b6f3145e01ded37075115afcb0538ecdd8503ee96637218c9ed38d908d594231d7d143c73da5055310f89d336da99c8b3dcb18909c79dd44f540670ebc0f120beb7211e96839cb542572c48bfa7ffaa9a22cb8304b7869b92f4442918e598745bb78ac8877f02b00a7cdef3f2446c130d39a7c451269ef399fd6029cdfc80a7c604041312ab0a969bc906bdee6e6d707afdcbe8c7fb97beb66049c3d328340775025433ceba1e38008a826cf92443d903106199373bdadd9c2c735cf481e580db4e81b99f12e3f46b6159c687cd1b9e689f7712573c0f02735a45573dfb5cd55cf4649423892c7e91f439bdd7337a8ceebd302cfbfa"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:1196"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"openvpn": {
+										"modes": [
+											"crypt2"
+										],
+										"server_key_file": "/etc/openvpn/v2-server.key"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:1197"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"localhost:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
