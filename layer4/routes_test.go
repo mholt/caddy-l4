@@ -139,7 +139,7 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 		t.Fatalf("provision failed | %s", err)
 	}
 
-	matchingTimeout := 5 * time.Millisecond
+	matchingTimeout := time.Second
 
 	compiledRoutes := routes.Compile(zap.NewNop(), matchingTimeout,
 		HandlerFunc(func(con *Connection) error {

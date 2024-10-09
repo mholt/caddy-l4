@@ -21,7 +21,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -257,19 +256,13 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	} else {
 		pc.deadlineTimer = time.NewTimer(time.Until(t))
 	}
-	const size = 64 << 10
-	buf := make([]byte, size)
-	buf = buf[:runtime.Stack(buf, false)]
-	if t.IsZero() {
-		panic(string(buf))
-	}
 	return nil
 }
 
 // TODO: idle timeout should be configurable per server
 const udpAssociationIdleTimeout = 30 * time.Second
 
-func deadlineExceeded(t time.Time) bool {
+func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
 }
 
@@ -286,7 +279,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 		return
 	}
 	// check deadline
-	if !deadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+	if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
 		return 0, os.ErrDeadlineExceeded
 	}
 	// set or refresh idle timeout
@@ -318,7 +311,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck
-			if !deadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+			if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
 				return 0, os.ErrDeadlineExceeded
 			}
 			// next loop will run. Don't call Read as that will reset the idle timer.
