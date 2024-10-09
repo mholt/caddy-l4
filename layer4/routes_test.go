@@ -7,6 +7,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -87,5 +88,102 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	// since matching failed no handler should be called
 	if matched {
 		t.Fatal("handler was called but should not")
+	}
+}
+
+// used to test the timeout of udp associations
+type testIoUdpMatcher struct {
+}
+
+func (testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.matchers.testIoUdpMatcher",
+		New: func() caddy.Module { return new(testIoUdpMatcher) },
+	}
+}
+
+var (
+	testConnection *Connection
+	handlingDone   chan struct{}
+)
+
+func (m *testIoUdpMatcher) Match(cx *Connection) (bool, error) {
+	// normally deadline exceeded error is handled during prefetch, and custom matcher can't
+	// read more than what's prefetched, but it's a test.
+	cx.matching = false
+	buf := make([]byte, 10)
+	n, err := io.ReadFull(cx, buf)
+	if err != nil {
+		cx.SetVar("time", time.Now())
+		cx.SetVar("err", err)
+		testConnection = cx
+		close(handlingDone)
+	}
+	return n > 0, err
+}
+
+func TestMatchingTimeoutWorksUDP(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	caddy.RegisterModule(testIoUdpMatcher{})
+
+	routes := RouteList{&Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"testIoUdpMatcher": json.RawMessage("{}")}, // any io using matcher
+		},
+	}}
+
+	err := routes.Provision(ctx)
+	if err != nil {
+		t.Fatalf("provision failed | %s", err)
+	}
+
+	matchingTimeout := 1 * time.Second
+
+	compiledRoutes := routes.Compile(zap.NewNop(), matchingTimeout,
+		HandlerFunc(func(con *Connection) error {
+			return nil
+		}))
+
+	handlingDone = make(chan struct{})
+
+	// Because udp is connectionless and every read can be from different addresses. A mapping between
+	// addresses and data read is created. A virtual connection can only read data from a certain address.
+	// Using real udp sockets and server to test timeout.
+	// We can't wait for the handler to finish this way, but that is tested above.
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen | %s", err)
+	}
+	defer func() { _ = pc.Close() }()
+
+	server := new(Server)
+	server.compiledRoute = compiledRoutes
+	server.logger = zap.NewNop()
+	go server.servePacket(pc)
+
+	now := time.Now()
+
+	client, err := net.Dial("udp", pc.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("failed to dial | %s", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	_, err = client.Write([]byte("hello"))
+	if err != nil {
+		t.Fatalf("failed to write | %s", err)
+	}
+
+	// only wait for the matcher to return
+	<-handlingDone
+	if !errors.Is(testConnection.GetVar("err").(error), os.ErrDeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded error but got %s", testConnection.GetVar("err"))
+	}
+
+	elasped := testConnection.GetVar("time").(time.Time).Sub(now)
+	if !(matchingTimeout <= elasped && elasped <= 2*matchingTimeout) {
+		t.Fatalf("timeout takes too long %s", elasped)
 	}
 }
