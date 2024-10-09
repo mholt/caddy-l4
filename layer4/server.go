@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -238,7 +240,30 @@ type packetConn struct {
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
 	lastPacket *packet
-	lastBuf    *bytes.Buffer
+	lastBuf    *bytes.Reader
+
+	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
+	deadline      atomic.Int64
+	deadlineTimer *time.Timer
+	idleTimer     *time.Timer
+}
+
+// SetReadDeadline sets the deadline to wait for data from the underlying net.PacketConn.
+func (pc *packetConn) SetReadDeadline(t time.Time) error {
+	pc.deadline.Store(t.Unix())
+	if pc.deadlineTimer != nil {
+		pc.deadlineTimer.Reset(time.Until(t))
+	} else {
+		pc.deadlineTimer = time.NewTimer(time.Until(t))
+	}
+	return nil
+}
+
+// TODO: idle timeout should be configurable per server
+const udpAssociationIdleTimeout = 30 * time.Second
+
+func isDeadlineExceeded(t time.Time) bool {
+	return !t.IsZero() && t.Before(time.Now())
 }
 
 func (pc *packetConn) Read(b []byte) (n int, err error) {
@@ -253,27 +278,47 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 		}
 		return
 	}
-	select {
-	case pkt := <-pc.readCh:
-		if pkt == nil {
-			// Channel is closed. Return EOF below.
+	// check deadline
+	if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+		return 0, os.ErrDeadlineExceeded
+	}
+	// set or refresh idle timeout
+	if pc.idleTimer == nil {
+		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+	} else {
+		pc.idleTimer.Reset(udpAssociationIdleTimeout)
+	}
+	var done bool
+	for !done {
+		select {
+		case pkt := <-pc.readCh:
+			if pkt == nil {
+				// Channel is closed. Return EOF below.
+				done = true
+				break
+			}
+			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
+			n, err = buf.Read(b)
+			if buf.Len() == 0 {
+				// Buffer fully consumed, release it.
+				udpBufPool.Put(pkt.pooledBuf)
+			} else {
+				// Buffer only partially consumed. Keep track of it for
+				// next Read() call.
+				pc.lastPacket = pkt
+				pc.lastBuf = buf
+			}
+			return
+		case <-pc.deadlineTimer.C:
+			// deadline may change during the wait, recheck
+			if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+				return 0, os.ErrDeadlineExceeded
+			}
+			// next loop will run. Don't call Read as that will reset the idle timer.
+		case <-pc.idleTimer.C:
+			done = true
 			break
 		}
-		buf := bytes.NewBuffer(pkt.pooledBuf[:pkt.n])
-		n, err = buf.Read(b)
-		if buf.Len() == 0 {
-			// Buffer fully consumed, release it.
-			udpBufPool.Put(pkt.pooledBuf)
-		} else {
-			// Buffer only partially consumed. Keep track of it for
-			// next Read() call.
-			pc.lastPacket = pkt
-			pc.lastBuf = buf
-		}
-		return
-	// TODO: idle timeout should be configurable per server
-	case <-time.After(30 * time.Second):
-		break
 	}
 	// Idle timeout simulates socket closure.
 	//
