@@ -44,6 +44,7 @@ Current matchers:
 - **layer4.matchers.socks5** - matches connections that look like [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928.html).
 - **layer4.matchers.ssh** - matches connections that look like SSH connections.
 - **layer4.matchers.tls** - matches connections that start with TLS handshakes. In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
+- **layer4.matchers.winbox** - matches connections that look like those initiated by [Winbox](https://help.mikrotik.com/docs/display/ROS/WinBox), a graphical tool for MikroTik hardware and software routers management.
 - **layer4.matchers.wireguard** - matches connections the look like [WireGuard](https://www.wireguard.com/protocol/) connections.
 - **layer4.matchers.xmpp** - matches connections that look like [XMPP](https://xmpp.org/about/technology-overview/).
 

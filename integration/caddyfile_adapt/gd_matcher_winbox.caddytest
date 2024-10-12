@@ -1,0 +1,85 @@
+{
+	layer4 {
+		:443 {
+			@w1 winbox {
+				modes standard romon
+				username toms
+			}
+			route @w1 {
+				proxy 192.168.0.1:8291
+			}
+			@w2 winbox {
+				modes standard
+				username_regexp ^andris|edgars|juris$
+			}
+			route @w2 {
+				proxy 192.168.0.2:8291
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"winbox": {
+										"modes": [
+											"standard",
+											"romon"
+										],
+										"username": "toms"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"192.168.0.1:8291"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"winbox": {
+										"modes": [
+											"standard"
+										],
+										"username_regexp": "^andris|edgars|juris$"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"192.168.0.2:8291"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
