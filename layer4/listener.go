@@ -125,9 +125,8 @@ type listener struct {
 }
 
 func (l *listener) Close() error {
-	err := l.Listener.Close()
 	l.closed.Store(true)
-	return err
+	return l.Listener.Close()
 }
 
 // loop accept connection from underlying listener and pipe the connection if there are any
