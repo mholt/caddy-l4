@@ -135,6 +135,7 @@ func (l *listener) loop() {
 		conn, err := l.Listener.Accept()
 		// listener closed
 		if l.closed.Load() {
+			l.err = net.ErrClosed
 			break
 		}
 
