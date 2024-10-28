@@ -7,6 +7,7 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -114,6 +115,7 @@ type listener struct {
 	logger        *zap.Logger
 	compiledRoute Handler
 
+	closed atomic.Bool
 	// closed when there is a non-recoverable error and all handle goroutines are done
 	connChan chan net.Conn
 	err      error
@@ -122,10 +124,21 @@ type listener struct {
 	wg *sync.WaitGroup
 }
 
+func (l *listener) Close() error {
+	err := l.Listener.Close()
+	l.closed.Store(true)
+	return err
+}
+
 // loop accept connection from underlying listener and pipe the connection if there are any
 func (l *listener) loop() {
 	for {
 		conn, err := l.Listener.Accept()
+		// listener closed
+		if l.closed.Load() {
+			break
+		}
+
 		var nerr net.Error
 		if errors.As(err, &nerr) && nerr.Temporary() {
 			l.logger.Error("temporary error accepting connection", zap.Error(err))
