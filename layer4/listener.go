@@ -134,13 +134,8 @@ func (l *listener) Close() error {
 func (l *listener) loop() {
 	for {
 		conn, err := l.Listener.Accept()
-		// listener closed
-		if l.closed.Load() {
-			break
-		}
-
 		var nerr net.Error
-		if errors.As(err, &nerr) && nerr.Temporary() {
+		if errors.As(err, &nerr) && nerr.Temporary() && !l.closed.Load() {
 			l.logger.Error("temporary error accepting connection", zap.Error(err))
 			continue
 		}
