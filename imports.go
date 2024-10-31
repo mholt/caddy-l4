@@ -25,6 +25,7 @@ import (
 	_ "github.com/mholt/caddy-l4/modules/l4postgres"
 	_ "github.com/mholt/caddy-l4/modules/l4proxy"
 	_ "github.com/mholt/caddy-l4/modules/l4proxyprotocol"
+	_ "github.com/mholt/caddy-l4/modules/l4quic"
 	_ "github.com/mholt/caddy-l4/modules/l4rdp"
 	_ "github.com/mholt/caddy-l4/modules/l4regexp"
 	_ "github.com/mholt/caddy-l4/modules/l4socks"
