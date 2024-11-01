@@ -118,9 +118,14 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	defer func() { _ = serverFPC.Close() }()
 	defer func() { _ = clientFPC.Close() }()
 
+	// Create a new quic.Transport
+	qTransport := quic.Transport{
+		Conn: serverFPC,
+	}
+
 	// Launch a new quic.EarlyListener
 	var qListener *quic.EarlyListener
-	qListener, err = quic.ListenEarly(serverFPC, tlsConf, m.quicConf)
+	qListener, err = qTransport.ListenEarly(tlsConf, m.quicConf)
 	if err != nil {
 		return false, err
 	}
