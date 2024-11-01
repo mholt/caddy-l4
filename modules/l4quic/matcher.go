@@ -16,8 +16,8 @@ package l4quic
 
 import (
 	"context"
-	"crypto"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -197,8 +197,8 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 	}
 
 	// Generate a new private key
-	var key crypto.PrivateKey
-	_, key, err = ed25519.GenerateKey(rand.Reader)
+	var key *ecdsa.PrivateKey
+	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generating a private key: %v", err)
 	}
