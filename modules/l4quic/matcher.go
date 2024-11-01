@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"time"
@@ -114,7 +115,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Create a new fakePacketConn pipe
-	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRandQuintillion(), TS: time.Now()}, nil)
+	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRand(), TS: time.Now()}, nil)
 	defer func() { _ = serverFPC.Close() }()
 	defer func() { _ = clientFPC.Close() }()
 
@@ -211,7 +212,7 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 
 	// Compose a new x509 certificate template
 	template := &x509.Certificate{
-		SerialNumber: newRandQuintillion(),
+		SerialNumber: newRand(),
 		Subject: pkix.Name{
 			CommonName:   QUICCertificateCommonName,
 			Organization: []string{QUICCertificateOrganization},
@@ -370,7 +371,7 @@ func newFakePacketConnPipe(local, remote net.Addr) (*fakePacketConn, *fakePacket
 	return serverFPC, clientFPC
 }
 
-func newRandQuintillion() *big.Int {
-	rnd, _ := rand.Int(rand.Reader, big.NewInt(1000000000000000000))
+func newRand() *big.Int {
+	rnd, _ := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 	return rnd
 }
