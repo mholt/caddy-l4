@@ -16,14 +16,16 @@ package l4quic
 
 import (
 	"context"
-	"crypto"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"time"
@@ -113,13 +115,18 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Create a new fakePacketConn pipe
-	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRandQuintillion(), TS: time.Now()}, nil)
+	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRand(), TS: time.Now()}, nil)
 	defer func() { _ = serverFPC.Close() }()
 	defer func() { _ = clientFPC.Close() }()
 
+	// Create a new quic.Transport
+	qTransport := quic.Transport{
+		Conn: serverFPC,
+	}
+
 	// Launch a new quic.EarlyListener
 	var qListener *quic.EarlyListener
-	qListener, err = quic.ListenEarly(serverFPC, tlsConf, m.quicConf)
+	qListener, err = qTransport.ListenEarly(tlsConf, m.quicConf)
 	if err != nil {
 		return false, err
 	}
@@ -197,18 +204,37 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 	}
 
 	// Generate a new private key
-	var key crypto.PrivateKey
-	_, key, err = ed25519.GenerateKey(rand.Reader)
+	var key *ecdsa.PrivateKey
+	key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generating a private key: %v", err)
 	}
 
-	// Compose a new x509 certificate
-	leaf := &x509.Certificate{}
+	// Compose a new x509 certificate template
+	template := &x509.Certificate{
+		SerialNumber: newRand(),
+		Subject: pkix.Name{
+			CommonName:   QUICCertificateCommonName,
+			Organization: []string{QUICCertificateOrganization},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(QUICCertificateValidityPeriod),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{QUICCertificateSubjectAltName},
+	}
+
+	// Create a new x509 certificate
+	var cert []byte
+	cert, err = x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return fmt.Errorf("generating a x509 ceriticate: %v", err)
+	}
 
 	// Initialize a new TLS config
 	m.tlsConf = &tls.Config{
-		Certificates: []tls.Certificate{{Leaf: leaf, PrivateKey: key}},
+		Certificates: []tls.Certificate{{Certificate: [][]byte{cert}, PrivateKey: key}},
 	}
 
 	// Initialize a new QUIC config
@@ -317,6 +343,11 @@ var (
 const (
 	QUICAcceptTimeout = 100 * time.Millisecond
 
+	QUICCertificateCommonName     = "layer4"
+	QUICCertificateOrganization   = "caddy"
+	QUICCertificateSubjectAltName = "*"
+	QUICCertificateValidityPeriod = time.Hour * 24 * 365 * 20
+
 	QUICLongHeaderBitValue uint8 = 0x80 // github.com/quic-go/quic-go/internal/wire.IsLongHeaderPacket()
 	QUICMagicBitValue      uint8 = 0x40 // github.com/quic-go/quic-go/internal/wire.IsPotentialQUICPacket()
 
@@ -340,7 +371,7 @@ func newFakePacketConnPipe(local, remote net.Addr) (*fakePacketConn, *fakePacket
 	return serverFPC, clientFPC
 }
 
-func newRandQuintillion() *big.Int {
-	rnd, _ := rand.Int(rand.Reader, big.NewInt(1000000000000000000))
+func newRand() *big.Int {
+	rnd, _ := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 	return rnd
 }

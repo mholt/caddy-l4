@@ -37,7 +37,7 @@ Current matchers:
 - **layer4.matchers.openvpn** - matches connections that look like [OpenVPN](https://openvpn.net/community-resources/openvpn-protocol/) connections.
 - **layer4.matchers.postgres** - matches connections that look like Postgres connections.
 - **layer4.matchers.proxy_protocol** - matches connections that start with [HAPROXY proxy protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt).
-- **layer4.matchers.quic** - matches connections that look like [QUIC](https://quic.xargs.org/).
+- **layer4.matchers.quic** - matches connections that look like [QUIC](https://quic.xargs.org/). In addition, any [`tls.handshake_match` modules](https://caddyserver.com/docs/modules/) can be used for matching on TLS-specific properties of the ClientHello, such as ServerName (SNI).
 - **layer4.matchers.rdp** - matches connections that look like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf).
 - **layer4.matchers.regexp** - matches connections that have the first packet bytes matching a regular expression.
 - **layer4.matchers.remote_ip** - matches connections based on remote IP (or CIDR range).
