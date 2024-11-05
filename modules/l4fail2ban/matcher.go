@@ -59,14 +59,13 @@ func (m *Fail2Ban) Provision(ctx caddy.Context) error {
 // The Match will return true if the remote IP is found in the ban list
 func (m *Fail2Ban) Match(cx *layer4.Connection) (bool, error) {
 	clientIP, err := m.getRemoteIP(cx)
-	strClientIP := clientIP.String()
-
 	if err != nil {
 		// Error, tread IP as banned
 		m.logger.Error("Error parsing the remote IP from the connection", zap.Error(err))
 		return true, err
 	}
 
+	strClientIP := clientIP.String()
 	if m.banlist.IsBanned(strClientIP) {
 		// IP is banned
 		m.logger.Info("banned IP", zap.String("remote_addr", strClientIP))
