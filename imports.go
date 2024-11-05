@@ -20,6 +20,7 @@ import (
 	_ "github.com/mholt/caddy-l4/modules/l4clock"
 	_ "github.com/mholt/caddy-l4/modules/l4dns"
 	_ "github.com/mholt/caddy-l4/modules/l4echo"
+	_ "github.com/mholt/caddy-l4/modules/l4fail2ban"
 	_ "github.com/mholt/caddy-l4/modules/l4http"
 	_ "github.com/mholt/caddy-l4/modules/l4openvpn"
 	_ "github.com/mholt/caddy-l4/modules/l4postgres"

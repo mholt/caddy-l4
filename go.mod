@@ -5,9 +5,11 @@ go 1.22.0
 toolchain go1.23.0
 
 require (
+	github.com/Javex/caddy-fail2ban v0.0.0-20240525135356-cbf9f5a003ce
 	github.com/caddyserver/caddy/v2 v2.8.4
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/miekg/dns v1.1.62
+	github.com/quic-go/quic-go v0.44.0
 	github.com/things-go/go-socks5 v0.0.5
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.28.0
@@ -41,6 +43,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.6.0 // indirect
 	github.com/go-chi/chi/v5 v5.0.12 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
@@ -91,7 +94,6 @@ require (
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
-	github.com/quic-go/quic-go v0.44.0 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
