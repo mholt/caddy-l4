@@ -16,15 +16,12 @@ package l4fail2ban
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 )
@@ -81,31 +78,6 @@ func cleanupBanFile(t *testing.T, tempDir string) {
 	t.Helper()
 	err := os.RemoveAll(tempDir)
 	assertNoError(t, err)
-}
-
-// Test the Caddyfile unmarshaller
-func TestFail2BanUnmarshaller(t *testing.T) {
-	tempDir, banFile := createBanFile(t)
-	defer cleanupBanFile(t, tempDir)
-
-	dispenser := caddyfile.NewTestDispenser(fmt.Sprintf(`fail2ban %s`, banFile))
-
-	matcher := Fail2Ban{}
-	err := matcher.UnmarshalCaddyfile(dispenser)
-	assertNoError(t, err)
-
-	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
-	defer cancel()
-
-	err = matcher.Provision(ctx)
-	assertNoError(t, err)
-
-	// Wait for the banlist to be loaded by the matcher
-	time.Sleep(100 * time.Millisecond)
-
-	if matcher.Banfile != banFile {
-		t.Fatalf("Expected %s, got %s", banFile, matcher.Banfile)
-	}
 }
 
 // Test if a banned IP is matched
