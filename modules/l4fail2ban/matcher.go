@@ -32,7 +32,7 @@ func init() {
 }
 
 type Fail2Ban struct {
-	Banfile string `json:"banfile"`
+	BanFile string `json:"ban_file"`
 
 	logger  *zap.Logger
 	banlist caddy_fail2ban.Banlist
@@ -51,7 +51,7 @@ func (m *Fail2Ban) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger()
 
 	// Create new banlist, same as in http.matchers.fail2ban (https://github.com/Javex/caddy-fail2ban/blob/main/banlist.go)
-	m.banlist = caddy_fail2ban.NewBanlist(ctx, m.logger, &m.Banfile)
+	m.banlist = caddy_fail2ban.NewBanlist(ctx, m.logger, &m.BanFile)
 	m.banlist.Start()
 	return nil
 }
@@ -100,17 +100,13 @@ func (m *Fail2Ban) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
 func (m *Fail2Ban) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
-	if d.Val() != "fail2ban" {
-		return d.ArgErr()
-	}
-
 	// Only one same-line argument is supported
 	if d.CountRemainingArgs() > 1 {
 		return d.ArgErr()
 	}
 
 	if d.NextArg() {
-		m.Banfile = d.Val()
+		m.BanFile = d.Val()
 	}
 
 	// No blocks are supported

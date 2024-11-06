@@ -91,7 +91,7 @@ func TestFail2BanMatch(t *testing.T) {
 	defer cancel()
 
 	matcher := Fail2Ban{
-		Banfile: banFile,
+		BanFile: banFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -123,7 +123,7 @@ func TestFail2BanNoMatch(t *testing.T) {
 	defer cancel()
 
 	matcher := Fail2Ban{
-		Banfile: banFile,
+		BanFile: banFile,
 	}
 
 	err := matcher.Provision(ctx)
