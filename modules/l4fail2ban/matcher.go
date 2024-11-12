@@ -22,7 +22,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 
-	caddy_fail2ban "github.com/Javex/caddy-fail2ban"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 )
@@ -35,7 +34,7 @@ type Fail2Ban struct {
 	BanFile string `json:"ban_file"`
 
 	logger  *zap.Logger
-	banlist caddy_fail2ban.Banlist
+	banList *BanList
 }
 
 // CaddyModule returns the Caddy module information.
@@ -50,9 +49,16 @@ func (*Fail2Ban) CaddyModule() caddy.ModuleInfo {
 func (m *Fail2Ban) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger()
 
-	// Create new banlist, same as in http.matchers.fail2ban (https://github.com/Javex/caddy-fail2ban/blob/main/banlist.go)
-	m.banlist = caddy_fail2ban.NewBanlist(ctx, m.logger, &m.BanFile)
-	m.banlist.Start()
+	// Create new banlist, similar as in http.matchers.fail2ban
+	// (https://github.com/Javex/caddy-fail2ban)
+	banList, err := NewBanList(m.BanFile, &ctx, m.logger)
+	if err != nil {
+		// Error creating the banlist
+		m.logger.Error("Error creating a new banlist", zap.Error(err))
+		return err
+	}
+	m.banList = banList
+	m.banList.StartMonitoring()
 	return nil
 }
 
@@ -66,14 +72,14 @@ func (m *Fail2Ban) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	strClientIP := clientIP.String()
-	if m.banlist.IsBanned(strClientIP) {
+	if m.banList.IsBanned(strClientIP) {
 		// IP is banned
-		m.logger.Info("banned IP", zap.String("remote_addr", strClientIP))
+		m.logger.Info("Banned IP found", zap.String("RemoteAddr", strClientIP))
 		return true, nil
 	}
 
 	// IP not found in banlist, everything ok
-	m.logger.Debug("received request", zap.String("remote_addr", strClientIP))
+	m.logger.Debug("Received request", zap.String("RemoteAddr", strClientIP))
 	return false, nil
 }
 

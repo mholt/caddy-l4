@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/mholt/caddy-l4/layer4"
@@ -80,14 +81,43 @@ func cleanupBanFile(t *testing.T, tempDir string) {
 	assertNoError(t, err)
 }
 
+func wait() {
+	time.Sleep(10 * time.Millisecond)
+}
+
+// Test if banfile gets created if it is not exiting
+func TestFail2BanFileCreation(t *testing.T) {
+	tempDir, banFile := createBanFile(t)
+	defer cleanupBanFile(t, tempDir)
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
+	defer cancel()
+
+	matcher := Fail2Ban{
+		BanFile: banFile,
+	}
+
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+
+	st, err := os.Lstat(banFile)
+	if err != nil || st.IsDir() {
+		t.Error("File did not get created")
+	}
+}
+
 // Test if a banned IP is matched
 func TestFail2BanMatch(t *testing.T) {
 	tempDir, banFile := createBanFile(t)
 	defer cleanupBanFile(t, tempDir)
 
-	os.WriteFile(banFile, []byte("127.0.0.99"), 0644)
+	os.WriteFile(banFile, []byte("127.0.0.99\n"), 0644)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
 	defer cancel()
 
 	matcher := Fail2Ban{
@@ -108,7 +138,63 @@ func TestFail2BanMatch(t *testing.T) {
 	assertNoError(t, err)
 
 	if !matched {
-		t.Fatalf("Matcher did not match")
+		t.Error("Matcher did not match")
+	}
+}
+
+// Test if a banned IP is matched (added to the file after first match call)
+func TestFail2BanMatchDynamic(t *testing.T) {
+	tempDir, banFile := createBanFile(t)
+	defer cleanupBanFile(t, tempDir)
+
+	os.WriteFile(banFile, []byte("127.0.0.80\n"), 0644)
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
+	defer cancel()
+
+	matcher := Fail2Ban{
+		BanFile: banFile,
+	}
+
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+
+	// Give the file system watcher some time to set up
+	wait()
+
+	cx := &layer4.Connection{
+		Conn: &dummyConn{
+			remoteAddr: dummyAddr{ip: "127.0.0.99", network: "tcp"},
+		},
+		Logger: zap.NewNop(),
+	}
+
+	// IP should not match
+	matched, err := matcher.Match(cx)
+	assertNoError(t, err)
+
+	if matched {
+		t.Error("Matcher did match")
+	}
+
+	// Append new IP to end of file
+	f, err := os.OpenFile(banFile, os.O_APPEND|os.O_WRONLY, 0644)
+	assertNoError(t, err)
+	_, err = f.WriteString("127.0.0.99\n")
+	assertNoError(t, err)
+	f.Close()
+
+	// Allow some time to register the file change
+	wait()
+
+	// IP should match now
+	matched, err = matcher.Match(cx)
+	assertNoError(t, err)
+
+	if !matched {
+		t.Error("Matcher did not match")
 	}
 }
 
@@ -117,9 +203,11 @@ func TestFail2BanNoMatch(t *testing.T) {
 	tempDir, banFile := createBanFile(t)
 	defer cleanupBanFile(t, tempDir)
 
-	os.WriteFile(banFile, []byte("127.0.0.1"), 0644)
+	os.WriteFile(banFile, []byte("127.0.0.1\n"), 0644)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
 	defer cancel()
 
 	matcher := Fail2Ban{
