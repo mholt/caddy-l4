@@ -37,7 +37,14 @@ func (*MatchALPN) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
-	repl := hello.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := caddy.NewReplacer()
+	if ctx := hello.Context(); ctx != nil {
+		// In some situations the existing context may have no replacer
+		if replAny := ctx.Value(caddy.ReplacerCtxKey); replAny != nil {
+			repl = replAny.(*caddy.Replacer)
+		}
+	}
+
 	clientProtocols := hello.SupportedProtos
 	for _, alpn := range *m {
 		alpn = repl.ReplaceAll(alpn, "")
