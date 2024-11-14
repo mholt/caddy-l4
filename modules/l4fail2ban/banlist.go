@@ -45,7 +45,7 @@ func NewBanList(banFile string, ctx *caddy.Context, logger *zap.Logger) (*BanLis
 	}
 
 	if !banList.banfileExists() {
-		logger.Debug("Could not find the banfile, trying to create it...")
+		logger.Debug("could not find the banfile, trying to create it...")
 
 		// Create a new banfile since it does not exist
 		_, err := os.Create(banFile)
@@ -53,7 +53,7 @@ func NewBanList(banFile string, ctx *caddy.Context, logger *zap.Logger) (*BanLis
 			logger.Error("Error creating the banfile", zap.Error(err))
 			return nil, fmt.Errorf("cannot create a new banfile: %v", err)
 		}
-		logger.Debug("Banfile successfully created")
+		logger.Debug("banfile successfully created")
 	}
 
 	return banList, nil
@@ -63,12 +63,18 @@ func NewBanList(banFile string, ctx *caddy.Context, logger *zap.Logger) (*BanLis
 func (b *BanList) IsBanned(remote_ip string) bool {
 	// First reload the banlist if needed to ensure banned IPs are always up to date
 	b.reloadNeededMutex.Lock()
-	if b.reloadNeeded {
-		b.loadIpAddresses()
-		b.logger.Debug("Reloaded IP addresses")
-		b.reloadNeeded = false
-	}
+	reloadNeeded := b.reloadNeeded
+	b.reloadNeeded = false
 	b.reloadNeededMutex.Unlock()
+
+	if reloadNeeded {
+		err := b.loadIpAddresses()
+		if err != nil {
+			b.logger.Error("could not load IP addresses")
+		} else {
+			b.logger.Debug("reloaded IP addresses")
+		}
+	}
 
 	for _, bannedIp := range b.bannedIpAddresses {
 		if bannedIp == remote_ip {
@@ -96,20 +102,20 @@ func (b *BanList) monitor() {
 	// Create a new watcher
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		b.logger.Error("Error creating a new filesystem watcher", zap.Error(err))
+		b.logger.Error("error creating a new filesystem watcher", zap.Error(err))
 		return
 	}
 	defer w.Close()
 
 	if !b.banfileExists() {
-		b.logger.Error("Banfile does not exist, nothing to monitor")
+		b.logger.Error("banfile does not exist, nothing to monitor")
 		return
 	}
 
 	// Monitor the directory of the file
 	err = w.Add(filepath.Dir(b.banFile))
 	if err != nil {
-		b.logger.Error("Error watching the file", zap.Error(err))
+		b.logger.Error("error watching the file", zap.Error(err))
 		return
 	}
 
@@ -117,17 +123,17 @@ func (b *BanList) monitor() {
 		select {
 		case <-b.ctx.Done():
 			// Check if Caddy closed the context
-			b.logger.Debug("Caddy closed the context")
+			b.logger.Debug("caddy closed the context")
 			return
 		case err, ok := <-w.Errors:
 			b.logger.Error("Error from file watcher", zap.Error(err))
 			if !ok {
-				b.logger.Error("File watcher was closed")
+				b.logger.Error("file watcher was closed")
 				return
 			}
 		case e, ok := <-w.Events:
 			if !ok {
-				b.logger.Error("File watcher was closed")
+				b.logger.Error("file watcher was closed")
 				return
 			}
 
@@ -142,16 +148,16 @@ func (b *BanList) monitor() {
 }
 
 // Loads the banned IP addresses from the banFile
-func (b *BanList) loadIpAddresses() {
+func (b *BanList) loadIpAddresses() error {
 	if !b.banfileExists() {
-		b.logger.Error("Banfile does not exist, could not load IP addresses")
-		return
+		b.logger.Error("banfile does not exist, could not load IP addresses")
+		return fmt.Errorf("banfile %v does not exist, could not load IP addresses", b.banFile)
 	}
 
 	file, err := os.Open(b.banFile)
 	if err != nil {
-		b.logger.Error("Error opening the banned IPs file", zap.Error(err))
-		return
+		b.logger.Error("error opening the banned IPs file", zap.Error(err))
+		return fmt.Errorf("error opening the banned IPs file %v", b.banFile)
 	}
 	defer file.Close()
 
@@ -161,9 +167,10 @@ func (b *BanList) loadIpAddresses() {
 		lines = append(lines, scanner.Text())
 	}
 	if scanner.Err() != nil {
-		b.logger.Error("Error reading the banned IPs", zap.Error(err))
-		return
+		b.logger.Error("error reading the banned IPs", zap.Error(err))
+		return fmt.Errorf("error reading the banned IPs from %v", b.banFile)
 	}
 
 	b.bannedIpAddresses = lines
+	return nil
 }

@@ -54,7 +54,7 @@ func (m *Fail2Ban) Provision(ctx caddy.Context) error {
 	banList, err := NewBanList(m.BanFile, &ctx, m.logger)
 	if err != nil {
 		// Error creating the banlist
-		m.logger.Error("Error creating a new banlist", zap.Error(err))
+		m.logger.Error("error creating a new banlist", zap.Error(err))
 		return err
 	}
 	m.banList = banList
@@ -67,19 +67,19 @@ func (m *Fail2Ban) Match(cx *layer4.Connection) (bool, error) {
 	clientIP, err := m.getRemoteIP(cx)
 	if err != nil {
 		// Error, tread IP as banned
-		m.logger.Error("Error parsing the remote IP from the connection", zap.Error(err))
+		m.logger.Error("error parsing the remote IP from the connection", zap.Error(err))
 		return true, err
 	}
 
 	strClientIP := clientIP.String()
 	if m.banList.IsBanned(strClientIP) {
 		// IP is banned
-		m.logger.Info("Banned IP found", zap.String("RemoteAddr", strClientIP))
+		m.logger.Info("banned IP found", zap.String("remote_addr", strClientIP))
 		return true, nil
 	}
 
 	// IP not found in banlist, everything ok
-	m.logger.Debug("Received request", zap.String("RemoteAddr", strClientIP))
+	m.logger.Debug("received request", zap.String("remote_addr", strClientIP))
 	return false, nil
 }
 
