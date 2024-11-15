@@ -1,7 +1,7 @@
 {
 	layer4 {
         :12345 {
-            @f1 fail2ban banned-ips
+            @f1 remote_ip_list /tmp/remote-ips
             route @f1 {
                 proxy f1.machine.local:54321
             }
@@ -21,8 +21,8 @@
 						{
 							"match": [
 								{
-									"fail2ban": {
-										"ban_file": "banned-ips"
+									"remote_ip_list": {
+										"ip_file": "/tmp/remote-ips"
 									}
 								}
 							],

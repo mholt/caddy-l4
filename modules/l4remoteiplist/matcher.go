@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package l4fail2ban
+package l4remoteiplist
 
 import (
 	"fmt"
@@ -27,65 +27,61 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(&Fail2Ban{})
+	caddy.RegisterModule(&RemoteIpList{})
 }
 
-type Fail2Ban struct {
-	BanFile string `json:"ban_file"`
+type RemoteIpList struct {
+	RemoteIpFile string `json:"ip_file"`
 
-	logger  *zap.Logger
-	banList *BanList
+	logger       *zap.Logger
+	remoteIpList *IpList
 }
 
 // CaddyModule returns the Caddy module information.
-func (*Fail2Ban) CaddyModule() caddy.ModuleInfo {
+func (*RemoteIpList) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.fail2ban",
-		New: func() caddy.Module { return new(Fail2Ban) },
+		ID:  "layer4.matchers.remote_ip_list",
+		New: func() caddy.Module { return new(RemoteIpList) },
 	}
 }
 
 // Provision implements caddy.Provisioner.
-func (m *Fail2Ban) Provision(ctx caddy.Context) error {
+func (m *RemoteIpList) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger()
 
-	// Create new banlist, similar as in http.matchers.fail2ban
-	// (https://github.com/Javex/caddy-fail2ban)
-	banList, err := NewBanList(m.BanFile, &ctx, m.logger)
+	remoteIpList, err := NewIpList(m.RemoteIpFile, &ctx, m.logger)
 	if err != nil {
-		// Error creating the banlist
-		m.logger.Error("error creating a new banlist", zap.Error(err))
+		m.logger.Error("error creating a new IP list", zap.Error(err))
 		return err
 	}
-	m.banList = banList
-	m.banList.StartMonitoring()
+	m.remoteIpList = remoteIpList
+	m.remoteIpList.StartMonitoring()
 	return nil
 }
 
-// The Match will return true if the remote IP is found in the ban list
-func (m *Fail2Ban) Match(cx *layer4.Connection) (bool, error) {
+// The Match will return true if the remote IP is found in the remote IP list
+func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
 	clientIP, err := m.getRemoteIP(cx)
 	if err != nil {
-		// Error, tread IP as banned
+		// Error, tread IP as matched
 		m.logger.Error("error parsing the remote IP from the connection", zap.Error(err))
 		return true, err
 	}
 
 	strClientIP := clientIP.String()
-	if m.banList.IsBanned(strClientIP) {
-		// IP is banned
-		m.logger.Info("banned IP found", zap.String("remote_addr", strClientIP))
+	if m.remoteIpList.IsMatched(strClientIP) {
+		m.logger.Info("matched IP found", zap.String("remote_addr", strClientIP))
 		return true, nil
 	}
 
-	// IP not found in banlist, everything ok
+	// IP not matched
 	m.logger.Debug("received request", zap.String("remote_addr", strClientIP))
 	return false, nil
 }
 
 // Returns the remote IP address for a given layer4 connection.
 // Same method as in layer4.MatchRemoteIP.getRemoteIP
-func (m *Fail2Ban) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
+func (m *RemoteIpList) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
 	remote := cx.Conn.RemoteAddr().String()
 
 	ipStr, _, err := net.SplitHostPort(remote)
@@ -100,10 +96,10 @@ func (m *Fail2Ban) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
 	return ip, nil
 }
 
-// UnmarshalCaddyfile sets up the banfile_path from Caddyfile. Syntax:
+// UnmarshalCaddyfile sets up the ip_file from Caddyfile. Syntax:
 //
-// fail2ban <banfile_path>
-func (m *Fail2Ban) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+// remote_ip_list <ip_file>
+func (m *RemoteIpList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
 	// Only one same-line argument is supported
@@ -112,7 +108,7 @@ func (m *Fail2Ban) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	if d.NextArg() {
-		m.BanFile = d.Val()
+		m.RemoteIpFile = d.Val()
 	}
 
 	// No blocks are supported
@@ -125,7 +121,7 @@ func (m *Fail2Ban) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // Interface guards
 var (
-	_ layer4.ConnMatcher    = (*Fail2Ban)(nil)
-	_ caddy.Provisioner     = (*Fail2Ban)(nil)
-	_ caddyfile.Unmarshaler = (*Fail2Ban)(nil)
+	_ layer4.ConnMatcher    = (*RemoteIpList)(nil)
+	_ caddy.Provisioner     = (*RemoteIpList)(nil)
+	_ caddyfile.Unmarshaler = (*RemoteIpList)(nil)
 )

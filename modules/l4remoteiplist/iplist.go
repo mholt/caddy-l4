@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package l4fail2ban
+package l4remoteiplist
 
 import (
 	"bufio"
@@ -26,42 +26,42 @@ import (
 	"go.uber.org/zap"
 )
 
-type BanList struct {
-	banFile           string         // File containing all currently banned IPs, gets continously monitored
-	bannedIpAddresses []string       // List of currently banned IP addresses
+type IpList struct {
+	ipFile            string         // File containing all IPs to be matched, gets continously monitored
+	ipAddresses       []string       // List of currently loaded IP addresses that would matched
 	ctx               *caddy.Context // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
 	reloadNeededMutex sync.Mutex // Mutex to ensure proper concurrent handling of reloads
-	reloadNeeded      bool       // Flag indicating whether a reload of the banned IPs is needed
+	reloadNeeded      bool       // Flag indicating whether a reload of the IPs is needed
 }
 
-// Creates a new BanList, creating the banFile if it is not present
-func NewBanList(banFile string, ctx *caddy.Context, logger *zap.Logger) (*BanList, error) {
-	banList := &BanList{
-		banFile:      banFile,
+// Creates a new IpList, creating the ipFile if it is not present
+func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, error) {
+	ipList := &IpList{
+		ipFile:       ipFile,
 		ctx:          ctx,
 		logger:       logger,
 		reloadNeeded: true,
 	}
 
-	if !banList.banfileExists() {
-		logger.Debug("could not find the banfile, trying to create it...")
+	if !ipList.ipFileExists() {
+		logger.Debug("could not find the file containing the IPs, trying to create it...")
 
-		// Create a new banfile since it does not exist
-		_, err := os.Create(banFile)
+		// Create a new file since it does not exist
+		_, err := os.Create(ipFile)
 		if err != nil {
-			logger.Error("Error creating the banfile", zap.Error(err))
-			return nil, fmt.Errorf("cannot create a new banfile: %v", err)
+			logger.Error("Error creating the IP list", zap.Error(err))
+			return nil, fmt.Errorf("cannot create a new IP list: %v", err)
 		}
-		logger.Debug("banfile successfully created")
+		logger.Debug("list of IP addresses successfully created")
 	}
 
-	return banList, nil
+	return ipList, nil
 }
 
-// Check whether an IP address is currently banned
-func (b *BanList) IsBanned(remote_ip string) bool {
-	// First reload the banlist if needed to ensure banned IPs are always up to date
+// Check whether a IP address is currently contained in the IP list
+func (b *IpList) IsMatched(ip string) bool {
+	// First reload the IP list if needed to ensure IPs are always up to date
 	b.reloadNeededMutex.Lock()
 	reloadNeeded := b.reloadNeeded
 	b.reloadNeeded = false
@@ -76,29 +76,29 @@ func (b *BanList) IsBanned(remote_ip string) bool {
 		}
 	}
 
-	for _, bannedIp := range b.bannedIpAddresses {
-		if bannedIp == remote_ip {
+	for _, listIp := range b.ipAddresses {
+		if listIp == ip {
 			return true
 		}
 	}
 	return false
 }
 
-// Start to monitor the banfile
-func (b *BanList) StartMonitoring() {
+// Start to monitor the IP list
+func (b *IpList) StartMonitoring() {
 	go b.monitor()
 }
 
-func (b *BanList) banfileExists() bool {
-	// Make sure the banFile is a file
-	st, err := os.Lstat(b.banFile)
+func (b *IpList) ipFileExists() bool {
+	// Make sure the IP list is a file
+	st, err := os.Lstat(b.ipFile)
 	if err != nil || st.IsDir() {
 		return false
 	}
 	return true
 }
 
-func (b *BanList) monitor() {
+func (b *IpList) monitor() {
 	// Create a new watcher
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -107,13 +107,13 @@ func (b *BanList) monitor() {
 	}
 	defer w.Close()
 
-	if !b.banfileExists() {
-		b.logger.Error("banfile does not exist, nothing to monitor")
+	if !b.ipFileExists() {
+		b.logger.Error("list of IP addresses does not exist, nothing to monitor")
 		return
 	}
 
 	// Monitor the directory of the file
-	err = w.Add(filepath.Dir(b.banFile))
+	err = w.Add(filepath.Dir(b.ipFile))
 	if err != nil {
 		b.logger.Error("error watching the file", zap.Error(err))
 		return
@@ -126,7 +126,7 @@ func (b *BanList) monitor() {
 			b.logger.Debug("caddy closed the context")
 			return
 		case err, ok := <-w.Errors:
-			b.logger.Error("Error from file watcher", zap.Error(err))
+			b.logger.Error("error from file watcher", zap.Error(err))
 			if !ok {
 				b.logger.Error("file watcher was closed")
 				return
@@ -137,8 +137,8 @@ func (b *BanList) monitor() {
 				return
 			}
 
-			// Check if the banFile has changed
-			if b.banFile == e.Name && (e.Has(fsnotify.Create) || e.Has(fsnotify.Write)) {
+			// Check if the IP list has changed
+			if b.ipFile == e.Name && (e.Has(fsnotify.Create) || e.Has(fsnotify.Write)) {
 				b.reloadNeededMutex.Lock()
 				b.reloadNeeded = true
 				b.reloadNeededMutex.Unlock()
@@ -147,17 +147,17 @@ func (b *BanList) monitor() {
 	}
 }
 
-// Loads the banned IP addresses from the banFile
-func (b *BanList) loadIpAddresses() error {
-	if !b.banfileExists() {
-		b.logger.Error("banfile does not exist, could not load IP addresses")
-		return fmt.Errorf("banfile %v does not exist, could not load IP addresses", b.banFile)
+// Loads the IP addresses from the IP list
+func (b *IpList) loadIpAddresses() error {
+	if !b.ipFileExists() {
+		b.logger.Error("list of IP addresses does not exist, could not load IP addresses")
+		return fmt.Errorf("list of IP addresses %v does not exist, could not load IP addresses", b.ipFile)
 	}
 
-	file, err := os.Open(b.banFile)
+	file, err := os.Open(b.ipFile)
 	if err != nil {
-		b.logger.Error("error opening the banned IPs file", zap.Error(err))
-		return fmt.Errorf("error opening the banned IPs file %v", b.banFile)
+		b.logger.Error("error opening the IP list file", zap.Error(err))
+		return fmt.Errorf("error opening the IP list file %v", b.ipFile)
 	}
 	defer file.Close()
 
@@ -167,10 +167,10 @@ func (b *BanList) loadIpAddresses() error {
 		lines = append(lines, scanner.Text())
 	}
 	if scanner.Err() != nil {
-		b.logger.Error("error reading the banned IPs", zap.Error(err))
-		return fmt.Errorf("error reading the banned IPs from %v", b.banFile)
+		b.logger.Error("error reading the IP list", zap.Error(err))
+		return fmt.Errorf("error reading the IPs from %v", b.ipFile)
 	}
 
-	b.bannedIpAddresses = lines
+	b.ipAddresses = lines
 	return nil
 }

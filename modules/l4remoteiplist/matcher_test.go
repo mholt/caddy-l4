@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package l4fail2ban
+package l4remoteiplist
 
 import (
 	"context"
@@ -64,18 +64,18 @@ func assertNoError(t *testing.T, err error) {
 	}
 }
 
-// Create a temporary directory and a ban file
-func createBanFile(t *testing.T) (string, string) {
+// Create a temporary directory and a remote IP file
+func createIpFile(t *testing.T) (string, string) {
 	t.Helper()
-	tempDir, err := os.MkdirTemp("", "caddy-l4-fail2ban-test")
+	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
 	assertNoError(t, err)
 
-	banFile := path.Join(tempDir, "banned-ips")
-	return tempDir, banFile
+	remoteIpFile := path.Join(tempDir, "remote-ips")
+	return tempDir, remoteIpFile
 }
 
-// Cleanup the temporary directory and the ban file
-func cleanupBanFile(t *testing.T, tempDir string) {
+// Cleanup the temporary directory and the remote IP file
+func cleanupIpFile(t *testing.T, tempDir string) {
 	t.Helper()
 	err := os.RemoveAll(tempDir)
 	assertNoError(t, err)
@@ -85,43 +85,43 @@ func wait() {
 	time.Sleep(10 * time.Millisecond)
 }
 
-// Test if banfile gets created if it is not exiting
-func TestFail2BanFileCreation(t *testing.T) {
-	tempDir, banFile := createBanFile(t)
-	defer cleanupBanFile(t, tempDir)
+// Test if the remote IP file gets created if it is not exiting
+func TestRemoteIpFileCreation(t *testing.T) {
+	tempDir, ipFile := createIpFile(t)
+	defer cleanupIpFile(t, tempDir)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
 	defer wait()
 	defer cancel()
 
-	matcher := Fail2Ban{
-		BanFile: banFile,
+	matcher := RemoteIpList{
+		RemoteIpFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	st, err := os.Lstat(banFile)
+	st, err := os.Lstat(ipFile)
 	if err != nil || st.IsDir() {
 		t.Error("File did not get created")
 	}
 }
 
-// Test if a banned IP is matched
-func TestFail2BanMatch(t *testing.T) {
-	tempDir, banFile := createBanFile(t)
-	defer cleanupBanFile(t, tempDir)
+// Test if a remote IP is matched
+func TestRemoteIpMatch(t *testing.T) {
+	tempDir, ipFile := createIpFile(t)
+	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(banFile, []byte("127.0.0.99\n"), 0644)
+	os.WriteFile(ipFile, []byte("127.0.0.99\n"), 0644)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
 	defer wait()
 	defer cancel()
 
-	matcher := Fail2Ban{
-		BanFile: banFile,
+	matcher := RemoteIpList{
+		RemoteIpFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -142,20 +142,20 @@ func TestFail2BanMatch(t *testing.T) {
 	}
 }
 
-// Test if a banned IP is matched (added to the file after first match call)
-func TestFail2BanMatchDynamic(t *testing.T) {
-	tempDir, banFile := createBanFile(t)
-	defer cleanupBanFile(t, tempDir)
+// Test if a remote IP is matched (added to the file after first match call)
+func TestRemoteIpMatchDynamic(t *testing.T) {
+	tempDir, ipFile := createIpFile(t)
+	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(banFile, []byte("127.0.0.80\n"), 0644)
+	os.WriteFile(ipFile, []byte("127.0.0.80\n"), 0644)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
 	defer wait()
 	defer cancel()
 
-	matcher := Fail2Ban{
-		BanFile: banFile,
+	matcher := RemoteIpList{
+		RemoteIpFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -180,7 +180,7 @@ func TestFail2BanMatchDynamic(t *testing.T) {
 	}
 
 	// Append new IP to end of file
-	f, err := os.OpenFile(banFile, os.O_APPEND|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(ipFile, os.O_APPEND|os.O_WRONLY, 0644)
 	assertNoError(t, err)
 	_, err = f.WriteString("127.0.0.99\n")
 	assertNoError(t, err)
@@ -198,20 +198,20 @@ func TestFail2BanMatchDynamic(t *testing.T) {
 	}
 }
 
-// Test if a non-banned IP is not matched
-func TestFail2BanNoMatch(t *testing.T) {
-	tempDir, banFile := createBanFile(t)
-	defer cleanupBanFile(t, tempDir)
+// Test if an IP that is not contained in the remote IP list is not matched
+func TestRemoteIpNoMatch(t *testing.T) {
+	tempDir, ipFile := createIpFile(t)
+	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(banFile, []byte("127.0.0.1\n"), 0644)
+	os.WriteFile(ipFile, []byte("127.0.0.1\n"), 0644)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
 	defer wait()
 	defer cancel()
 
-	matcher := Fail2Ban{
-		BanFile: banFile,
+	matcher := RemoteIpList{
+		RemoteIpFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
