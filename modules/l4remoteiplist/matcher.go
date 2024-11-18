@@ -61,20 +61,20 @@ func (m *RemoteIpList) Provision(ctx caddy.Context) error {
 
 // The Match will return true if the remote IP is found in the remote IP list
 func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
-	clientIP, err := m.getRemoteIP(cx)
+	remoteIP, err := m.getRemoteIP(cx)
 	if err != nil {
 		// Error, tread IP as matched
 		m.logger.Error("error parsing the remote IP from the connection", zap.Error(err))
 		return true, err
 	}
 
-	if m.remoteIpList.IsMatched(clientIP) {
-		m.logger.Info("matched IP found", zap.String("remote_addr", clientIP.String()))
+	if m.remoteIpList.IsMatched(remoteIP) {
+		m.logger.Info("matched IP found", zap.String("remote_addr", remoteIP.String()))
 		return true, nil
 	}
 
 	// IP not matched
-	m.logger.Debug("received request", zap.String("remote_addr", clientIP.String()))
+	m.logger.Debug("received request", zap.String("remote_addr", remoteIP.String()))
 	return false, nil
 }
 
