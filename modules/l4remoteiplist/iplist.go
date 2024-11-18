@@ -64,18 +64,16 @@ func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, 
 func (b *IpList) IsMatched(ip netip.Addr) bool {
 	// First reload the IP list if needed to ensure IPs are always up to date
 	b.reloadNeededMutex.Lock()
-	reloadNeeded := b.reloadNeeded
-	b.reloadNeeded = false
-	b.reloadNeededMutex.Unlock()
-
-	if reloadNeeded {
+	if b.reloadNeeded {
 		err := b.loadIpAddresses()
 		if err != nil {
 			b.logger.Error("could not load IP addresses", zap.Error(err))
 		} else {
+			b.reloadNeeded = false
 			b.logger.Debug("reloaded IP addresses")
 		}
 	}
+	b.reloadNeededMutex.Unlock()
 
 	for _, listIp := range b.ipAddresses {
 		if listIp.Compare(ip) == 0 {
