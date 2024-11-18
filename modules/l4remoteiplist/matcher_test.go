@@ -108,8 +108,8 @@ func TestRemoteIpFileCreation(t *testing.T) {
 	}
 }
 
-// Test if a remote IP is matched
-func TestRemoteIpMatch(t *testing.T) {
+// Test if a remote IPv4 address is matched
+func TestRemoteIpv4Match(t *testing.T) {
 	tempDir, ipFile := createIpFile(t)
 	defer cleanupIpFile(t, tempDir)
 
@@ -130,6 +130,40 @@ func TestRemoteIpMatch(t *testing.T) {
 	cx := &layer4.Connection{
 		Conn: &dummyConn{
 			remoteAddr: dummyAddr{ip: "127.0.0.99", network: "tcp"},
+		},
+		Logger: zap.NewNop(),
+	}
+
+	matched, err := matcher.Match(cx)
+	assertNoError(t, err)
+
+	if !matched {
+		t.Error("Matcher did not match")
+	}
+}
+
+// Test if a remote IPv6 address is matched
+func TestRemoteIpv6Match(t *testing.T) {
+	tempDir, ipFile := createIpFile(t)
+	defer cleanupIpFile(t, tempDir)
+
+	os.WriteFile(ipFile, []byte("fd00::1\n"), 0644)
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
+	defer cancel()
+
+	matcher := RemoteIpList{
+		RemoteIpFile: ipFile,
+	}
+
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+
+	cx := &layer4.Connection{
+		Conn: &dummyConn{
+			remoteAddr: dummyAddr{ip: "fd00:0:0:0:0:0:0:1", network: "tcp"},
 		},
 		Logger: zap.NewNop(),
 	}

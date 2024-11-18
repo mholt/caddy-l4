@@ -17,6 +17,7 @@ package l4remoteiplist
 import (
 	"bufio"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,7 +29,7 @@ import (
 
 type IpList struct {
 	ipFile            string         // File containing all IPs to be matched, gets continously monitored
-	ipAddresses       []string       // List of currently loaded IP addresses that would matched
+	ipAddresses       []netip.Addr   // List of currently loaded IP addresses that would matched
 	ctx               *caddy.Context // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
 	reloadNeededMutex sync.Mutex // Mutex to ensure proper concurrent handling of reloads
@@ -60,7 +61,7 @@ func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, 
 }
 
 // Check whether a IP address is currently contained in the IP list
-func (b *IpList) IsMatched(ip string) bool {
+func (b *IpList) IsMatched(ip netip.Addr) bool {
 	// First reload the IP list if needed to ensure IPs are always up to date
 	b.reloadNeededMutex.Lock()
 	reloadNeeded := b.reloadNeeded
@@ -70,14 +71,14 @@ func (b *IpList) IsMatched(ip string) bool {
 	if reloadNeeded {
 		err := b.loadIpAddresses()
 		if err != nil {
-			b.logger.Error("could not load IP addresses")
+			b.logger.Error("could not load IP addresses", zap.Error(err))
 		} else {
 			b.logger.Debug("reloaded IP addresses")
 		}
 	}
 
 	for _, listIp := range b.ipAddresses {
-		if listIp == ip {
+		if listIp.Compare(ip) == 0 {
 			return true
 		}
 	}
@@ -171,6 +172,14 @@ func (b *IpList) loadIpAddresses() error {
 		return fmt.Errorf("error reading the IPs from %v", b.ipFile)
 	}
 
-	b.ipAddresses = lines
+	var ipAddresses []netip.Addr
+	for _, ipStr := range lines {
+		ip, err := netip.ParseAddr(ipStr)
+		if err != nil {
+			return fmt.Errorf("invalid remote IP address: %s", ipStr)
+		}
+		ipAddresses = append(ipAddresses, ip)
+	}
+	b.ipAddresses = ipAddresses
 	return nil
 }
