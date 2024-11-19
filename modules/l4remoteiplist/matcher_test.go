@@ -101,14 +101,14 @@ func appendToFile(t *testing.T, filename string, ip string) {
 	assertNoError(t, err)
 }
 
-// Test if the remote IP file gets created if it is not exiting
-func TestRemoteIPFileCreation(t *testing.T) {
+// Test if the matcher still works of no remote IP file exists
+func TestNoRemoteIPFile(t *testing.T) {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
 	assertNoError(t, err)
+	defer cleanupIPFile(t, tempDir)
 
 	ipFile := filepath.Join(tempDir, "remote-ips")
-	defer cleanupIPFile(t, tempDir)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -122,9 +122,22 @@ func TestRemoteIPFileCreation(t *testing.T) {
 	err = matcher.Provision(ctx)
 	assertNoError(t, err)
 
-	st, err := os.Lstat(ipFile)
-	if err != nil || st.IsDir() {
-		t.Error("File did not get created")
+	cx := &layer4.Connection{
+		Conn: &dummyConn{
+			remoteAddr: dummyAddr{ip: "127.0.0.99", network: "tcp"},
+		},
+		Logger: zap.NewNop(),
+	}
+
+	matched, err := matcher.Match(cx)
+	assertNoError(t, err)
+
+	if matched {
+		t.Error("Matcher did match, although no remote IP file existed")
+	}
+
+	if _, err := os.Stat(ipFile); err == nil {
+		t.Error("IP file does exist")
 	}
 }
 

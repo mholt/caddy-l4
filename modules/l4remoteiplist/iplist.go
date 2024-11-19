@@ -45,17 +45,10 @@ func NewIPList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IPList, 
 		reloadNeeded: true,
 	}
 
-	if !ipList.ipFileExists() {
-		logger.Debug("could not find the file containing the IPs, trying to create it...")
-
-		// Create a new file since it does not exist
-		file, err := os.Create(ipFile)
-		if err != nil {
-			logger.Error("Error creating the IP list", zap.Error(err))
-			return nil, fmt.Errorf("cannot create a new IP list: %v", err)
-		}
-		defer file.Close()
-		logger.Debug("list of IP addresses successfully created")
+	// make sure the directory containing the ipFile exists
+	// otherwise, the fsnotify watcher will not work
+	if !ipList.ipFileDirectoryExists() {
+		return nil, fmt.Errorf("could not find the directory containing the IP file to monitor: %v", ipFile)
 	}
 
 	return ipList, nil
@@ -89,8 +82,18 @@ func (b *IPList) StartMonitoring() {
 	go b.monitor()
 }
 
+func (b *IPList) ipFileDirectoryExists() bool {
+	// Make sure the directory containing the IP list exists
+	dirpath := filepath.Dir(b.ipFile)
+	st, err := os.Lstat(dirpath)
+	if err != nil || !st.IsDir() {
+		return false
+	}
+	return true
+}
+
 func (b *IPList) ipFileExists() bool {
-	// Make sure the IP list is a file
+	// Make sure the IP list exists and is a file
 	st, err := os.Lstat(b.ipFile)
 	if err != nil || st.IsDir() {
 		return false
@@ -107,8 +110,8 @@ func (b *IPList) monitor() {
 	}
 	defer w.Close()
 
-	if !b.ipFileExists() {
-		b.logger.Error("list of IP addresses does not exist, nothing to monitor")
+	if !b.ipFileDirectoryExists() {
+		b.logger.Error("directory containing the IP file to monitor does not exist")
 		return
 	}
 
@@ -150,8 +153,9 @@ func (b *IPList) monitor() {
 // Loads the IP addresses from the IP list
 func (b *IPList) loadIPAddresses() error {
 	if !b.ipFileExists() {
-		b.logger.Error("list of IP addresses does not exist, could not load IP addresses")
-		return fmt.Errorf("list of IP addresses %v does not exist, could not load IP addresses", b.ipFile)
+		b.logger.Debug("ip file not found, nothing to monitor")
+		b.ipAddresses = make([]netip.Addr, 0)
+		return nil
 	}
 
 	file, err := os.Open(b.ipFile)
