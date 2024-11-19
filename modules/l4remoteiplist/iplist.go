@@ -161,24 +161,22 @@ func (b *IPList) loadIPAddresses() error {
 	}
 	defer file.Close()
 
-	var lines []string
+	var ipAddresses []netip.Addr
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		line := scanner.Text()
+		ip, err := netip.ParseAddr(line)
+		if err == nil {
+			// only append valid IP addresses (ignore lines that
+			// have not been parsed to an IP address, e.g. comments)
+			ipAddresses = append(ipAddresses, ip)
+		}
 	}
 	if scanner.Err() != nil {
 		b.logger.Error("error reading the IP list", zap.Error(err))
 		return fmt.Errorf("error reading the IPs from %v", b.ipFile)
 	}
 
-	var ipAddresses []netip.Addr
-	for _, ipStr := range lines {
-		ip, err := netip.ParseAddr(ipStr)
-		if err != nil {
-			return fmt.Errorf("invalid remote IP address: %s", ipStr)
-		}
-		ipAddresses = append(ipAddresses, ip)
-	}
 	b.ipAddresses = ipAddresses
 	return nil
 }
