@@ -18,7 +18,7 @@ import (
 	"context"
 	"net"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -70,7 +70,13 @@ func createIpFile(t *testing.T) (string, string) {
 	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
 	assertNoError(t, err)
 
-	remoteIpFile := path.Join(tempDir, "remote-ips")
+	remoteIpFile := filepath.Join(tempDir, "remote-ips")
+
+	// Create the file
+	file, err := os.Create(remoteIpFile)
+	assertNoError(t, err)
+	defer file.Close()
+
 	return tempDir, remoteIpFile
 }
 
@@ -85,9 +91,23 @@ func wait() {
 	time.Sleep(10 * time.Millisecond)
 }
 
+func appendToFile(t *testing.T, filename string, ip string) {
+	// Append new IP to end of file
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	assertNoError(t, err)
+	defer f.Close()
+
+	_, err = f.WriteString(ip + "\n")
+	assertNoError(t, err)
+}
+
 // Test if the remote IP file gets created if it is not exiting
 func TestRemoteIpFileCreation(t *testing.T) {
-	tempDir, ipFile := createIpFile(t)
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
+	assertNoError(t, err)
+
+	ipFile := filepath.Join(tempDir, "remote-ips")
 	defer cleanupIpFile(t, tempDir)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
@@ -99,7 +119,7 @@ func TestRemoteIpFileCreation(t *testing.T) {
 		RemoteIpFile: ipFile,
 	}
 
-	err := matcher.Provision(ctx)
+	err = matcher.Provision(ctx)
 	assertNoError(t, err)
 
 	st, err := os.Lstat(ipFile)
@@ -113,7 +133,7 @@ func TestRemoteIpv4Match(t *testing.T) {
 	tempDir, ipFile := createIpFile(t)
 	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(ipFile, []byte("127.0.0.99\n"), 0644)
+	appendToFile(t, ipFile, "127.0.0.99")
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -147,7 +167,7 @@ func TestRemoteIpv6Match(t *testing.T) {
 	tempDir, ipFile := createIpFile(t)
 	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(ipFile, []byte("fd00::1\n"), 0644)
+	appendToFile(t, ipFile, "fd00::1")
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -181,7 +201,7 @@ func TestRemoteIpMatchDynamic(t *testing.T) {
 	tempDir, ipFile := createIpFile(t)
 	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(ipFile, []byte("127.0.0.80\n"), 0644)
+	appendToFile(t, ipFile, "127.0.0.80")
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -213,12 +233,7 @@ func TestRemoteIpMatchDynamic(t *testing.T) {
 		t.Error("Matcher did match")
 	}
 
-	// Append new IP to end of file
-	f, err := os.OpenFile(ipFile, os.O_APPEND|os.O_WRONLY, 0644)
-	assertNoError(t, err)
-	_, err = f.WriteString("127.0.0.99\n")
-	assertNoError(t, err)
-	f.Close()
+	appendToFile(t, ipFile, "127.0.0.99")
 
 	// Allow some time to register the file change
 	wait()
@@ -237,7 +252,7 @@ func TestRemoteIpNoMatch(t *testing.T) {
 	tempDir, ipFile := createIpFile(t)
 	defer cleanupIpFile(t, tempDir)
 
-	os.WriteFile(ipFile, []byte("127.0.0.1\n"), 0644)
+	appendToFile(t, ipFile, "127.0.0.1")
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close

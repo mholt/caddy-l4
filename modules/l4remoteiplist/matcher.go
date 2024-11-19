@@ -68,13 +68,13 @@ func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
 		return true, err
 	}
 
+	// IP not matched
+	m.logger.Debug("received request", zap.String("remote_addr", remoteIP.String()))
+
 	if m.remoteIpList.IsMatched(remoteIP) {
 		m.logger.Info("matched IP found", zap.String("remote_addr", remoteIP.String()))
 		return true, nil
 	}
-
-	// IP not matched
-	m.logger.Debug("received request", zap.String("remote_addr", remoteIP.String()))
 	return false, nil
 }
 

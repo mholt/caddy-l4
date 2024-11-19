@@ -49,11 +49,12 @@ func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, 
 		logger.Debug("could not find the file containing the IPs, trying to create it...")
 
 		// Create a new file since it does not exist
-		_, err := os.Create(ipFile)
+		file, err := os.Create(ipFile)
 		if err != nil {
 			logger.Error("Error creating the IP list", zap.Error(err))
 			return nil, fmt.Errorf("cannot create a new IP list: %v", err)
 		}
+		defer file.Close()
 		logger.Debug("list of IP addresses successfully created")
 	}
 
