@@ -31,7 +31,7 @@ func init() {
 }
 
 type RemoteIPList struct {
-	RemoteIPFile string `json:"ip_file"`
+	RemoteIPFile string `json:"remote_ip_file"`
 
 	logger       *zap.Logger
 	remoteIPList *IPList

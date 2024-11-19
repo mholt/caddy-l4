@@ -22,7 +22,7 @@
 							"match": [
 								{
 									"remote_ip_list": {
-										"ip_file": "/tmp/remote-ips"
+										"remote_ip_file": "/tmp/remote-ips"
 									}
 								}
 							],
