@@ -65,23 +65,23 @@ func assertNoError(t *testing.T, err error) {
 }
 
 // Create a temporary directory and a remote IP file
-func createIpFile(t *testing.T) (string, string) {
+func createIPFile(t *testing.T) (string, string) {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
 	assertNoError(t, err)
 
-	remoteIpFile := filepath.Join(tempDir, "remote-ips")
+	remoteIPFile := filepath.Join(tempDir, "remote-ips")
 
 	// Create the file
-	file, err := os.Create(remoteIpFile)
+	file, err := os.Create(remoteIPFile)
 	assertNoError(t, err)
 	defer file.Close()
 
-	return tempDir, remoteIpFile
+	return tempDir, remoteIPFile
 }
 
 // Cleanup the temporary directory and the remote IP file
-func cleanupIpFile(t *testing.T, tempDir string) {
+func cleanupIPFile(t *testing.T, tempDir string) {
 	t.Helper()
 	err := os.RemoveAll(tempDir)
 	assertNoError(t, err)
@@ -102,21 +102,21 @@ func appendToFile(t *testing.T, filename string, ip string) {
 }
 
 // Test if the remote IP file gets created if it is not exiting
-func TestRemoteIpFileCreation(t *testing.T) {
+func TestRemoteIPFileCreation(t *testing.T) {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
 	assertNoError(t, err)
 
 	ipFile := filepath.Join(tempDir, "remote-ips")
-	defer cleanupIpFile(t, tempDir)
+	defer cleanupIPFile(t, tempDir)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
 	defer wait()
 	defer cancel()
 
-	matcher := RemoteIpList{
-		RemoteIpFile: ipFile,
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
 	}
 
 	err = matcher.Provision(ctx)
@@ -129,9 +129,9 @@ func TestRemoteIpFileCreation(t *testing.T) {
 }
 
 // Test if a remote IPv4 address is matched
-func TestRemoteIpv4Match(t *testing.T) {
-	tempDir, ipFile := createIpFile(t)
-	defer cleanupIpFile(t, tempDir)
+func TestRemoteIPv4Match(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
 
 	appendToFile(t, ipFile, "127.0.0.99")
 
@@ -140,8 +140,8 @@ func TestRemoteIpv4Match(t *testing.T) {
 	defer wait()
 	defer cancel()
 
-	matcher := RemoteIpList{
-		RemoteIpFile: ipFile,
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -163,9 +163,9 @@ func TestRemoteIpv4Match(t *testing.T) {
 }
 
 // Test if a remote IPv6 address is matched
-func TestRemoteIpv6Match(t *testing.T) {
-	tempDir, ipFile := createIpFile(t)
-	defer cleanupIpFile(t, tempDir)
+func TestRemoteIPv6Match(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
 
 	appendToFile(t, ipFile, "fd00::1")
 
@@ -174,8 +174,8 @@ func TestRemoteIpv6Match(t *testing.T) {
 	defer wait()
 	defer cancel()
 
-	matcher := RemoteIpList{
-		RemoteIpFile: ipFile,
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -197,9 +197,9 @@ func TestRemoteIpv6Match(t *testing.T) {
 }
 
 // Test if a remote IP is matched (added to the file after first match call)
-func TestRemoteIpMatchDynamic(t *testing.T) {
-	tempDir, ipFile := createIpFile(t)
-	defer cleanupIpFile(t, tempDir)
+func TestRemoteIPMatchDynamic(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
 
 	appendToFile(t, ipFile, "127.0.0.80")
 
@@ -208,8 +208,8 @@ func TestRemoteIpMatchDynamic(t *testing.T) {
 	defer wait()
 	defer cancel()
 
-	matcher := RemoteIpList{
-		RemoteIpFile: ipFile,
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)
@@ -248,9 +248,9 @@ func TestRemoteIpMatchDynamic(t *testing.T) {
 }
 
 // Test if an IP that is not contained in the remote IP list is not matched
-func TestRemoteIpNoMatch(t *testing.T) {
-	tempDir, ipFile := createIpFile(t)
-	defer cleanupIpFile(t, tempDir)
+func TestRemoteIPNoMatch(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
 
 	appendToFile(t, ipFile, "127.0.0.1")
 
@@ -259,8 +259,8 @@ func TestRemoteIpNoMatch(t *testing.T) {
 	defer wait()
 	defer cancel()
 
-	matcher := RemoteIpList{
-		RemoteIpFile: ipFile,
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
 	}
 
 	err := matcher.Provision(ctx)

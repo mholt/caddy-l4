@@ -27,40 +27,40 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(&RemoteIpList{})
+	caddy.RegisterModule(&RemoteIPList{})
 }
 
-type RemoteIpList struct {
-	RemoteIpFile string `json:"ip_file"`
+type RemoteIPList struct {
+	RemoteIPFile string `json:"ip_file"`
 
 	logger       *zap.Logger
-	remoteIpList *IpList
+	remoteIPList *IPList
 }
 
 // CaddyModule returns the Caddy module information.
-func (*RemoteIpList) CaddyModule() caddy.ModuleInfo {
+func (*RemoteIPList) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.remote_ip_list",
-		New: func() caddy.Module { return new(RemoteIpList) },
+		New: func() caddy.Module { return new(RemoteIPList) },
 	}
 }
 
 // Provision implements caddy.Provisioner.
-func (m *RemoteIpList) Provision(ctx caddy.Context) error {
+func (m *RemoteIPList) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger()
 
-	remoteIpList, err := NewIpList(m.RemoteIpFile, &ctx, m.logger)
+	remoteIPList, err := NewIPList(m.RemoteIPFile, &ctx, m.logger)
 	if err != nil {
 		m.logger.Error("error creating a new IP list", zap.Error(err))
 		return err
 	}
-	m.remoteIpList = remoteIpList
-	m.remoteIpList.StartMonitoring()
+	m.remoteIPList = remoteIPList
+	m.remoteIPList.StartMonitoring()
 	return nil
 }
 
 // The Match will return true if the remote IP is found in the remote IP list
-func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
+func (m *RemoteIPList) Match(cx *layer4.Connection) (bool, error) {
 	remoteIP, err := m.getRemoteIP(cx)
 	if err != nil {
 		// Error, tread IP as matched
@@ -71,7 +71,7 @@ func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
 	// IP not matched
 	m.logger.Debug("received request", zap.String("remote_addr", remoteIP.String()))
 
-	if m.remoteIpList.IsMatched(remoteIP) {
+	if m.remoteIPList.IsMatched(remoteIP) {
 		m.logger.Info("matched IP found", zap.String("remote_addr", remoteIP.String()))
 		return true, nil
 	}
@@ -80,7 +80,7 @@ func (m *RemoteIpList) Match(cx *layer4.Connection) (bool, error) {
 
 // Returns the remote IP address for a given layer4 connection.
 // Same method as in layer4.MatchRemoteIP.getRemoteIP
-func (m *RemoteIpList) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
+func (m *RemoteIPList) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
 	remote := cx.Conn.RemoteAddr().String()
 
 	ipStr, _, err := net.SplitHostPort(remote)
@@ -98,7 +98,7 @@ func (m *RemoteIpList) getRemoteIP(cx *layer4.Connection) (netip.Addr, error) {
 // UnmarshalCaddyfile sets up the ip_file from Caddyfile. Syntax:
 //
 // remote_ip_list <ip_file>
-func (m *RemoteIpList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (m *RemoteIPList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
 	// Only one same-line argument is supported
@@ -107,7 +107,7 @@ func (m *RemoteIpList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	if d.NextArg() {
-		m.RemoteIpFile = d.Val()
+		m.RemoteIPFile = d.Val()
 	}
 
 	// No blocks are supported
@@ -120,7 +120,7 @@ func (m *RemoteIpList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // Interface guards
 var (
-	_ layer4.ConnMatcher    = (*RemoteIpList)(nil)
-	_ caddy.Provisioner     = (*RemoteIpList)(nil)
-	_ caddyfile.Unmarshaler = (*RemoteIpList)(nil)
+	_ layer4.ConnMatcher    = (*RemoteIPList)(nil)
+	_ caddy.Provisioner     = (*RemoteIPList)(nil)
+	_ caddyfile.Unmarshaler = (*RemoteIPList)(nil)
 )

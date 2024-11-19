@@ -27,7 +27,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type IpList struct {
+type IPList struct {
 	ipFile            string         // File containing all IPs to be matched, gets continously monitored
 	ipAddresses       []netip.Addr   // List of currently loaded IP addresses that would matched
 	ctx               *caddy.Context // Caddy context, used to detect when to shut down
@@ -36,9 +36,9 @@ type IpList struct {
 	reloadNeeded      bool       // Flag indicating whether a reload of the IPs is needed
 }
 
-// Creates a new IpList, creating the ipFile if it is not present
-func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, error) {
-	ipList := &IpList{
+// Creates a new IPList, creating the ipFile if it is not present
+func NewIPList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IPList, error) {
+	ipList := &IPList{
 		ipFile:       ipFile,
 		ctx:          ctx,
 		logger:       logger,
@@ -62,11 +62,11 @@ func NewIpList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IpList, 
 }
 
 // Check whether a IP address is currently contained in the IP list
-func (b *IpList) IsMatched(ip netip.Addr) bool {
+func (b *IPList) IsMatched(ip netip.Addr) bool {
 	// First reload the IP list if needed to ensure IPs are always up to date
 	b.reloadNeededMutex.Lock()
 	if b.reloadNeeded {
-		err := b.loadIpAddresses()
+		err := b.loadIPAddresses()
 		if err != nil {
 			b.logger.Error("could not load IP addresses", zap.Error(err))
 		} else {
@@ -76,8 +76,8 @@ func (b *IpList) IsMatched(ip netip.Addr) bool {
 	}
 	b.reloadNeededMutex.Unlock()
 
-	for _, listIp := range b.ipAddresses {
-		if listIp.Compare(ip) == 0 {
+	for _, listIP := range b.ipAddresses {
+		if listIP.Compare(ip) == 0 {
 			return true
 		}
 	}
@@ -85,11 +85,11 @@ func (b *IpList) IsMatched(ip netip.Addr) bool {
 }
 
 // Start to monitor the IP list
-func (b *IpList) StartMonitoring() {
+func (b *IPList) StartMonitoring() {
 	go b.monitor()
 }
 
-func (b *IpList) ipFileExists() bool {
+func (b *IPList) ipFileExists() bool {
 	// Make sure the IP list is a file
 	st, err := os.Lstat(b.ipFile)
 	if err != nil || st.IsDir() {
@@ -98,7 +98,7 @@ func (b *IpList) ipFileExists() bool {
 	return true
 }
 
-func (b *IpList) monitor() {
+func (b *IPList) monitor() {
 	// Create a new watcher
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -148,7 +148,7 @@ func (b *IpList) monitor() {
 }
 
 // Loads the IP addresses from the IP list
-func (b *IpList) loadIpAddresses() error {
+func (b *IPList) loadIPAddresses() error {
 	if !b.ipFileExists() {
 		b.logger.Error("list of IP addresses does not exist, could not load IP addresses")
 		return fmt.Errorf("list of IP addresses %v does not exist, could not load IP addresses", b.ipFile)
