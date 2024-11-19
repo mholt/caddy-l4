@@ -160,8 +160,7 @@ func (b *IPList) loadIPAddresses() error {
 
 	file, err := os.Open(b.ipFile)
 	if err != nil {
-		b.logger.Error("error opening the IP list file", zap.Error(err))
-		return fmt.Errorf("error opening the IP list file %v", b.ipFile)
+		return fmt.Errorf("error opening the IP list file %v: %w", b.ipFile, err)
 	}
 	defer file.Close()
 
@@ -176,9 +175,9 @@ func (b *IPList) loadIPAddresses() error {
 			ipAddresses = append(ipAddresses, ip)
 		}
 	}
-	if scanner.Err() != nil {
-		b.logger.Error("error reading the IP list", zap.Error(err))
-		return fmt.Errorf("error reading the IPs from %v", b.ipFile)
+	err = scanner.Err()
+	if err != nil {
+		return fmt.Errorf("error reading the IPs from %v: %w", b.ipFile, err)
 	}
 
 	b.ipAddresses = ipAddresses
