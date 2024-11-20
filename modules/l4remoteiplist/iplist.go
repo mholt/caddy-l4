@@ -23,13 +23,14 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
 )
 
 type IPList struct {
-	ipFile            string         // File containing all IPs to be matched, gets continously monitored
-	ipAddresses       []netip.Addr   // List of currently loaded IP addresses that would matched
+	ipFile            string         // File containing all IPs / CIDRs to be matched, gets continously monitored
+	cidrs             []netip.Prefix // List of currently loaded CIDRs
 	ctx               *caddy.Context // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
 	reloadNeededMutex sync.Mutex // Mutex to ensure proper concurrent handling of reloads
@@ -69,8 +70,8 @@ func (b *IPList) IsMatched(ip netip.Addr) bool {
 	}
 	b.reloadNeededMutex.Unlock()
 
-	for _, listIP := range b.ipAddresses {
-		if listIP.Compare(ip) == 0 {
+	for _, cidr := range b.cidrs {
+		if cidr.Contains(ip) {
 			return true
 		}
 	}
@@ -154,7 +155,7 @@ func (b *IPList) monitor() {
 func (b *IPList) loadIPAddresses() error {
 	if !b.ipFileExists() {
 		b.logger.Debug("ip file not found, nothing to monitor")
-		b.ipAddresses = make([]netip.Addr, 0)
+		b.cidrs = make([]netip.Prefix, 0)
 		return nil
 	}
 
@@ -164,15 +165,15 @@ func (b *IPList) loadIPAddresses() error {
 	}
 	defer file.Close()
 
-	var ipAddresses []netip.Addr
+	var cidrs []netip.Prefix
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		ip, err := netip.ParseAddr(line)
+		cidr, err := caddyhttp.CIDRExpressionToPrefix(line)
 		if err == nil {
-			// only append valid IP addresses (ignore lines that
-			// have not been parsed to an IP address, e.g. comments)
-			ipAddresses = append(ipAddresses, ip)
+			// only append valid IP addresses / CIDRs (ignore lines that
+			// have not been parsed successfully, e.g. comments)
+			cidrs = append(cidrs, cidr)
 		}
 	}
 	err = scanner.Err()
@@ -180,6 +181,6 @@ func (b *IPList) loadIPAddresses() error {
 		return fmt.Errorf("error reading the IPs from %v: %w", b.ipFile, err)
 	}
 
-	b.ipAddresses = ipAddresses
+	b.cidrs = cidrs
 	return nil
 }

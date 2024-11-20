@@ -101,14 +101,13 @@ func appendToFile(t *testing.T, filename string, ip string) {
 	assertNoError(t, err)
 }
 
-// Test if the matcher still works of no remote IP file exists
-func TestNoRemoteIPFile(t *testing.T) {
-	t.Helper()
-	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
-	assertNoError(t, err)
+// simple template for testing: write IP ipInFile to file and test against the IP ipInConnection
+// expected result of the matcher is matchExpected
+func simpleIPMatchTest(t *testing.T, ipInFile string, ipInConnection string, matchExpected bool) {
+	tempDir, ipFile := createIPFile(t)
 	defer cleanupIPFile(t, tempDir)
 
-	ipFile := filepath.Join(tempDir, "remote-ips")
+	appendToFile(t, ipFile, ipInFile)
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -119,12 +118,12 @@ func TestNoRemoteIPFile(t *testing.T) {
 		RemoteIPFile: ipFile,
 	}
 
-	err = matcher.Provision(ctx)
+	err := matcher.Provision(ctx)
 	assertNoError(t, err)
 
 	cx := &layer4.Connection{
 		Conn: &dummyConn{
-			remoteAddr: dummyAddr{ip: "127.0.0.99", network: "tcp"},
+			remoteAddr: dummyAddr{ip: ipInConnection, network: "tcp"},
 		},
 		Logger: zap.NewNop(),
 	}
@@ -132,81 +131,44 @@ func TestNoRemoteIPFile(t *testing.T) {
 	matched, err := matcher.Match(cx)
 	assertNoError(t, err)
 
-	if matched {
-		t.Error("Matcher did match, although no remote IP file existed")
-	}
-
-	if _, err := os.Stat(ipFile); err == nil {
-		t.Error("IP file does exist")
+	if matched != matchExpected {
+		t.Errorf("Matcher returned %t (expected was %t)", matched, matchExpected)
 	}
 }
 
 // Test if a remote IPv4 address is matched
 func TestRemoteIPv4Match(t *testing.T) {
-	tempDir, ipFile := createIPFile(t)
-	defer cleanupIPFile(t, tempDir)
+	simpleIPMatchTest(t, "127.0.0.99", "127.0.0.99", true)
+}
 
-	appendToFile(t, ipFile, "127.0.0.99")
+// Test if a remote IPv4 network is matched
+func TestRemoteIPv4NetworkMatch(t *testing.T) {
+	simpleIPMatchTest(t, "127.0.0.1/8", "127.0.0.99", true)
+}
 
-	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
-	// Give some time to react to the context close
-	defer wait()
-	defer cancel()
-
-	matcher := RemoteIPList{
-		RemoteIPFile: ipFile,
-	}
-
-	err := matcher.Provision(ctx)
-	assertNoError(t, err)
-
-	cx := &layer4.Connection{
-		Conn: &dummyConn{
-			remoteAddr: dummyAddr{ip: "127.0.0.99", network: "tcp"},
-		},
-		Logger: zap.NewNop(),
-	}
-
-	matched, err := matcher.Match(cx)
-	assertNoError(t, err)
-
-	if !matched {
-		t.Error("Matcher did not match")
-	}
+// Test if an IP that is not contained in the remote IP list is not matched
+func TestRemoteIPv4NoMatch(t *testing.T) {
+	simpleIPMatchTest(t, "127.0.0.1", "127.0.0.99", false)
 }
 
 // Test if a remote IPv6 address is matched
 func TestRemoteIPv6Match(t *testing.T) {
-	tempDir, ipFile := createIPFile(t)
-	defer cleanupIPFile(t, tempDir)
+	simpleIPMatchTest(t, "fd00::1", "fd00:0:0:0:0:0:0:1", true)
+}
 
-	appendToFile(t, ipFile, "fd00::1")
+// Test if a remote IPv6 network is matched
+func TestRemoteIPv6NetworkMatch(t *testing.T) {
+	simpleIPMatchTest(t, "fd00::1/8", "fd00:0:0:0:0:0:0:99", true)
+}
 
-	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
-	// Give some time to react to the context close
-	defer wait()
-	defer cancel()
+// Test if an IP that is not contained in the remote IP list is not matched
+func TestRemoteIPv6NoMatch(t *testing.T) {
+	simpleIPMatchTest(t, "fd00::1", "fd00::2", false)
+}
 
-	matcher := RemoteIPList{
-		RemoteIPFile: ipFile,
-	}
-
-	err := matcher.Provision(ctx)
-	assertNoError(t, err)
-
-	cx := &layer4.Connection{
-		Conn: &dummyConn{
-			remoteAddr: dummyAddr{ip: "fd00:0:0:0:0:0:0:1", network: "tcp"},
-		},
-		Logger: zap.NewNop(),
-	}
-
-	matched, err := matcher.Match(cx)
-	assertNoError(t, err)
-
-	if !matched {
-		t.Error("Matcher did not match")
-	}
+// Test if an IP file only containing a comment is handled correctly
+func TestNoMatch(t *testing.T) {
+	simpleIPMatchTest(t, "// this is a comment", "127.0.0.1", false)
 }
 
 // Test if a remote IP is matched (added to the file after first match call)
@@ -260,12 +222,14 @@ func TestRemoteIPMatchDynamic(t *testing.T) {
 	}
 }
 
-// Test if an IP that is not contained in the remote IP list is not matched
-func TestRemoteIPNoMatch(t *testing.T) {
-	tempDir, ipFile := createIPFile(t)
+// Test if the matcher still works of no remote IP file exists
+func TestNoRemoteIPFile(t *testing.T) {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "caddy-l4-remoteiplist-test")
+	assertNoError(t, err)
 	defer cleanupIPFile(t, tempDir)
 
-	appendToFile(t, ipFile, "127.0.0.1")
+	ipFile := filepath.Join(tempDir, "remote-ips")
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	// Give some time to react to the context close
@@ -276,7 +240,7 @@ func TestRemoteIPNoMatch(t *testing.T) {
 		RemoteIPFile: ipFile,
 	}
 
-	err := matcher.Provision(ctx)
+	err = matcher.Provision(ctx)
 	assertNoError(t, err)
 
 	cx := &layer4.Connection{
@@ -290,6 +254,10 @@ func TestRemoteIPNoMatch(t *testing.T) {
 	assertNoError(t, err)
 
 	if matched {
-		t.Fatalf("Matcher did match")
+		t.Error("Matcher did match, although no remote IP file existed")
+	}
+
+	if _, err := os.Stat(ipFile); err == nil {
+		t.Error("IP file does exist")
 	}
 }
