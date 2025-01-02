@@ -221,6 +221,12 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				matcherNeedMore = true
 				goto loop
 			}
+			// fallback route, removing deadline
+			// see: https://github.com/mholt/caddy-l4/issues/274
+			err = cx.Conn.SetReadDeadline(time.Time{})
+			if err != nil {
+				return err
+			}
 			return next.Handle(cx)
 		}
 	})
