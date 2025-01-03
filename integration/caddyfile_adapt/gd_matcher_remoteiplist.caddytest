@@ -1,0 +1,47 @@
+{
+	layer4 {
+        :12345 {
+            @f1 remote_ip_list /tmp/remote-ips
+            route @f1 {
+                proxy f1.machine.local:54321
+            }
+        }
+    }
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":12345"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"remote_ip_list": {
+										"remote_ip_file": "/tmp/remote-ips"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"f1.machine.local:54321"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
