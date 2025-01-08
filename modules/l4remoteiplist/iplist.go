@@ -31,14 +31,14 @@ import (
 type IPList struct {
 	ipFile            string         // File containing all IPs / CIDRs to be matched, gets continously monitored
 	cidrs             []netip.Prefix // List of currently loaded CIDRs
-	ctx               *caddy.Context // Caddy context, used to detect when to shut down
+	ctx               caddy.Context  // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
 	reloadNeededMutex sync.Mutex // Mutex to ensure proper concurrent handling of reloads
 	reloadNeeded      bool       // Flag indicating whether a reload of the IPs is needed
 }
 
 // Creates a new IPList, creating the ipFile if it is not present
-func NewIPList(ipFile string, ctx *caddy.Context, logger *zap.Logger) (*IPList, error) {
+func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, error) {
 	ipList := &IPList{
 		ipFile:       ipFile,
 		ctx:          ctx,

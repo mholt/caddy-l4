@@ -49,7 +49,7 @@ func (*RemoteIPList) CaddyModule() caddy.ModuleInfo {
 func (m *RemoteIPList) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger()
 
-	remoteIPList, err := NewIPList(m.RemoteIPFile, &ctx, m.logger)
+	remoteIPList, err := NewIPList(m.RemoteIPFile, ctx, m.logger)
 	if err != nil {
 		m.logger.Error("error creating a new IP list", zap.Error(err))
 		return err
