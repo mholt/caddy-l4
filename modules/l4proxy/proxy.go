@@ -266,10 +266,10 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				if v2, ok := header.(proxyprotocol.HeaderV2); ok {
 					la, _ := v2.Dest.(*net.UDPAddr)
 					ra, _ := v2.Src.(*net.UDPAddr)
-					// for UDP, local address maybe net.IPv6zero, this value can't be converted to ipv4.
-					// But remote address may be ipv4 wrapped in ipv6, so we need to convert it to ipv4 manually.
-					if la != nil && ra != nil && ra.IP.To4() != nil && la.IP.Equal(net.IPv6zero) {
-						la = &net.UDPAddr{IP: net.IPv4zero, Port: la.Port, Zone: la.Zone}
+					// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
+					if la != nil && ra != nil {
+						// TODO: extract real address using golang.org/x/net
+						la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
 						v2.Dest = la
 						// header is not updated automatically, a value not a pointer
 						header = v2
