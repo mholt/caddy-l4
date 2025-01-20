@@ -260,27 +260,30 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				header = h
 			}
 
-			// for packet connection, prepend each message with pp
-			if _, ok := up.(net.PacketConn); ok {
-				// only v2 supports UDP addresses
-				if v2, ok := header.(proxyprotocol.HeaderV2); ok {
-					la, _ := v2.Dest.(*net.UDPAddr)
-					ra, _ := v2.Src.(*net.UDPAddr)
-					// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
-					if la != nil && ra != nil {
-						// TODO: extract real address using golang.org/x/net
-						la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
-						v2.Dest = la
-						// header is not updated automatically, a value not a pointer
-						header = v2
+			// Only write the PROXY protocol header if it's not nil
+			if header != nil {
+				// for packet connection, prepend each message with pp
+				if _, ok := up.(net.PacketConn); ok {
+					// only v2 supports UDP addresses
+					if v2, ok := header.(proxyprotocol.HeaderV2); ok {
+						la, _ := v2.Dest.(*net.UDPAddr)
+						ra, _ := v2.Src.(*net.UDPAddr)
+						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
+						if la != nil && ra != nil {
+							// TODO: extract real local address using golang.org/x/net
+							la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
+							v2.Dest = la
+							// header is not updated automatically, a value not a pointer
+							header = v2
+						}
 					}
+					up = &packetProxyProtocolConn{
+						Conn:   up,
+						header: header,
+					}
+				} else {
+					_, err = header.WriteTo(up)
 				}
-				up = &packetProxyProtocolConn{
-					Conn:   up,
-					header: header,
-				}
-			} else {
-				_, err = header.WriteTo(up)
 			}
 		}
 
