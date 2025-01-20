@@ -269,7 +269,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 						la, _ := v2.Dest.(*net.UDPAddr)
 						ra, _ := v2.Src.(*net.UDPAddr)
 						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
-						if la != nil && ra != nil {
+						if la != nil && ra != nil && la.IP.IsUnspecified() {
 							// TODO: extract real local address using golang.org/x/net
 							la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
 							v2.Dest = la
