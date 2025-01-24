@@ -78,6 +78,12 @@ type Connection struct {
 var ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
 var ErrMatchingBufferFull = errors.New("matching buffer is full")
 
+// GetContext returns cx.Context,
+// so that caddytls.MatchServerNameRE.Match() could obtain this context without importing layer4.
+func (cx *Connection) GetContext() context.Context {
+	return cx.Context
+}
+
 // Read implements io.Reader in such a way that reads first
 // deplete any associated buffer from the prior recording,
 // and once depleted (or if there isn't one), it continues
