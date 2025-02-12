@@ -118,9 +118,15 @@ func (m *RemoteIPList) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+func (m *RemoteIPList) Cleanup() error {
+	m.remoteIPList.StopMonitoring()
+	return nil
+}
+
 // Interface guards
 var (
 	_ layer4.ConnMatcher    = (*RemoteIPList)(nil)
 	_ caddy.Provisioner     = (*RemoteIPList)(nil)
+	_ caddy.CleanerUpper    = (*RemoteIPList)(nil)
 	_ caddyfile.Unmarshaler = (*RemoteIPList)(nil)
 )

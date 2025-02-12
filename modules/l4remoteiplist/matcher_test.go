@@ -120,6 +120,7 @@ func simpleIPMatchTest(t *testing.T, ipInFile string, ipInConnection string, mat
 
 	err := matcher.Provision(ctx)
 	assertNoError(t, err)
+	wait()
 
 	cx := &layer4.Connection{
 		Conn: &dummyConn{
@@ -242,6 +243,7 @@ func TestNoRemoteIPFile(t *testing.T) {
 
 	err = matcher.Provision(ctx)
 	assertNoError(t, err)
+	wait()
 
 	cx := &layer4.Connection{
 		Conn: &dummyConn{
@@ -259,5 +261,34 @@ func TestNoRemoteIPFile(t *testing.T) {
 
 	if _, err := os.Stat(ipFile); err == nil {
 		t.Error("IP file does exist")
+	}
+}
+
+// Test if the monitoring terminates properly on cleanup
+func TestCleanup(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	// Give some time to react to the context close
+	defer wait()
+	defer cancel()
+
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
+	}
+
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+	wait()
+
+	// Cleanup matcher directly after provision
+	err = matcher.Cleanup()
+	assertNoError(t, err)
+	wait()
+
+	// Expect monitoring to have stopped
+	if matcher.remoteIPList.isRunning.Load() {
+		t.Errorf("Matcher is running although it was stopped")
 	}
 }

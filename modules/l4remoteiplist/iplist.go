@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -33,8 +34,10 @@ type IPList struct {
 	cidrs             []netip.Prefix // List of currently loaded CIDRs
 	ctx               caddy.Context  // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
-	reloadNeededMutex sync.Mutex // Mutex to ensure proper concurrent handling of reloads
-	reloadNeeded      bool       // Flag indicating whether a reload of the IPs is needed
+	reloadNeededMutex sync.Mutex  // Mutex to ensure proper concurrent handling of reloads
+	reloadNeeded      bool        // Flag indicating whether a reload of the IPs is needed
+	isRunning         atomic.Bool // Flag indicating whether monitoring is currently active
+	stop              chan bool   // Channel to indicate that monitoring shall be stopped
 }
 
 // Creates a new IPList, creating the ipFile if it is not present
@@ -44,6 +47,7 @@ func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, e
 		ctx:          ctx,
 		logger:       logger,
 		reloadNeeded: true,
+		stop:         make(chan bool),
 	}
 
 	// make sure the directory containing the ipFile exists
@@ -57,6 +61,10 @@ func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, e
 
 // Check whether a IP address is currently contained in the IP list
 func (b *IPList) IsMatched(ip netip.Addr) bool {
+	if !b.isRunning.Load() {
+		b.logger.Warn("match called but monitoring of IP file is not active")
+	}
+
 	// First reload the IP list if needed to ensure IPs are always up to date
 	b.reloadNeededMutex.Lock()
 	if b.reloadNeeded {
@@ -83,6 +91,12 @@ func (b *IPList) StartMonitoring() {
 	go b.monitor()
 }
 
+// Start to monitor the IP list
+func (b *IPList) StopMonitoring() {
+	// stop goroutine
+	b.stop <- true
+}
+
 func (b *IPList) ipFileDirectoryExists() bool {
 	// Make sure the directory containing the IP list exists
 	dirpath := filepath.Dir(b.ipFile)
@@ -103,16 +117,21 @@ func (b *IPList) ipFileExists() bool {
 }
 
 func (b *IPList) monitor() {
+	// Set monitoring state to running
+	b.isRunning.Store(true)
+
 	// Create a new watcher
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		b.logger.Error("error creating a new filesystem watcher", zap.Error(err))
+		b.isRunning.Store(false)
 		return
 	}
 	defer w.Close()
 
 	if !b.ipFileDirectoryExists() {
 		b.logger.Error("directory containing the IP file to monitor does not exist")
+		b.isRunning.Store(false)
 		return
 	}
 
@@ -120,24 +139,33 @@ func (b *IPList) monitor() {
 	err = w.Add(filepath.Dir(b.ipFile))
 	if err != nil {
 		b.logger.Error("error watching the file", zap.Error(err))
+		b.isRunning.Store(false)
 		return
 	}
 
 	for {
 		select {
+		case <-b.stop:
+			// Stop method called
+			b.logger.Debug("stop called")
+			b.isRunning.Store(false)
+			return
 		case <-b.ctx.Done():
-			// Check if Caddy closed the context
+			// Caddy closed the context
 			b.logger.Debug("caddy closed the context")
+			b.isRunning.Store(false)
 			return
 		case err, ok := <-w.Errors:
 			b.logger.Error("error from file watcher", zap.Error(err))
 			if !ok {
 				b.logger.Error("file watcher was closed")
+				b.isRunning.Store(false)
 				return
 			}
 		case e, ok := <-w.Events:
 			if !ok {
 				b.logger.Error("file watcher was closed")
+				b.isRunning.Store(false)
 				return
 			}
 
