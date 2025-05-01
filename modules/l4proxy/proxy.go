@@ -200,13 +200,21 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 	var upConns []net.Conn
 
 	for _, p := range upstream.peers {
-		hostPort := repl.ReplaceAll(p.address.JoinHostPort(0), "")
+		hostPort := repl.ReplaceAll(p.dialAddr, "")
+		addr := p.address
 
 		var up net.Conn
 		var err error
 
+		if addr == nil {
+			addr, err = parseAddress(hostPort)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		if upstream.TLS == nil {
-			up, err = net.Dial(p.address.Network, hostPort)
+			up, err = net.Dial(addr.Network, hostPort)
 		} else {
 			// the prepared config could be nil if user enabled but did not customize TLS,
 			// in which case we adopt the downstream client's TLS ClientHello for ours;
@@ -218,7 +226,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 					hellos[0].FillTLSClientConfig(tlsCfg)
 				}
 			}
-			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
+			up, err = tls.Dial(addr.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -346,7 +354,7 @@ func (h *Handler) countFailure(p *peer) {
 	err := p.countFail(1)
 	if err != nil {
 		h.HealthChecks.Passive.logger.Error("could not count failure",
-			zap.String("peer_address", p.address.String()),
+			zap.String("peer_address", p.dialAddr),
 			zap.Error(err))
 		return
 	}
@@ -362,7 +370,7 @@ func (h *Handler) countFailure(p *peer) {
 		err := p.countFail(-1)
 		if err != nil {
 			h.HealthChecks.Passive.logger.Error("could not forget failure",
-				zap.String("peer_address", p.address.String()),
+				zap.String("peer_address", p.dialAddr),
 				zap.Error(err))
 		}
 	}(failDuration)
