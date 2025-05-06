@@ -15,6 +15,7 @@
 package l4proxy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -196,6 +197,25 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	return nil
 }
 
+// packetProxyProtocolConn sends every message prepended with proxy protocol
+type packetProxyProtocolConn struct {
+	net.Conn
+	header io.WriterTo // both of the pp header types implement this interface
+}
+
+func (pp *packetProxyProtocolConn) Write(p []byte) (int, error) {
+	// TODO: pool the buffer
+	buf := new(bytes.Buffer)
+	// send pp and payload in a single message
+	_, _ = pp.header.WriteTo(buf)
+	buf.Write(p)
+	_, err := buf.WriteTo(pp.Conn)
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
 	var upConns []net.Conn
 
@@ -228,15 +248,42 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		// Send the PROXY protocol header.
 		if err == nil {
 			downConn := l4proxyprotocol.GetConn(down)
+			var header io.WriterTo
 			switch h.proxyProtocolVersion {
 			case 1:
 				var h proxyprotocol.HeaderV1
 				h.FromConn(downConn, false)
-				_, err = h.WriteTo(up)
+				header = h
 			case 2:
 				var h proxyprotocol.HeaderV2
 				h.FromConn(downConn, false)
-				_, err = h.WriteTo(up)
+				header = h
+			}
+
+			// Only write the PROXY protocol header if it's not nil
+			if header != nil {
+				// for packet connection, prepend each message with pp
+				if _, ok := up.(net.PacketConn); ok {
+					// only v2 supports UDP addresses
+					if v2, ok := header.(proxyprotocol.HeaderV2); ok {
+						la, _ := v2.Dest.(*net.UDPAddr)
+						ra, _ := v2.Src.(*net.UDPAddr)
+						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
+						if la != nil && ra != nil && la.IP.IsUnspecified() {
+							// TODO: extract real local address using golang.org/x/net
+							la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
+							v2.Dest = la
+							// header is not updated automatically, a value not a pointer
+							header = v2
+						}
+					}
+					up = &packetProxyProtocolConn{
+						Conn:   up,
+						header: header,
+					}
+				} else {
+					_, err = header.WriteTo(up)
+				}
 			}
 		}
 
