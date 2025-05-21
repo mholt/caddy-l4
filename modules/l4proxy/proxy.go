@@ -263,7 +263,9 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			// Only write the PROXY protocol header if it's not nil
 			if header != nil {
 				// for packet connection, prepend each message with pp
-				if _, ok := up.(net.PacketConn); ok {
+				// unix connections always implement this interface while not necessarily in datagram mode
+				// ignore it unless the unix socket is in datagram mode
+				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(p.address.Network) || p.address.Network == "unixgram") {
 					// only v2 supports UDP addresses
 					if v2, ok := header.(proxyprotocol.HeaderV2); ok {
 						la, _ := v2.Dest.(*net.UDPAddr)
