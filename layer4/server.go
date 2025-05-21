@@ -376,7 +376,7 @@ func (pc *packetConn) LocalAddr() net.Addr {
 	if pc.lAddr != nil {
 		return pc.lAddr
 	}
-	return pc.LocalAddr()
+	return pc.PacketConn.LocalAddr()
 }
 
 var udpBufPool = sync.Pool{
