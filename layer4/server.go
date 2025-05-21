@@ -99,7 +99,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 	go func(packets chan packet) {
 		for {
 			buf := udpBufPool.Get().([]byte)
-			n, addr, err := pc.ReadFrom(buf)
+			n, rAddr, lAddr, err := readFrom(pc, buf)
 			if err != nil {
 				var netErr net.Error
 				if errors.As(err, &netErr) && netErr.Timeout() {
@@ -111,7 +111,8 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 			packets <- packet{
 				pooledBuf: buf,
 				n:         n,
-				addr:      addr,
+				rAddr:     rAddr,
+				lAddr:     lAddr,
 			}
 		}
 	}(packets)
@@ -134,17 +135,19 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 			if pkt.err != nil {
 				return pkt.err
 			}
-			conn, ok := udpConns[pkt.addr.String()]
+			addrKey := formatAddrs(pkt.rAddr, pkt.lAddr)
+			conn, ok := udpConns[addrKey]
 			if !ok {
 				// No existing proxy handler is running for this downstream.
 				// Create one now.
 				conn = &packetConn{
 					PacketConn: pc,
 					readCh:     make(chan *packet, 5),
-					addr:       pkt.addr,
+					rAddr:      pkt.rAddr,
+					lAddr:      pkt.lAddr,
 					closeCh:    closeCh,
 				}
-				udpConns[pkt.addr.String()] = conn
+				udpConns[addrKey] = conn
 				go func(conn *packetConn) {
 					s.handle(conn)
 					// It might seem cleaner to send to closeCh here rather than
@@ -219,6 +222,14 @@ func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// lAddr may be nil for non-udp sockets and unsupported platforms
+func formatAddrs(rAddr, lAddr net.Addr) string {
+	if lAddr == nil {
+		return rAddr.String() + ":nil"
+	}
+	return rAddr.String() + ":" + lAddr.String()
+}
+
 type packet struct {
 	// The underlying bytes slice that was gotten from udpBufPool.  It's up to
 	// packetConn to return it to udpBufPool once it's consumed.
@@ -227,13 +238,18 @@ type packet struct {
 	n int
 	// Error that occurred while reading from socket
 	err error
-	// Address of downstream
-	addr net.Addr
+	// remote address
+	rAddr net.Addr
+	// local address, may be nil
+	lAddr net.Addr
 }
 
 type packetConn struct {
 	net.PacketConn
-	addr    net.Addr
+	// remote address
+	rAddr net.Addr
+	// local address, may be nil
+	lAddr   net.Addr
 	readCh  chan *packet
 	closeCh chan string
 	// If not nil, then the previous Read() call didn't consume all the data
@@ -325,14 +341,14 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	// Although Close() also does this, we inform the server loop early about
 	// the closure to ensure that if any new packets are received from this
 	// connection in the meantime, a new handler will be started.
-	pc.closeCh <- pc.addr.String()
+	pc.closeCh <- formatAddrs(pc.rAddr, pc.lAddr)
 	// Returning EOF here ensures that io.Copy() waiting on the downstream for
 	// reads will terminate.
 	return 0, io.EOF
 }
 
 func (pc *packetConn) Write(b []byte) (n int, err error) {
-	return pc.PacketConn.WriteTo(b, pc.addr)
+	return pc.PacketConn.WriteTo(b, pc.rAddr)
 }
 
 func (pc *packetConn) Close() error {
@@ -348,13 +364,20 @@ func (pc *packetConn) Close() error {
 	}
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
-	pc.closeCh <- pc.addr.String()
+	pc.closeCh <- formatAddrs(pc.rAddr, pc.lAddr)
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
 	return nil
 }
 
-func (pc *packetConn) RemoteAddr() net.Addr { return pc.addr }
+func (pc *packetConn) RemoteAddr() net.Addr { return pc.rAddr }
+
+func (pc *packetConn) LocalAddr() net.Addr {
+	if pc.lAddr != nil {
+		return pc.lAddr
+	}
+	return pc.LocalAddr()
+}
 
 var udpBufPool = sync.Pool{
 	New: func() interface{} {
