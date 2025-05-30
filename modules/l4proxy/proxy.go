@@ -192,7 +192,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	}()
 
 	// finally, proxy the connection
-	h.proxy(down, upConns)
+	h.Proxy(down, upConns)
 
 	return nil
 }
@@ -304,7 +304,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 }
 
 // proxy proxies the downstream connection to all upstream connections.
-func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
+func (h *Handler) Proxy(down *layer4.Connection, upConns []net.Conn) {
 	// every time we read from downstream, we write
 	// the same to each upstream; this is half of
 	// the proxy duplex
