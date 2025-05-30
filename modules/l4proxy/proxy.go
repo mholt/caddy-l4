@@ -165,17 +165,17 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 			if proxyErr == nil {
 				proxyErr = fmt.Errorf("no upstreams available")
 			}
-			if !h.LoadBalancing.tryAgain(h.ctx, start) {
+			if !h.LoadBalancing.TryAgain(h.ctx, start) {
 				return proxyErr
 			}
 			continue
 		}
 
 		// establish all upstream connections
-		upConns, proxyErr = h.dialPeers(upstream, repl, down)
+		upConns, proxyErr = h.DialPeers(upstream, repl, down)
 		if proxyErr != nil {
 			// we might be able to try again
-			if !h.LoadBalancing.tryAgain(h.ctx, start) {
+			if !h.LoadBalancing.TryAgain(h.ctx, start) {
 				return proxyErr
 			}
 			continue
@@ -192,7 +192,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	}()
 
 	// finally, proxy the connection
-	h.proxy(down, upConns)
+	h.Proxy(down, upConns)
 
 	return nil
 }
@@ -216,7 +216,7 @@ func (pp *packetProxyProtocolConn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
+func (h *Handler) DialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
 	var upConns []net.Conn
 
 	for _, p := range upstream.peers {
@@ -304,7 +304,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 }
 
 // proxy proxies the downstream connection to all upstream connections.
-func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
+func (h *Handler) Proxy(down *layer4.Connection, upConns []net.Conn) {
 	// every time we read from downstream, we write
 	// the same to each upstream; this is half of
 	// the proxy duplex
