@@ -66,7 +66,7 @@ func (a *App) Provision(ctx caddy.Context) error {
 func (a *App) Start() error {
 	for _, s := range a.Servers {
 		for _, addr := range s.listenAddrs {
-			listeners, err := addr.ListenAll(a.ctx, net.ListenConfig{})
+			listeners, err := addr.ListenAll(a.ctx, listenConfig)
 			if err != nil {
 				return err
 			}
