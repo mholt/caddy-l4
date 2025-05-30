@@ -172,7 +172,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 		}
 
 		// establish all upstream connections
-		upConns, proxyErr = h.dialPeers(upstream, repl, down)
+		upConns, proxyErr = h.DialPeers(upstream, repl, down)
 		if proxyErr != nil {
 			// we might be able to try again
 			if !h.LoadBalancing.TryAgain(h.ctx, start) {
@@ -216,7 +216,7 @@ func (pp *packetProxyProtocolConn) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
+func (h *Handler) DialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
 	var upConns []net.Conn
 
 	for _, p := range upstream.peers {
