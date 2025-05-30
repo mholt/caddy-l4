@@ -51,12 +51,12 @@ type LoadBalancing struct {
 	SelectionPolicy Selector `json:"-"`
 }
 
-// tryAgain takes the time that the handler was initially invoked
+// TryAgain takes the time that the handler was initially invoked
 // and returns true if another attempt should be made at proxying the
 // connection. If true is returned, it has already blocked long enough
 // before the next retry (i.e. no more sleeping is needed). If false
 // is returned, the handler should stop trying to proxy the connection.
-func (lb LoadBalancing) tryAgain(ctx caddy.Context, start time.Time) bool {
+func (lb LoadBalancing) TryAgain(ctx caddy.Context, start time.Time) bool {
 	// if we've tried long enough, break
 	if time.Since(start) >= time.Duration(lb.TryDuration) {
 		return false

@@ -165,7 +165,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 			if proxyErr == nil {
 				proxyErr = fmt.Errorf("no upstreams available")
 			}
-			if !h.LoadBalancing.tryAgain(h.ctx, start) {
+			if !h.LoadBalancing.TryAgain(h.ctx, start) {
 				return proxyErr
 			}
 			continue
@@ -175,7 +175,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 		upConns, proxyErr = h.dialPeers(upstream, repl, down)
 		if proxyErr != nil {
 			// we might be able to try again
-			if !h.LoadBalancing.tryAgain(h.ctx, start) {
+			if !h.LoadBalancing.TryAgain(h.ctx, start) {
 				return proxyErr
 			}
 			continue
