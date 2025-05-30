@@ -126,6 +126,15 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 	for {
 		select {
 		case addr := <-closeCh:
+			conn, ok := udpConns[addr]
+			if ok {
+				// This will abort any active Read() from another goroutine and return EOF
+				close(conn.readCh)
+				// Drain pending packets to ensure we release buffers back to the pool
+				for pkt := range conn.readCh {
+					udpBufPool.Put(pkt.pooledBuf)
+				}
+			}
 			// UDP connection is closed (either implicitly through timeout or by
 			// explicit call to Close()).
 			delete(udpConns, addr)
@@ -340,14 +349,9 @@ func (pc *packetConn) Close() error {
 		udpBufPool.Put(pc.lastPacket.pooledBuf)
 		pc.lastPacket = nil
 	}
-	// This will abort any active Read() from another goroutine and return EOF
-	close(pc.readCh)
-	// Drain pending packets to ensure we release buffers back to the pool
-	for pkt := range pc.readCh {
-		udpBufPool.Put(pkt.pooledBuf)
-	}
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
+	// Server loop is responsible to close readCh to abort Read() to avoid race.
 	pc.closeCh <- pc.addr.String()
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
