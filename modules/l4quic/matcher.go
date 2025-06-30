@@ -142,8 +142,8 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qContext, qCancel := context.WithDeadline(context.Background(), time.Now().Add(QUICAcceptTimeout))
 	defer qCancel()
 
-	// Accept a new quic.EarlyConnection
-	var qConn quic.EarlyConnection
+	// Accept a new quic.Conn
+	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
 	if err != nil {
 		return false, nil
@@ -172,7 +172,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// Check TLS matchers if any
 	for _, matcher := range m.matchers {
 		// ALPN matching is implicitly done above when the QUIC listener is initialised,
-		// as quic.EarlyConnection.ConnectionState().TLS.NegotiatedProtocol is only filled
+		// as quic.Conn.ConnectionState().TLS.NegotiatedProtocol is only filled
 		// when the client's ALPN matches one of the values set in tls.Config.NextProtos.
 		if _, isMatchALPN := matcher.(*l4tls.MatchALPN); isMatchALPN {
 			continue
