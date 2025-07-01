@@ -39,6 +39,9 @@ type Upstream struct {
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
+	// Local address to bind to when making the request to upstream
+	LocalAddr string `json:"local_address,omitempty"`
+
 	// Set this field to enable TLS to the upstream.
 	TLS *reverseproxy.TLSConfig `json:"tls,omitempty"`
 
@@ -170,6 +173,7 @@ func (u *Upstream) totalConns() int {
 //
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
+//		local_addr <address:port>
 //		max_connections <int>
 //
 //		tls
@@ -198,6 +202,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
+		hasLocalAddr                            bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -207,6 +212,15 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
+		case "local_addr":
+			if hasLocalAddr {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			u.LocalAddr, hasLocalAddr = d.Val(), true
 		case "max_connections":
 			if hasMaxConnections {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

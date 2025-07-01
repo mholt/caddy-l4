@@ -225,8 +225,51 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		var up net.Conn
 		var err error
 
+		// Prepare a custom net.Dialer if LocalAddr is set
+		var dialer *net.Dialer
+		if upstream.LocalAddr != "" {
+			h.logger.Debug("local address setting detected", zap.String("local_addr", upstream.LocalAddr))
+			netaddr, addrErr := caddy.ParseNetworkAddressWithDefaults(upstream.LocalAddr, "tcp", 0)
+			if addrErr != nil {
+				h.logger.Error("error parsing local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(addrErr))
+				return nil, addrErr
+			}
+			h.logger.Debug("local address network type", zap.String("network", netaddr.Network))
+			if netaddr.PortRangeSize() > 1 {
+				h.logger.Error("local_address must be a single address, not a port range", zap.String("local_addr", upstream.LocalAddr))
+				return nil, fmt.Errorf("local_address must be a single address, not a port range")
+			}
+			dialer = &net.Dialer{}
+			switch netaddr.Network {
+			case "tcp", "tcp4", "tcp6":
+				dialer.LocalAddr, err = net.ResolveTCPAddr(netaddr.Network, netaddr.JoinHostPort(0))
+				if err != nil {
+					h.logger.Error("error resolving TCP local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(err))
+					return nil, err
+				}
+				h.logger.Debug("using TCP local address", zap.String("resolved_local_addr", dialer.LocalAddr.String()))
+			case "unix", "unixgram", "unixpacket":
+				dialer.LocalAddr, err = net.ResolveUnixAddr(netaddr.Network, netaddr.JoinHostPort(0))
+				if err != nil {
+					h.logger.Error("error resolving Unix local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(err))
+					return nil, err
+				}
+				h.logger.Debug("using Unix local address", zap.Stringer("resolved_local_addr", dialer.LocalAddr))
+			case "udp", "udp4", "udp6":
+				h.logger.Error("local_address must be a TCP address, not a UDP address", zap.String("local_addr", upstream.LocalAddr))
+				return nil, fmt.Errorf("local_address must be a TCP address, not a UDP address")
+			default:
+				h.logger.Error("unsupported network for local_address", zap.String("network", netaddr.Network))
+				return nil, fmt.Errorf("unsupported network")
+			}
+		}
+
 		if upstream.TLS == nil {
-			up, err = net.Dial(p.address.Network, hostPort)
+			if dialer != nil {
+				up, err = dialer.Dial(p.address.Network, hostPort)
+			} else {
+				up, err = net.Dial(p.address.Network, hostPort)
+			}
 		} else {
 			// the prepared config could be nil if user enabled but did not customize TLS,
 			// in which case we adopt the downstream client's TLS ClientHello for ours;
@@ -238,7 +281,11 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 					hellos[0].FillTLSClientConfig(tlsCfg)
 				}
 			}
-			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
+			if dialer != nil {
+				up, err = tls.DialWithDialer(dialer, p.address.Network, hostPort, tlsCfg)
+			} else {
+				up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
+			}
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
