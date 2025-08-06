@@ -142,7 +142,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	defer qCancel()
 
 	// Accept a new quic.EarlyConnection
-	var qConn quic.EarlyConnection
+	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
 	if err != nil {
 		return false, nil
