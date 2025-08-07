@@ -130,7 +130,6 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = qListener.Close() }()
 
 	// Write the buffered bytes into the pipe
 	n, err = clientFPC.WriteTo(buf[:n+1], nil)
@@ -148,6 +147,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
+	defer func() { _ = qListener.Close() }()
 
 	// Obtain a quic.ConnectionState
 	qState := qConn.ConnectionState()
