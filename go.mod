@@ -8,7 +8,7 @@ require (
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/miekg/dns v1.1.63
 	github.com/quic-go/quic-go v0.54.0
-	github.com/things-go/go-socks5 v0.0.5
+	github.com/things-go/go-socks5 v0.0.6
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.36.0
 	golang.org/x/net v0.38.0
