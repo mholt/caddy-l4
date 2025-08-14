@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -270,14 +271,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		if len(m.CookiePorts) > 0 {
-			var found bool
-			for _, port := range m.CookiePorts {
-				if port == portVal {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(m.CookiePorts, portVal) {
 				break
 			}
 		}
