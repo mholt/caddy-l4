@@ -54,7 +54,7 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 	i := len(app.Servers)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		server := &Server{}
-		var inst interface{} = server
+		var inst any = server
 		unm, ok := inst.(caddyfile.Unmarshaler)
 		if !ok {
 			return nil, d.Errf("%T is not a Caddyfile unmarshaler", inst)

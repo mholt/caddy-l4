@@ -255,7 +255,7 @@ func (msg *MessageAuth) FromBytes(src []byte) error {
 	p, q := 0, l/(MessageChunkBytesMax+2)+1
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
-	for i := 0; i < q; i++ {
+	for i := range q {
 		chunk = &MessageChunk{}
 		p = i * (MessageChunkBytesMax + 2)
 
@@ -338,7 +338,7 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
 	var ll int
-	for i := 0; i < q; i++ {
+	for i := range q {
 		p = i * MessageChunkBytesMax
 		ll = min(MessageChunkBytesMax, l-p)
 		if ll == 0 {

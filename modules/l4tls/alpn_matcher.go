@@ -16,6 +16,7 @@ package l4tls
 
 import (
 	"crypto/tls"
+	"slices"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -48,10 +49,8 @@ func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
 	clientProtocols := hello.SupportedProtos
 	for _, alpn := range *m {
 		alpn = repl.ReplaceAll(alpn, "")
-		for _, clientProtocol := range clientProtocols {
-			if alpn == clientProtocol {
-				return true
-			}
+		if slices.Contains(clientProtocols, alpn) {
+			return true
 		}
 	}
 	return false
