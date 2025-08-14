@@ -1,5 +1,5 @@
 Project Conncept: a TCP/UDP app for Caddy
-=======================================
+=========================================
 
 **Project Conncept** is an experimental layer 4 app for Caddy. It facilitates composable handling of raw TCP/UDP connections based on properties of the connection or the beginning of the stream.
 
@@ -268,6 +268,154 @@ A simple TCP reverse proxy that terminates TLS on 993, and sends the PROXY proto
 ```
 </details>
 
+Using Caddy’s regular HTTP app for serving a static web site while also forwarding traffic to certain
+TLS ClientHello ServerNames to a remote server without locally encrypting traffic:
+
+<details>
+    <summary>Caddyfile</summary>
+
+```
+{
+	servers :443 {
+		name https
+	
+		listener_wrappers {
+			layer4 {
+				@host1 tls sni *.example.net example.net *.example.org example.org
+				route @host1 {
+					proxy {
+						proxy_protocol v2  # To forward client information to remote host
+						upstream host1:443
+					}
+				}
+				@host2 tls sni example.com
+				route @host2 {
+					# Without forwarding client information
+					proxy host2:443
+				}
+			}
+			tls
+		}
+	}
+}
+
+example.com www.example.com {
+	root * /var/www
+	file_server
+}
+```
+</details>
+<details>
+    <summary>JSON</summary>
+
+```json
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"https": {
+					"listen": [
+						":443"
+					],
+					"listener_wrappers": [
+						{
+							"wrapper": "layer4",
+							"routes": [
+								{
+									"match": [
+										{
+											"tls": {
+												"sni": [
+													"*.example.net",
+													"example.net",
+													"*.example.org",
+													"example.org"
+												]
+											}
+										}
+									],
+									"handle": [
+										{
+											"handler": "proxy",
+											"proxy_protocol": "v2",
+											"upstreams": [
+												{
+													"dial": [
+														"host1:443"
+													]
+												}
+											]
+										}
+									]
+								},
+								{
+									"match": [
+										{
+											"tls": {
+												"sni": [
+													"cgi.example.com"
+												]
+											}
+										}
+									],
+									"handle": [
+										{
+											"handler": "proxy",
+											"upstreams": [
+												{
+													"dial": [
+														"host2:443"
+													]
+												}
+											]
+										}
+									]
+								}
+							],
+						},
+						{
+							"wrapper": "tls"
+						}
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"host": [
+										"example.com",
+										"www.example.com"
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "vars",
+													"root": "/var/www"
+												},
+												{
+													"handler": "file_server"
+												}
+											]
+										}
+									]
+								}
+							],
+							"terminal": true
+						}
+					]
+				}
+			}
+		}
+	}
+}
+```
+</details>
+
 A multiplexer that proxies HTTP to one backend, and TLS to another (without terminating TLS):
 
 <details>
@@ -509,8 +657,8 @@ Same as previous, but filter by HTTP Host header and/or TLS ClientHello ServerNa
 ```
 </details>
 
-Forwarding SOCKSv4 to a remote server and handling SOCKSv5 directly in caddy.  
-While only allowing connections from a specific network and requiring a username and password for SOCKSv5.
+Forwarding SOCKSv4 to a remote server and handling SOCKSv5 directly in caddy, while only
+allowing connections from a specific network and requiring a username and password for SOCKSv5:
 
 <details>
     <summary>Caddyfile</summary>
