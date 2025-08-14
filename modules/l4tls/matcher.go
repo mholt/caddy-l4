@@ -67,7 +67,7 @@ func (m *MatchTLS) Provision(ctx caddy.Context) error {
 	if err != nil {
 		return fmt.Errorf("loading TLS matchers: %v", err)
 	}
-	for _, modIface := range mods.(map[string]interface{}) {
+	for _, modIface := range mods.(map[string]any) {
 		m.matchers = append(m.matchers, modIface.(caddytls.ConnectionMatcher))
 	}
 	return nil

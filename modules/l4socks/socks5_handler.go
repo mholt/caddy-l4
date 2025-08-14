@@ -162,7 +162,7 @@ type socks5Logger struct {
 	l *zap.Logger
 }
 
-func (s *socks5Logger) Errorf(format string, arg ...interface{}) {
+func (s *socks5Logger) Errorf(format string, arg ...any) {
 	s.l.Error(fmt.Sprintf(format, arg...))
 }
 

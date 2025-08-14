@@ -66,7 +66,7 @@ func (r *Route) Provision(ctx caddy.Context) error {
 		return err
 	}
 	var handlers Handlers
-	for _, mod := range mods.([]interface{}) {
+	for _, mod := range mods.([]any) {
 		handler := mod.(NextHandler)
 		handlers = append(handlers, handler)
 	}

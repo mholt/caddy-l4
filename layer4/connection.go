@@ -37,7 +37,7 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 	repl.Set("l4.conn.wrap_time", time.Now().UTC())
 
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
+	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
 	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
 	return &Connection{
@@ -194,8 +194,8 @@ func (cx *Connection) unfreeze() {
 // SetVar sets a value in the context's variable table with
 // the given key. It overwrites any previous value with the
 // same key.
-func (cx *Connection) SetVar(key string, value interface{}) {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
+func (cx *Connection) SetVar(key string, value any) {
+	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
 	if !ok {
 		return
 	}
@@ -205,8 +205,8 @@ func (cx *Connection) SetVar(key string, value interface{}) {
 // GetVar gets a value from the context's variable table with
 // the given key. It returns the value if found, and true if
 // it found a value with that key; false otherwise.
-func (cx *Connection) GetVar(key string) interface{} {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
+func (cx *Connection) GetVar(key string) any {
+	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -242,7 +242,7 @@ const prefetchChunkSize = 2048
 const MaxMatchingBytes = 8 * 1024
 
 var bufPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return make([]byte, 0, prefetchChunkSize)
 	},
 }
