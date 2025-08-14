@@ -128,7 +128,7 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured
-	return m.matcherSets.AnyMatch(req), nil
+	return m.matcherSets.AnyMatchWithError(req)
 }
 
 // isHttp test if the buffered data looks like HTTP by looking at the first line.
