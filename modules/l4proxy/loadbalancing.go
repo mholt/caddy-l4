@@ -297,7 +297,7 @@ func (r *RoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *U
 	if n == 0 {
 		return nil
 	}
-	for i := uint32(0); i < n; i++ {
+	for range n {
 		atomic.AddUint32(&r.robin, 1)
 		host := pool[r.robin%n]
 		if host.available() {
