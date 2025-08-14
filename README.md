@@ -522,7 +522,7 @@ While only allowing connections from a specific network and requiring a username
         0.0.0.0:1080 {
             @s5 {
                 socks5
-                ip 10.0.0.0/24
+                remote_ip 10.0.0.0/24
             }
             route @s5 {
                 socks5 {
