@@ -40,7 +40,7 @@ type IPList struct {
 	stop              chan bool   // Channel to indicate that monitoring shall be stopped
 }
 
-// Creates a new IPList, creating the ipFile if it is not present
+// NewIPList creates a new IPList, creating the ipFile if it is not present
 func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, error) {
 	ipList := &IPList{
 		ipFile:       ipFile,
@@ -59,7 +59,7 @@ func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, e
 	return ipList, nil
 }
 
-// Check whether a IP address is currently contained in the IP list
+// IsMatched checks whether an IP address is currently contained in the IP list
 func (b *IPList) IsMatched(ip netip.Addr) bool {
 	if !b.isRunning.Load() {
 		b.logger.Warn("match called but monitoring of IP file is not active")
@@ -86,12 +86,12 @@ func (b *IPList) IsMatched(ip netip.Addr) bool {
 	return false
 }
 
-// Start to monitor the IP list
+// StartMonitoring starts monitoring the IP list
 func (b *IPList) StartMonitoring() {
 	go b.monitor()
 }
 
-// Start to monitor the IP list
+// StopMonitoring stops monitoring the IP list
 func (b *IPList) StopMonitoring() {
 	// stop goroutine
 	b.stop <- true
