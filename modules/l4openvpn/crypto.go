@@ -25,16 +25,17 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/crypto/blake2s"
-	"golang.org/x/crypto/ripemd160"
-	"golang.org/x/crypto/sha3"
 	"hash"
 	"io"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/crypto/blake2b"
+	"golang.org/x/crypto/blake2s"
+	"golang.org/x/crypto/ripemd160"
+	"golang.org/x/crypto/sha3"
 )
 
 // AuthDigest represents a digest used for computing HMACs of control messages.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"io"
 	"net"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -20,7 +20,7 @@ import (
 type testIoMatcher struct {
 }
 
-func (testIoMatcher) CaddyModule() caddy.ModuleInfo {
+func (*testIoMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.testIoMatcher",
 		New: func() caddy.Module { return new(testIoMatcher) },
@@ -37,7 +37,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	caddy.RegisterModule(testIoMatcher{})
+	caddy.RegisterModule(&testIoMatcher{})
 
 	routes := RouteList{&Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -95,7 +95,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 type testIoUdpMatcher struct {
 }
 
-func (testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
+func (*testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.testIoUdpMatcher",
 		New: func() caddy.Module { return new(testIoUdpMatcher) },
@@ -126,7 +126,7 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	caddy.RegisterModule(testIoUdpMatcher{})
+	caddy.RegisterModule(&testIoUdpMatcher{})
 
 	routes := RouteList{&Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -161,7 +161,9 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	server := new(Server)
 	server.compiledRoute = compiledRoutes
 	server.logger = zap.NewNop()
-	go server.servePacket(pc)
+	go func() {
+		_ = server.servePacket(pc)
+	}()
 
 	now := time.Now()
 
