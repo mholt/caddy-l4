@@ -133,7 +133,7 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 
 // isHttp test if the buffered data looks like HTTP by looking at the first line.
 // first boolean determines if more data is required
-func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
+func (m *MatchHTTP) isHttp(data []byte) (bool, bool) {
 	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
 	if i < 10 {
