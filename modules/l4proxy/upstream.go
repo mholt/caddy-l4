@@ -30,12 +30,27 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 )
 
+// parse and validate address.
+// For addresses containing any runtime placeholders,
+// this should be called on each request
+// after placeholders has been completely replaced.
+func parseAddress(addr string) (*caddy.NetworkAddress, error) {
+	address, err := caddy.ParseNetworkAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	if address.PortRangeSize() != 1 {
+		return nil, fmt.Errorf("%s: port ranges not currently supported", addr)
+	}
+	return &address, nil
+}
+
 // UpstreamPool is a collection of upstreams.
 type UpstreamPool []*Upstream
 
 // Upstream represents a proxy upstream.
 type Upstream struct {
-	// The network addresses to dial. Supports placeholders, but not port
+	// The network addresses to dial. Supports placeholders
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
@@ -63,17 +78,19 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		// in Handler.dialPeers. E.g. {l4.tls.server_name}:443 will allow for dynamic TLS SNI based upstreams.
 		replDialAddr := repl.ReplaceKnown(dialAddr, "")
 
-		// parse and validate address
-		addr, err := caddy.ParseNetworkAddress(replDialAddr)
-		if err != nil {
-			return err
-		}
-		if addr.PortRangeSize() != 1 {
-			return fmt.Errorf("%s: port ranges not currently supported", replDialAddr)
+		// create or load peer info
+		p := &peer{dialAddr: replDialAddr}
+		// parse and validate address if upstream not dynamic
+		// If upstream address contains placeholders, skip parsing here
+		// then do this after replacing all placeholders in Handler.dialPeers.
+		if !(strings.Contains(p.dialAddr, "{") && strings.Contains(p.dialAddr, "}")) {
+			address, err := parseAddress(p.dialAddr)
+			if err != nil {
+				return err
+			}
+			p.address = address
 		}
 
-		// create or load peer info
-		p := &peer{address: addr}
 		existingPeer, loaded := peers.LoadOrStore(dialAddr, p) // peers are deleted in Handler.Cleanup
 		if loaded {
 			p = existingPeer.(*peer)
@@ -387,7 +404,8 @@ type peer struct {
 	numConns  int32
 	unhealthy int32
 	fails     int32
-	address   caddy.NetworkAddress
+	address   *caddy.NetworkAddress
+	dialAddr  string
 }
 
 // getNumConns returns the number of active connections with the peer.
