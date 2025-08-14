@@ -161,7 +161,9 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	server := new(Server)
 	server.compiledRoute = compiledRoutes
 	server.logger = zap.NewNop()
-	go server.servePacket(pc)
+	go func() {
+		_ = server.servePacket(pc)
+	}()
 
 	now := time.Now()
 

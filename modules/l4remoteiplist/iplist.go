@@ -127,7 +127,9 @@ func (b *IPList) monitor() {
 		b.isRunning.Store(false)
 		return
 	}
-	defer w.Close()
+	defer func() {
+		_ = w.Close()
+	}()
 
 	if !b.ipFileDirectoryExists() {
 		b.logger.Error("directory containing the IP file to monitor does not exist")
@@ -191,7 +193,9 @@ func (b *IPList) loadIPAddresses() error {
 	if err != nil {
 		return fmt.Errorf("error opening the IP list file %v: %w", b.ipFile, err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	var cidrs []netip.Prefix
 	scanner := bufio.NewScanner(file)
