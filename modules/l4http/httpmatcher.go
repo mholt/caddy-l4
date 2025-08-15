@@ -147,7 +147,7 @@ func (m *MatchHTTP) isHttp(data []byte) (bool, bool) {
 		start -= 1
 		end -= 1
 	}
-	return false, bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
+	return false, bytes.Equal(data[start:end], []byte(" HTTP/"))
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
