@@ -87,7 +87,6 @@ func (msg *MessagePlain) FromBytes(src []byte) error {
 
 // FromBytesHeadless fills msg's internal structures from a slice of bytes and uses a pre-filled header.
 func (msg *MessagePlain) FromBytesHeadless(src []byte, hdr *MessageHeader) error {
-
 	// Any MessagePlain is exactly 13 bytes long (without a header).
 	if len(src) != MessagePlainBytesTotalHL {
 		return ErrInvalidSourceLength
