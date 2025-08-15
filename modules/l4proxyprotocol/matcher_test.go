@@ -34,8 +34,8 @@ func TestProxyProtocolMatchV1(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV1Example)
@@ -60,8 +60,8 @@ func TestProxyProtocolMatchV2(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV2Example)
@@ -86,8 +86,8 @@ func TestProxyProtocolMatchGarbage(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write([]byte("Hello World Hello World Hello World Hello World"))
