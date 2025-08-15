@@ -23,8 +23,9 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 // Setup dummy structs for test cases as in
