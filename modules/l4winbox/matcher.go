@@ -253,7 +253,8 @@ func (msg *MessageAuth) FromBytes(src []byte) error {
 		return ErrNotEnoughSourceBytes
 	}
 
-	p, q := 0, l/(MessageChunkBytesMax+2)+1
+	var p int
+	q := l/(MessageChunkBytesMax+2) + 1
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
 	for i := range q {
@@ -335,7 +336,8 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 	dst = append(dst, msg.PublicKeyBytes...)
 	dst = append(dst, msg.PublicKeyParity)
 
-	p, q := 0, l/MessageChunkBytesMax+1
+	var p int
+	q := l/MessageChunkBytesMax + 1
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
 	var ll int
