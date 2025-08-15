@@ -137,7 +137,7 @@ type MessageAuth struct {
 
 // Authenticate returns true if msg has a valid HMAC.
 func (msg *MessageAuth) Authenticate(ad *AuthDigest, sk *StaticKey) bool {
-	return msg.MessageTraitAuth.AuthenticateOnServer(ad, sk, msg.ToBytesAuth)
+	return msg.AuthenticateOnServer(ad, sk, msg.ToBytesAuth)
 }
 
 // FromBytes fills msg's internal structures from a slice of bytes.
@@ -211,13 +211,13 @@ func (msg *MessageAuth) FromBytesHeadless(src []byte, hdr *MessageHeader) error 
 func (msg *MessageAuth) Match(ignoreTimestamp, ignoreCrypto bool, ad *AuthDigest, sk *StaticKey) bool {
 	return msg.MessagePlain.Match() &&
 		msg.ReplayPacketID == 1 && (ignoreTimestamp || msg.ValidateReplayTimestamp(time.Now())) &&
-		(ad == nil || ad.Size == len(msg.MessageTraitAuth.HMAC)) &&
+		(ad == nil || ad.Size == len(msg.HMAC)) &&
 		(ignoreCrypto || sk == nil || msg.Authenticate(ad, sk))
 }
 
 // Sign computes and fills msg's HMAC.
 func (msg *MessageAuth) Sign(ad *AuthDigest, sk *StaticKey) error {
-	return msg.MessageTraitAuth.SignOnClient(ad, sk, msg.ToBytesAuth)
+	return msg.SignOnClient(ad, sk, msg.ToBytesAuth)
 }
 
 // ToBytes returns a slice of bytes representing msg's internal structures.
@@ -253,13 +253,13 @@ type MessageCrypt struct {
 
 // Authenticate returns true if msg has a valid HMAC.
 func (msg *MessageCrypt) Authenticate(ad *AuthDigest, sk *StaticKey) bool {
-	return msg.MessageTraitAuth.AuthenticateOnServer(ad, sk, msg.ToBytesAuth)
+	return msg.AuthenticateOnServer(ad, sk, msg.ToBytesAuth)
 }
 
 // DecryptAndAuthenticate decrypts msg's encrypted bytes before calling Authenticate.
 func (msg *MessageCrypt) DecryptAndAuthenticate(ad *AuthDigest, sk *StaticKey) bool {
 	if len(msg.Encrypted) != OpcodeKeyIDBytesTotal+PacketIDBytesTotal ||
-		msg.MessageTraitCrypt.DecryptOnServer(sk, &msg.MessageTraitAuth, msg.FromBytesCrypt) != nil {
+		msg.DecryptOnServer(sk, &msg.MessageTraitAuth, msg.FromBytesCrypt) != nil {
 		return false
 	}
 	return msg.Authenticate(ad, sk)
@@ -267,7 +267,7 @@ func (msg *MessageCrypt) DecryptAndAuthenticate(ad *AuthDigest, sk *StaticKey) b
 
 // EncryptAndSign encrypts msg's plain bytes before calling Sign.
 func (msg *MessageCrypt) EncryptAndSign(ad *AuthDigest, sk *StaticKey) error {
-	if err := msg.MessageTraitCrypt.EncryptOnClient(sk, &msg.MessageTraitAuth, msg.ToBytesCrypt); err != nil {
+	if err := msg.EncryptOnClient(sk, &msg.MessageTraitAuth, msg.ToBytesCrypt); err != nil {
 		return err
 	}
 	return msg.Sign(ad, sk)
@@ -356,7 +356,7 @@ func (msg *MessageCrypt) Match(ignoreTimestamp, ignoreCrypto bool, ad *AuthDiges
 
 // Sign computes and fills msg's HMAC.
 func (msg *MessageCrypt) Sign(ad *AuthDigest, sk *StaticKey) error {
-	return msg.MessageTraitAuth.SignOnClient(ad, sk, msg.ToBytesAuth)
+	return msg.SignOnClient(ad, sk, msg.ToBytesAuth)
 }
 
 // ToBytes returns a slice of bytes representing msg's internal structures.
@@ -403,7 +403,7 @@ func (msg *MessageCrypt2) DecryptAndAuthenticate(ad *AuthDigest, sk *StaticKey) 
 	if !msg.WrappedKey.DecryptAndAuthenticate(ad, sk) {
 		return false
 	}
-	return msg.MessageCrypt.DecryptAndAuthenticate(ad, &msg.WrappedKey.StaticKey)
+	return msg.MessageCrypt.DecryptAndAuthenticate(ad, &msg.StaticKey)
 }
 
 // EncryptAndSign encrypts and signs msg's plain bytes (WrappedKey before MessageCrypt).
@@ -411,7 +411,7 @@ func (msg *MessageCrypt2) EncryptAndSign(ad *AuthDigest, sk *StaticKey) error {
 	if err := msg.WrappedKey.EncryptAndSign(ad, sk); err != nil {
 		return err
 	}
-	return msg.MessageCrypt.EncryptAndSign(ad, &msg.WrappedKey.StaticKey)
+	return msg.MessageCrypt.EncryptAndSign(ad, &msg.StaticKey)
 }
 
 // FromBytes fills msg's internal structures from a slice of bytes.
@@ -463,7 +463,7 @@ func (msg *MessageCrypt2) Match(ignoreTimestamp, ignoreCrypto bool, ad *AuthDige
 
 	if len(cks) > 0 {
 		for _, ck := range cks {
-			if bytes.Equal(ck.HMAC, msg.WrappedKey.HMAC) && bytes.Equal(ck.Encrypted, msg.WrappedKey.Encrypted) {
+			if bytes.Equal(ck.HMAC, msg.HMAC) && bytes.Equal(ck.Encrypted, msg.WrappedKey.Encrypted) {
 				return msg.MessageCrypt.DecryptAndAuthenticate(ad, &ck.StaticKey) &&
 					msg.PrevPacketIDsCount == 0 && msg.ThisPacketID == 0
 			}
@@ -719,14 +719,14 @@ type WrappedKey struct {
 
 // Authenticate returns true if wk's HMAC is valid.
 func (wk *WrappedKey) Authenticate(ad *AuthDigest, sk *StaticKey) bool {
-	return wk.MessageTraitAuth.AuthenticateOnClient(ad, sk, wk.ToBytesAuth)
+	return wk.AuthenticateOnClient(ad, sk, wk.ToBytesAuth)
 }
 
 // DecryptAndAuthenticate decrypts wk's encrypted bytes before calling Authenticate.
 func (wk *WrappedKey) DecryptAndAuthenticate(ad *AuthDigest, sk *StaticKey) bool {
 	if len(wk.Encrypted) < StaticKeyBytesTotal ||
 		len(wk.Encrypted) > WrappedKeyBytesMax-LengthBytesTotal-CryptHMACBytesTotal ||
-		wk.MessageTraitCrypt.DecryptOnClient(sk, &wk.MessageTraitAuth, wk.FromBytesCrypt) != nil {
+		wk.DecryptOnClient(sk, &wk.MessageTraitAuth, wk.FromBytesCrypt) != nil {
 		return false
 	}
 	return wk.Authenticate(ad, sk)
@@ -734,7 +734,7 @@ func (wk *WrappedKey) DecryptAndAuthenticate(ad *AuthDigest, sk *StaticKey) bool
 
 // EncryptAndSign encrypts wk's plain bytes before calling Sign.
 func (wk *WrappedKey) EncryptAndSign(ad *AuthDigest, sk *StaticKey) error {
-	if err := wk.MessageTraitCrypt.EncryptOnServer(sk, &wk.MessageTraitAuth, wk.ToBytesCrypt); err != nil {
+	if err := wk.EncryptOnServer(sk, &wk.MessageTraitAuth, wk.ToBytesCrypt); err != nil {
 		return err
 	}
 	return wk.Sign(ad, sk)
@@ -751,7 +751,7 @@ func (wk *WrappedKey) FromBase64(s string) error {
 		return ErrInvalidSourceLength
 	}
 
-	wk.StaticKey.KeyBytes = src[:StaticKeyBytesTotal]
+	wk.KeyBytes = src[:StaticKeyBytesTotal]
 
 	return wk.FromBytes(src[StaticKeyBytesTotal:])
 }
@@ -780,16 +780,16 @@ func (wk *WrappedKey) FromBytesCrypt(plain []byte) error {
 	}
 
 	// Any WrappedKey has a StaticKey at the beginning of the plain text.
-	wk.StaticKey.KeyBytes = plain[:StaticKeyBytesTotal]
+	wk.KeyBytes = plain[:StaticKeyBytesTotal]
 
 	// Any WrappedKey may have a MetaData.Type between StaticKey and MetaData in the plain text.
 	if len(plain) > StaticKeyBytesTotal {
-		wk.MetaData.Type = plain[StaticKeyBytesTotal]
+		wk.Type = plain[StaticKeyBytesTotal]
 	}
 
 	// Any KeyMata may have MetaData.Payload at the end of the plain text.
 	if len(plain) > StaticKeyBytesTotal+MetaDataTypeBytesTotal {
-		wk.MetaData.Payload = plain[StaticKeyBytesTotal+MetaDataTypeBytesTotal:]
+		wk.Payload = plain[StaticKeyBytesTotal+MetaDataTypeBytesTotal:]
 	}
 
 	return nil
@@ -797,27 +797,27 @@ func (wk *WrappedKey) FromBytesCrypt(plain []byte) error {
 
 // FromClientKeyFile fills wk's internal structures (including decrypted StaticKey bytes) from a given file.
 func (wk *WrappedKey) FromClientKeyFile(path string) error {
-	err := wk.StaticKey.FromFile(path, StaticKeyFromFileBase64, 0, wk.StaticKey.FromBase64)
+	err := wk.FromFile(path, StaticKeyFromFileBase64, 0, wk.StaticKey.FromBase64)
 	if err != nil {
 		return err
 	}
 
-	if len(wk.StaticKey.KeyBytes) < WrappedKeyBytesMin || len(wk.StaticKey.KeyBytes) > WrappedKeyBytesMax {
+	if len(wk.KeyBytes) < WrappedKeyBytesMin || len(wk.KeyBytes) > WrappedKeyBytesMax {
 		return ErrInvalidStaticKeyFileContents
 	}
 
-	err = wk.FromBytes(wk.StaticKey.KeyBytes[StaticKeyBytesTotal:])
+	err = wk.FromBytes(wk.KeyBytes[StaticKeyBytesTotal:])
 	if err != nil {
 		return err
 	}
 
-	wk.StaticKey.KeyBytes = wk.StaticKey.KeyBytes[:StaticKeyBytesTotal]
+	wk.KeyBytes = wk.KeyBytes[:StaticKeyBytesTotal]
 	return nil
 }
 
 // Sign computes and fills wk's HMAC.
 func (wk *WrappedKey) Sign(ad *AuthDigest, sk *StaticKey) error {
-	return wk.MessageTraitAuth.SignOnClient(ad, sk, wk.ToBytesAuth)
+	return wk.SignOnClient(ad, sk, wk.ToBytesAuth)
 }
 
 // ToBytes returns a slice of bytes representing wk's internal structures.
@@ -831,31 +831,31 @@ func (wk *WrappedKey) ToBytes() []byte {
 
 // ToBytesAuth returns a slice of bytes representing wk's internal structures without HMAC.
 func (wk *WrappedKey) ToBytesAuth() []byte {
-	if len(wk.MetaData.Payload) > 0 {
-		dst := make([]byte, 0, LengthBytesTotal+len(wk.StaticKey.KeyBytes)+MetaDataTypeBytesTotal+len(wk.MetaData.Payload))
+	if len(wk.Payload) > 0 {
+		dst := make([]byte, 0, LengthBytesTotal+len(wk.KeyBytes)+MetaDataTypeBytesTotal+len(wk.Payload))
 		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal))
-		dst = append(dst, wk.StaticKey.KeyBytes...)
-		dst = append(dst, wk.MetaData.Type)
-		dst = append(dst, wk.MetaData.Payload...)
+		dst = append(dst, wk.KeyBytes...)
+		dst = append(dst, wk.Type)
+		dst = append(dst, wk.Payload...)
 		return dst
 	} else {
-		dst := make([]byte, 0, LengthBytesTotal+len(wk.StaticKey.KeyBytes))
+		dst := make([]byte, 0, LengthBytesTotal+len(wk.KeyBytes))
 		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal))
-		dst = append(dst, wk.StaticKey.KeyBytes...)
+		dst = append(dst, wk.KeyBytes...)
 		return dst
 	}
 }
 
 // ToBytesCrypt returns a slice of bytes representing wk's internal structures before encryption.
 func (wk *WrappedKey) ToBytesCrypt() []byte {
-	if len(wk.MetaData.Payload) > 0 {
-		dst := make([]byte, 0, len(wk.StaticKey.KeyBytes)+MetaDataTypeBytesTotal+len(wk.MetaData.Payload))
-		dst = append(dst, wk.StaticKey.KeyBytes...)
-		dst = append(dst, wk.MetaData.Type)
-		dst = append(dst, wk.MetaData.Payload...)
+	if len(wk.Payload) > 0 {
+		dst := make([]byte, 0, len(wk.KeyBytes)+MetaDataTypeBytesTotal+len(wk.Payload))
+		dst = append(dst, wk.KeyBytes...)
+		dst = append(dst, wk.Type)
+		dst = append(dst, wk.Payload...)
 		return dst
 	} else {
-		return wk.StaticKey.KeyBytes
+		return wk.KeyBytes
 	}
 }
 

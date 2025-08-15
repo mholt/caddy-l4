@@ -50,19 +50,19 @@ type ClientHelloInfo struct {
 // from chi. It does not overwrite any fields in cfg that are already non-zero.
 func (chi ClientHelloInfo) FillTLSClientConfig(cfg *tls.Config) {
 	if cfg.NextProtos == nil {
-		cfg.NextProtos = chi.ClientHelloInfo.SupportedProtos
+		cfg.NextProtos = chi.SupportedProtos
 	}
 	if cfg.ServerName == "" {
-		cfg.ServerName = chi.ClientHelloInfo.ServerName
+		cfg.ServerName = chi.ServerName
 	}
 	if cfg.CipherSuites == nil {
-		cfg.CipherSuites = chi.ClientHelloInfo.CipherSuites
+		cfg.CipherSuites = chi.CipherSuites
 	}
 	if cfg.CurvePreferences == nil {
-		cfg.CurvePreferences = chi.ClientHelloInfo.SupportedCurves
+		cfg.CurvePreferences = chi.SupportedCurves
 	}
 	var minVer, maxVer uint16
-	for _, ver := range chi.ClientHelloInfo.SupportedVersions {
+	for _, ver := range chi.SupportedVersions {
 		if minVer == 0 || ver < minVer {
 			minVer = ver
 		}

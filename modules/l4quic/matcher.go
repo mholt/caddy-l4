@@ -305,7 +305,7 @@ func (fpc *fakePacketConn) LocalAddr() net.Addr {
 }
 
 func (fpc *fakePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
-	n, err := fpc.Conn.Read(p)
+	n, err := fpc.Read(p)
 	return n, fpc.RemoteAddr(), err
 }
 
@@ -325,7 +325,7 @@ func (fpc *fakePacketConn) SetWriteBuffer(_ int) error {
 }
 
 func (fpc *fakePacketConn) WriteTo(p []byte, _ net.Addr) (int, error) {
-	return fpc.Conn.Write(p)
+	return fpc.Write(p)
 }
 
 // Interface guards
