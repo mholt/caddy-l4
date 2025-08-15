@@ -230,9 +230,7 @@ var (
 	_ layer4.ConnMatcher    = (*MatchWireGuard)(nil)
 )
 
-var (
-	MessageBytesOrder = binary.LittleEndian
-)
+var MessageBytesOrder = binary.LittleEndian
 
 // Refs:
 //
