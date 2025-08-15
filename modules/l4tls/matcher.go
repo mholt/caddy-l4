@@ -21,7 +21,6 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 	"go.uber.org/zap"
 
@@ -168,44 +167,24 @@ func ParseCaddyfileNestedMatcherSet(d *caddyfile.Dispenser) (caddy.ModuleMap, er
 	for matcherName, tokens := range tokensByMatcherName {
 		dd := caddyfile.NewDispenser(tokens)
 		dd.Next() // consume wrapper name
-		// TODO: delete this workaround when the corresponding matchers implement caddyfile.Unmarshaler interface
-		if matcherName == "local_ip" {
-			cm, err := unmarshalCaddyfileMatchLocalIP(dd.NewFromNextSegment())
-			if err != nil {
-				return nil, err
-			}
-			matcherMap[matcherName] = cm
-		} else if matcherName == "remote_ip" {
-			cm, err := unmarshalCaddyfileMatchRemoteIP(dd.NewFromNextSegment())
-			if err != nil {
-				return nil, err
-			}
-			matcherMap[matcherName] = cm
-		} else if matcherName == "sni" {
-			cm, err := unmarshalCaddyfileMatchServerName(dd.NewFromNextSegment())
-			if err != nil {
-				return nil, err
-			}
-			matcherMap[matcherName] = cm
-		} else {
-			mod, err := caddy.GetModule("tls.handshake_match." + matcherName)
-			if err != nil {
-				return nil, d.Errf("getting matcher module '%s': %v", matcherName, err)
-			}
-			unm, ok := mod.New().(caddyfile.Unmarshaler)
-			if !ok {
-				return nil, d.Errf("matcher module '%s' is not a Caddyfile unmarshaler", matcherName)
-			}
-			err = unm.UnmarshalCaddyfile(dd.NewFromNextSegment())
-			if err != nil {
-				return nil, err
-			}
-			cm, ok := unm.(caddytls.ConnectionMatcher)
-			if !ok {
-				return nil, fmt.Errorf("matcher module '%s' is not a connection matcher", matcherName)
-			}
-			matcherMap[matcherName] = cm
+
+		mod, err := caddy.GetModule("tls.handshake_match." + matcherName)
+		if err != nil {
+			return nil, d.Errf("getting matcher module '%s': %v", matcherName, err)
 		}
+		unm, ok := mod.New().(caddyfile.Unmarshaler)
+		if !ok {
+			return nil, d.Errf("matcher module '%s' is not a Caddyfile unmarshaler", matcherName)
+		}
+		err = unm.UnmarshalCaddyfile(dd.NewFromNextSegment())
+		if err != nil {
+			return nil, err
+		}
+		cm, ok := unm.(caddytls.ConnectionMatcher)
+		if !ok {
+			return nil, fmt.Errorf("matcher module '%s' is not a connection matcher", matcherName)
+		}
+		matcherMap[matcherName] = cm
 	}
 
 	matcherSet := make(caddy.ModuleMap)
@@ -218,106 +197,4 @@ func ParseCaddyfileNestedMatcherSet(d *caddyfile.Dispenser) (caddy.ModuleMap, er
 	}
 
 	return matcherSet, nil
-}
-
-// TODO: move to https://github.com/caddyserver/caddy/tree/master/modules/caddytls/matchers.go
-// unmarshalCaddyfileMatchLocalIP sets up the MatchLocalIP from Caddyfile tokens. Syntax:
-//
-//	local_ip <ranges...>
-func unmarshalCaddyfileMatchLocalIP(d *caddyfile.Dispenser) (*caddytls.MatchLocalIP, error) {
-	m := caddytls.MatchLocalIP{}
-
-	for d.Next() {
-		wrapper := d.Val()
-
-		// At least one same-line option must be provided
-		if d.CountRemainingArgs() == 0 {
-			return nil, d.ArgErr()
-		}
-
-		for d.NextArg() {
-			val := d.Val()
-			if val == "private_ranges" {
-				m.Ranges = append(m.Ranges, caddyhttp.PrivateRangesCIDR()...)
-				continue
-			}
-			m.Ranges = append(m.Ranges, val)
-		}
-
-		// No blocks are supported
-		if d.NextBlock(d.Nesting()) {
-			return nil, d.Errf("malformed TLS handshake matcher '%s': blocks are not supported", wrapper)
-		}
-	}
-
-	return &m, nil
-}
-
-// TODO: move to https://github.com/caddyserver/caddy/tree/master/modules/caddytls/matchers.go
-// unmarshalCaddyfileMatchRemoteIP sets up the MatchRemoteIP from Caddyfile tokens. Syntax:
-//
-//	remote_ip <ranges...>
-//
-// Note: IPs and CIDRs starting with ! symbol are treated as not_ranges
-func unmarshalCaddyfileMatchRemoteIP(d *caddyfile.Dispenser) (*caddytls.MatchRemoteIP, error) {
-	m := caddytls.MatchRemoteIP{}
-
-	for d.Next() {
-		wrapper := d.Val()
-
-		// At least one same-line option must be provided
-		if d.CountRemainingArgs() == 0 {
-			return nil, d.ArgErr()
-		}
-
-		for d.NextArg() {
-			val := d.Val()
-			var exclamation bool
-			if len(val) > 1 && val[0] == '!' {
-				exclamation, val = true, val[1:]
-			}
-			ranges := []string{val}
-			if val == "private_ranges" {
-				ranges = caddyhttp.PrivateRangesCIDR()
-			}
-			if exclamation {
-				m.NotRanges = append(m.NotRanges, ranges...)
-			} else {
-				m.Ranges = append(m.Ranges, ranges...)
-			}
-		}
-
-		// No blocks are supported
-		if d.NextBlock(d.Nesting()) {
-			return nil, d.Errf("malformed TLS handshake matcher '%s': blocks are not supported", wrapper)
-		}
-	}
-
-	return &m, nil
-}
-
-// TODO: move to https://github.com/caddyserver/caddy/tree/master/modules/caddytls/matchers.go
-// unmarshalCaddyfileMatchServerName sets up the MatchServerName from Caddyfile tokens. Syntax:
-//
-//	sni <domains...>
-func unmarshalCaddyfileMatchServerName(d *caddyfile.Dispenser) (*caddytls.MatchServerName, error) {
-	m := caddytls.MatchServerName{}
-
-	for d.Next() {
-		wrapper := d.Val()
-
-		// At least one same-line option must be provided
-		if d.CountRemainingArgs() == 0 {
-			return nil, d.ArgErr()
-		}
-
-		m = append(m, d.RemainingArgs()...)
-
-		// No blocks are supported
-		if d.NextBlock(d.Nesting()) {
-			return nil, d.Errf("malformed TLS handshake matcher '%s': blocks are not supported", wrapper)
-		}
-	}
-
-	return &m, nil
 }
