@@ -29,6 +29,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -167,7 +168,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		hasValidCookie = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because hash hasn't matched
@@ -277,7 +278,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		hasValidToken = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because IPs or ports haven't matched
@@ -287,7 +288,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 	// Process RDPCustom
 	var hasValidCustom bool
-	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin {
+	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin { //nolint:staticcheck
 		RDPCustomBytesTotal := RDPNegReqBytesStart // include CR LF
 
 		// Parse RDPCustom
@@ -318,7 +319,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		hasValidCustom = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because info hasn't matched

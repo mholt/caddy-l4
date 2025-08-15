@@ -12,8 +12,10 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 )
 
-var ProxyV1Example = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")
-var ProxyV2Example, _ = hex.DecodeString("0d0a0d0a000d0a515549540a2111000c7f0000017f000001b80701bb")
+var (
+	ProxyV1Example    = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")
+	ProxyV2Example, _ = hex.DecodeString("0d0a0d0a000d0a515549540a2111000c7f0000017f000001b80701bb")
+)
 
 func assertNoError(t *testing.T, err error) {
 	t.Helper()
@@ -34,8 +36,8 @@ func TestProxyProtocolMatchV1(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV1Example)
@@ -60,8 +62,8 @@ func TestProxyProtocolMatchV2(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write(ProxyV2Example)
@@ -86,8 +88,8 @@ func TestProxyProtocolMatchGarbage(t *testing.T) {
 	defer closePipe(wg, in, out)
 
 	cx := layer4.WrapConnection(in, []byte{}, zap.NewNop())
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		defer wg.Done()
 		defer func() { _ = out.Close() }()
 		_, err := out.Write([]byte("Hello World Hello World Hello World Hello World"))

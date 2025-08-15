@@ -137,7 +137,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 
 	// Apply the allow and deny rules to the question section of the DNS request message
 	hasNoAllow, hasNoDeny := len(m.Allow) == 0, len(m.Deny) == 0
-	if !(hasNoAllow && hasNoDeny) {
+	if !hasNoAllow || !hasNoDeny {
 		for _, q := range msg.Question {
 			// Filter out DNS request messages with invalid question classes
 			classValue, classFound := dns.ClassToString[q.Qclass]

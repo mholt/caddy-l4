@@ -70,8 +70,9 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Read one byte
-	buf := make([]byte, 1)
-	n, err := io.ReadAtLeast(cx, buf, 1)
+	n := 1
+	buf := make([]byte, n)
+	_, err := io.ReadAtLeast(cx, buf, n)
 	if err != nil {
 		return false, err
 	}
@@ -102,7 +103,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// Use a workaround to match ALPNs. This way quic.EarlyListener.Accept() exits on deadline
 	// if it receives a packet having an ALPN other than those present in tls.Config.NextProtos.
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates}
+	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates, MinVersion: tls.VersionTLS13}
 	for _, matcher := range m.matchers {
 		if alpnMatcher, ok := matcher.(*l4tls.MatchALPN); ok {
 			for _, alpnValue := range *alpnMatcher {
@@ -132,7 +133,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Write the buffered bytes into the pipe
-	n, err = clientFPC.WriteTo(buf[:n+1], nil)
+	_, err = clientFPC.WriteTo(buf[:n+1], nil)
 	if err != nil {
 		return false, nil
 	}
@@ -235,6 +236,7 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 	// Initialize a new TLS config
 	m.tlsConf = &tls.Config{
 		Certificates: []tls.Certificate{{Certificate: [][]byte{cert}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	// Initialize a new QUIC config
@@ -304,7 +306,7 @@ func (fpc *fakePacketConn) LocalAddr() net.Addr {
 }
 
 func (fpc *fakePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
-	n, err := fpc.Conn.Read(p)
+	n, err := fpc.Read(p)
 	return n, fpc.RemoteAddr(), err
 }
 
@@ -324,7 +326,7 @@ func (fpc *fakePacketConn) SetWriteBuffer(_ int) error {
 }
 
 func (fpc *fakePacketConn) WriteTo(p []byte, _ net.Addr) (int, error) {
-	return fpc.Conn.Write(p)
+	return fpc.Write(p)
 }
 
 // Interface guards

@@ -30,7 +30,7 @@ import (
 )
 
 type IPList struct {
-	ipFile            string         // File containing all IPs / CIDRs to be matched, gets continously monitored
+	ipFile            string         // File containing all IPs / CIDRs to be matched, gets continuously monitored
 	cidrs             []netip.Prefix // List of currently loaded CIDRs
 	ctx               caddy.Context  // Caddy context, used to detect when to shut down
 	logger            *zap.Logger

@@ -33,7 +33,6 @@ func init() {
 
 // MatchOpenVPN is able to match OpenVPN connections.
 type MatchOpenVPN struct {
-
 	// Modes contains a list of supported OpenVPN modes to match against incoming client reset messages:
 	//
 	//	- `plain` mode messages have no replay protection, authentication or encryption;
@@ -102,7 +101,6 @@ type MatchOpenVPN struct {
 	// List of the supported digest algorithms:
 	//	- MD5
 	//	- SHA-1
-	//	- RIPEMD-160
 	//	- SHA-224
 	//	- SHA-256
 	//	- SHA-384
@@ -419,7 +417,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}
@@ -436,7 +434,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}
