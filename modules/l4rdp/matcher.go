@@ -287,7 +287,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 	// Process RDPCustom
 	var hasValidCustom bool
-	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin {
+	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin { //nolint:staticcheck
 		RDPCustomBytesTotal := RDPNegReqBytesStart // include CR LF
 
 		// Parse RDPCustom
