@@ -74,8 +74,9 @@ func (m *MatchWinbox) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection bytes match the regular expression.
 func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	// Read a minimum number of bytes
-	hdr := make([]byte, 2)
-	n, err := io.ReadFull(cx, hdr)
+	n := 2
+	hdr := make([]byte, n)
+	_, err := io.ReadFull(cx, hdr)
 	if err != nil || hdr[0] < MessageAuthBytesMin-2 || hdr[1] != MessageChunkTypeAuth {
 		return false, err
 	}
@@ -356,7 +357,6 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 		chunks = append(chunks, chunk)
 	}
 
-	dst = dst[:0]
 	return chunks
 }
 

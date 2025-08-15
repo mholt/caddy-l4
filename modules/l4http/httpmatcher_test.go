@@ -269,6 +269,7 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	if matched {
 		t.Fatalf("matcher did match")
 	}
+	assertNoError(t, err)
 }
 
 func TestMatchHTTP_isHttp(t *testing.T) {

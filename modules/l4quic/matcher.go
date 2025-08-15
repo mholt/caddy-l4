@@ -70,8 +70,9 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Read one byte
-	buf := make([]byte, 1)
-	n, err := io.ReadAtLeast(cx, buf, 1)
+	n := 1
+	buf := make([]byte, n)
+	_, err := io.ReadAtLeast(cx, buf, n)
 	if err != nil {
 		return false, err
 	}
@@ -132,7 +133,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Write the buffered bytes into the pipe
-	n, err = clientFPC.WriteTo(buf[:n+1], nil)
+	_, err = clientFPC.WriteTo(buf[:n+1], nil)
 	if err != nil {
 		return false, nil
 	}
