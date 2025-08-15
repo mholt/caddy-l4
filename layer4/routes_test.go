@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
@@ -184,8 +186,8 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 		t.Fatalf("expected deadline exceeded error but got %s", testConnection.GetVar("err"))
 	}
 
-	elasped := testConnection.GetVar("time").(time.Time).Sub(now)
-	if !(matchingTimeout <= elasped && elasped <= 2*matchingTimeout) {
-		t.Fatalf("timeout takes too long %s", elasped)
+	elapsed := testConnection.GetVar("time").(time.Time).Sub(now)
+	if elapsed < matchingTimeout || elapsed > 2*matchingTimeout {
+		t.Fatalf("timeout takes too long %s", elapsed)
 	}
 }
