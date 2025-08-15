@@ -51,7 +51,26 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
-    rules: []
+    rules:
+      - linters:
+          - gosec
+        path: modules/l4rdp/matcher.go
+        text: G101 # There are no hardcoded credentials.
+      - linters:
+          - gosec
+        text: G115 # TODO: Either we should fix the issues or nuke the linter if it's bad
+      - linters:
+          - gosec
+        path: modules/l4proxy/loadbalancing.go
+        text: G404 # The choice of weakrand is deliberate.
+      - linters:
+          - gosec
+        path: modules/l4openvpn/crypto.go
+        text: G501 # crypto/md5 is supported for compatibility purposes.
+      - linters:
+          - gosec
+        path: modules/l4openvpn/crypto.go
+        text: G505 # crypto/sha1 is supported for compatibility purposes.
     paths: []
 formatters:
   enable:
