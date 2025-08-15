@@ -17,8 +17,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-type testIoMatcher struct {
-}
+type testIoMatcher struct{}
 
 func (*testIoMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
@@ -92,8 +91,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 }
 
 // used to test the timeout of udp associations
-type testIoUdpMatcher struct {
-}
+type testIoUdpMatcher struct{}
 
 func (*testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{

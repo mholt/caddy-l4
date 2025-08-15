@@ -12,8 +12,10 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 )
 
-var ProxyV1Example = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")
-var ProxyV2Example, _ = hex.DecodeString("0d0a0d0a000d0a515549540a2111000c7f0000017f000001b80701bb")
+var (
+	ProxyV1Example    = []byte("PROXY TCP4 192.168.0.1 192.168.0.11 56324 443\r\n")
+	ProxyV2Example, _ = hex.DecodeString("0d0a0d0a000d0a515549540a2111000c7f0000017f000001b80701bb")
+)
 
 func assertNoError(t *testing.T, err error) {
 	t.Helper()

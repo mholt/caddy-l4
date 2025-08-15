@@ -426,14 +426,13 @@ var StaticKeyFromFileBase64 = regexp.MustCompile("^(?:#.*?\\r?\\n)*" +
 	"-----BEGIN OpenVPN tls-crypt-v2 (?:client|server) key-----\\r?\\n" +
 	"([0-9a-zA-Z+=\\/\\r\\n]+)" +
 	"-----END OpenVPN tls-crypt-v2 (?:client|server) key-----(?:\\r?\\n)?$")
+
 var StaticKeyFromFileHex = regexp.MustCompile("^(?:#.*?\\r?\\n)*" +
 	"-----BEGIN OpenVPN Static key V1-----\\r?\\n" +
 	"([0-9a-fA-F\\r\\n]+)" +
 	"-----END OpenVPN Static key V1-----(?:\\r?\\n)?$")
 
-var (
-	ErrInvalidStaticKeyFileContents = errors.New("invalid static key file contents")
-)
+var ErrInvalidStaticKeyFileContents = errors.New("invalid static key file contents")
 
 const (
 	AuthHMACBytesMax = sha512.Size

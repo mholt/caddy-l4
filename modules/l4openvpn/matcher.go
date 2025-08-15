@@ -33,7 +33,6 @@ func init() {
 
 // MatchOpenVPN is able to match OpenVPN connections.
 type MatchOpenVPN struct {
-
 	// Modes contains a list of supported OpenVPN modes to match against incoming client reset messages:
 	//
 	//	- `plain` mode messages have no replay protection, authentication or encryption;
