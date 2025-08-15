@@ -117,7 +117,6 @@ func (m *MatchWireGuard) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	return nil
-
 }
 
 // MessageInitiation is the first message
