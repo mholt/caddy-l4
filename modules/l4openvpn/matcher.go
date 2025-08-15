@@ -102,7 +102,6 @@ type MatchOpenVPN struct {
 	// List of the supported digest algorithms:
 	//	- MD5
 	//	- SHA-1
-	//	- RIPEMD-160
 	//	- SHA-224
 	//	- SHA-256
 	//	- SHA-384

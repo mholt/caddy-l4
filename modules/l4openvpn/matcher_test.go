@@ -104,7 +104,6 @@ func Test_MessageAuth_FromBytes_Match_ToBytes(t *testing.T) {
 		// Legacy digests
 		authMD5Packet1, authMD5Packet2,
 		authSHA1Packet1, authSHA1Packet2,
-		authRIPEMD160Packet1, authRIPEMD160Packet2,
 		// SHA2 digests
 		authSHA224Packet1, authSHA224Packet2,
 		authSHA256Packet1, authSHA256Packet2,
@@ -262,7 +261,6 @@ func Test_MatchOpenVPN_Match(t *testing.T) {
 		for _, packet := range [][]byte{
 			authMD5Packet1, authMD5Packet2,
 			authSHA1Packet1, authSHA1Packet2,
-			authRIPEMD160Packet1, authRIPEMD160Packet2,
 			authSHA224Packet1, authSHA224Packet2,
 			authSHA256Packet1, authSHA256Packet2,
 			authSHA384Packet1, authSHA384Packet2,
@@ -470,8 +468,6 @@ var authMD5Packet1 = []byte{56, 108, 88, 142, 73, 58, 114, 77, 35, 45, 192, 5, 1
 var authMD5Packet2 = []byte{56, 31, 34, 72, 211, 219, 0, 85, 46, 200, 142, 75, 104, 53, 70, 109, 234, 137, 253, 29, 138, 148, 218, 83, 141, 0, 0, 0, 1, 102, 234, 243, 39, 0, 0, 0, 0, 0}
 var authSHA1Packet1 = []byte{56, 38, 129, 217, 92, 90, 2, 14, 97, 123, 32, 15, 106, 140, 112, 232, 206, 242, 138, 133, 246, 151, 31, 71, 44, 140, 201, 188, 248, 0, 0, 0, 1, 102, 234, 241, 204, 0, 0, 0, 0, 0}
 var authSHA1Packet2 = []byte{56, 200, 170, 60, 164, 170, 196, 13, 56, 240, 33, 30, 131, 14, 244, 151, 16, 1, 7, 173, 226, 133, 237, 132, 58, 101, 188, 6, 132, 0, 0, 0, 1, 102, 234, 242, 139, 0, 0, 0, 0, 0}
-var authRIPEMD160Packet1 = []byte{56, 30, 52, 26, 73, 175, 7, 96, 168, 184, 22, 237, 90, 206, 228, 15, 190, 115, 56, 133, 2, 91, 146, 56, 141, 94, 239, 86, 106, 0, 0, 0, 1, 102, 235, 48, 209, 0, 0, 0, 0, 0}
-var authRIPEMD160Packet2 = []byte{56, 248, 184, 244, 38, 24, 29, 19, 178, 189, 169, 134, 190, 27, 29, 4, 48, 38, 158, 6, 149, 140, 127, 148, 8, 199, 15, 254, 191, 0, 0, 0, 1, 102, 235, 48, 246, 0, 0, 0, 0, 0}
 
 var authSHA224Packet1 = []byte{56, 120, 162, 216, 21, 223, 131, 234, 134, 80, 127, 130, 174, 30, 102, 244, 238, 216, 176, 213, 66, 172, 6, 45, 221, 153, 93, 227, 228, 70, 180, 76, 82, 233, 176, 242, 229, 0, 0, 0, 1, 102, 234, 243, 221, 0, 0, 0, 0, 0}
 var authSHA224Packet2 = []byte{56, 122, 21, 55, 125, 40, 237, 190, 189, 15, 86, 80, 48, 61, 30, 49, 106, 231, 188, 22, 247, 221, 163, 252, 20, 146, 229, 246, 134, 11, 85, 67, 57, 90, 81, 233, 82, 0, 0, 0, 1, 102, 234, 243, 251, 0, 0, 0, 0, 0}
