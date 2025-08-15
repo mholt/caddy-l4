@@ -419,7 +419,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}
@@ -436,7 +436,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}
