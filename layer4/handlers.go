@@ -20,7 +20,7 @@ type Handlers []NextHandler
 // Compile assembles the list of handlers into a
 // single handler chain.
 func (h Handlers) Compile() Handler {
-	var midware []Middleware
+	midware := make([]Middleware, 0, 10)
 	for _, midhandler := range h {
 		midware = append(midware, wrapHandler(midhandler))
 	}
