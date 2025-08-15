@@ -452,7 +452,7 @@ func (msg *MessageCrypt2) FromBytesHeadless(src []byte, hdr *MessageHeader) erro
 
 // Match returns true if msg's internal structures have valid values.
 func (msg *MessageCrypt2) Match(ignoreTimestamp, ignoreCrypto bool, ad *AuthDigest, sk *StaticKey, cks []*WrappedKey) bool {
-	if !(msg.LocalSessionID > 0 && (msg.ReplayPacketID == 1 || msg.ReplayPacketID == 0x0f000001) &&
+	if !(msg.LocalSessionID > 0 && (msg.ReplayPacketID == 1 || msg.ReplayPacketID == 0x0f000001) && //nolint:staticcheck
 		(ignoreTimestamp || msg.ValidateReplayTimestamp(time.Now()))) {
 		return false
 	}
@@ -496,7 +496,7 @@ func (msg *MessageTraitAuth) AuthenticateOnClient(ad *AuthDigest, sk *StaticKey,
 
 	// Check that there is a valid StaticKey.
 	// A half key may be provided as a server key to validate a WrappedKey.
-	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) {
+	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) { //nolint:staticcheck
 		return false
 	}
 
@@ -572,7 +572,7 @@ func (msg *MessageTraitAuth) AuthenticateOnServer(ad *AuthDigest, sk *StaticKey,
 func (msg *MessageTraitAuth) SignOnClient(ad *AuthDigest, sk *StaticKey, xp func() []byte) error {
 	// Check that there is a valid StaticKey.
 	// A half key may be provided as a server key to sign a WrappedKey.
-	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) {
+	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) { //nolint:staticcheck
 		return ErrInvalidAuthPrerequisites
 	}
 
@@ -599,7 +599,7 @@ func (msg *MessageTraitAuth) SignOnClient(ad *AuthDigest, sk *StaticKey, xp func
 func (msg *MessageTraitAuth) SignOnServer(ad *AuthDigest, sk *StaticKey, xp func() []byte) error {
 	// Check that there is a valid StaticKey.
 	// A half key may be provided as a server key to sign a WrappedKey.
-	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) {
+	if sk == nil || !(len(sk.KeyBytes) == StaticKeyBytesTotal || len(sk.KeyBytes) == StaticKeyBytesHalf) { //nolint:staticcheck
 		return ErrInvalidAuthPrerequisites
 	}
 

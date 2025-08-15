@@ -83,7 +83,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	if logEntry.Message != "matching connection" {
 		t.Fatalf("wrong log message | %s", logEntry.Message)
 	}
-	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) {
+	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) { //nolint:staticcheck
 		t.Fatalf("wrong error | %v", logEntry.Context[1].Interface)
 	}
 
