@@ -1,0 +1,72 @@
+version: "2"
+run:
+  issues-exit-code: 1
+  tests: false
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - decorder
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - errcheck
+    - errname
+    - exhaustive
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - misspell
+    - prealloc
+    - promlinter
+    - sloglint
+    - sqlclosecheck
+    - staticcheck
+    - testableexamples
+    - testifylint
+    - tparallel
+    - unconvert
+    - unused
+    - wastedassign
+    - whitespace
+    - zerologlint
+  settings:
+    staticcheck:
+      checks: ["all", "-SA6002"]
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules: []
+    paths: []
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard # Standard section: captures all standard packages.
+        - default # Default section: contains all imports that could not be matched to another section type.
+        - prefix(github.com/caddyserver/caddy) # Custom section: groups all imports with the specified Prefix.
+        - prefix(github.com/mholt/caddy-l4) # Custom section: groups all imports with the specified Prefix.
+      custom-order: true
+  exclusions:
+    generated: lax
+    paths: []
