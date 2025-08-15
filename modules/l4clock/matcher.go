@@ -139,11 +139,9 @@ func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	switch strings.ToLower(first) {
 	case "before", "till", "to", "until":
 		first = timeMin
-		break
 	case "after", "from":
 		first = timeMax
 		second, first = first, second
-		break
 	}
 	m.After, m.Before = first, second
 
