@@ -34,7 +34,6 @@ import (
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"
-	"golang.org/x/crypto/ripemd160"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -311,7 +310,6 @@ var AuthDigests = []*AuthDigest{
 	// Legacy digests
 	{Creator: md5.New, Names: []string{"MD5", "SSL3-MD5", "md5", "ssl3-md5"}, Size: md5.Size},
 	{Creator: sha1.New, Names: []string{"SHA-1", "SHA1", "SSL3-SHA1", "sha-1", "sha1", "ssl3-sha1"}, Size: sha1.Size},
-	{Creator: ripemd160.New, Names: []string{"RIPEMD-160", "RMD-160", "RIPEMD160", "RIPEMD", "RMD160", "ripemd-160", "rmd-160", "ripemd160", "ripemd", "rmd160"}, Size: ripemd160.Size},
 	// SHA2 digests
 	{Creator: sha256.New224, Names: []string{"SHA-224", "SHA2-224", "SHA224", "sha-224", "sha2-224", "sha224"}, Size: sha256.Size224},
 	{Creator: sha256.New, Names: []string{"SHA-256", "SHA2-256", "SHA256", "sha-256", "sha2-256", "sha256"}, Size: sha256.Size},
