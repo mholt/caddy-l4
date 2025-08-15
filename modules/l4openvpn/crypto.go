@@ -185,7 +185,7 @@ func (sk *StaticKey) FromFile(path string, re *regexp.Regexp, size int, from fun
 
 	if n > 0 {
 		var s string
-		if r := re.FindStringSubmatch(string(buf[:n])); r != nil && len(r) == 2 {
+		if r := re.FindStringSubmatch(string(buf[:n])); len(r) == 2 {
 			s = strings.ReplaceAll(r[1], "\r", "")
 			s = strings.ReplaceAll(s, "\n", "")
 			if size == 0 || len(s) == size {
