@@ -69,7 +69,7 @@ func (packetConnHandler) Handle(conn *Connection) error {
 	if !ok {
 		return errNotPacketConn
 	}
-	// get the first buffer to read, Read shouldn't be called on packetConn
+	// get the first buffer to read, Read shouldn't be called on packetConn from now on
 	var firstBuf []byte
 	if len(conn.buf) > 0 && conn.offset < len(conn.buf) {
 		switch {
@@ -103,10 +103,21 @@ func (packetConnHandler) Handle(conn *Connection) error {
 	}
 
 	// pass the packet to the pipe
-	for pkt := range pc.readCh {
-		pcwp.packetPipe <- pkt
+	// reuse the idle timer for idle timeout since Read isn't called anymore
+	if pc.idleTimer == nil {
+		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+	} else {
+		pc.idleTimer.Reset(udpAssociationIdleTimeout)
 	}
-	return errHijacked
+	for {
+		select {
+		case pkt := <-pc.readCh:
+			pcwp.packetPipe <- pkt
+			pc.idleTimer.Reset(udpAssociationIdleTimeout)
+		case <-pc.idleTimer.C:
+			return errHijacked
+		}
+	}
 }
 
 // WrapPacketConn wraps up a packet conn.
