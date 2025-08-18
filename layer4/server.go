@@ -387,7 +387,7 @@ func (pc *packetConn) Close() error {
 func (pc *packetConn) RemoteAddr() net.Addr { return pc.addr }
 
 var udpBufPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		// Buffers need to be as large as the largest datagram we'll consume, because
 		// ReadFrom() can't resume partial reads.  (This is standard for UDP
 		// sockets on *nix.)  So our buffer sizes are 9000 bytes to accommodate
