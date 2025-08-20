@@ -35,6 +35,7 @@ func (*PacketConnWrapper) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the PacketConnWrapper.
 func (pcw *PacketConnWrapper) Provision(ctx caddy.Context) error {
 	pcw.ctx = ctx
+	pcw.server = &Server{}
 	pcw.server.logger = ctx.Logger()
 
 	if pcw.server.MatchingTimeout <= 0 {
@@ -250,6 +251,7 @@ func (pcw *PacketConnWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
+	pcw.server = &Server{}
 	if err := ParseCaddyfileNestedRoutes(d, &pcw.server.Routes, &pcw.server.MatchingTimeout); err != nil {
 		return err
 	}
