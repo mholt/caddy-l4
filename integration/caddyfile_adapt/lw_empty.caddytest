@@ -7,7 +7,7 @@
 	}
 }
 :80 {
-	respond 200 "OK"
+	respond "OK" 200
 }
 ----------
 {
@@ -30,9 +30,9 @@
 						{
 							"handle": [
 								{
-									"body": "200",
+									"body": "OK",
 									"handler": "static_response",
-									"status_code": "OK"
+									"status_code": 200
 								}
 							]
 						}

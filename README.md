@@ -31,6 +31,7 @@ This app works similarly to the `http` app. You define servers, and each server 
 Current matchers:
 
 - **layer4.matchers.clock** - matches connections on the time they are wrapped/matched.
+- **layer4.matchers.dns** - matches connections that look like DNS connections.
 - **layer4.matchers.http** - matches connections that start with HTTP requests. In addition, any [`http.matchers` modules](https://caddyserver.com/docs/modules/) can be used for matching on HTTP-specific properties of requests, such as header or path. Note that only the first request of each connection can be used for matching.
 - **layer4.matchers.local_ip** - matches connections based on local IP (or CIDR range).
 - **layer4.matchers.not** - matches connections that aren't matched by inner matcher sets.
@@ -521,7 +522,7 @@ While only allowing connections from a specific network and requiring a username
         0.0.0.0:1080 {
             @s5 {
                 socks5
-                ip 10.0.0.0/24
+                remote_ip 10.0.0.0/24
             }
             route @s5 {
                 socks5 {

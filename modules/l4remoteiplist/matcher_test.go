@@ -75,7 +75,9 @@ func createIPFile(t *testing.T) (string, string) {
 	// Create the file
 	file, err := os.Create(remoteIPFile)
 	assertNoError(t, err)
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	return tempDir, remoteIPFile
 }
@@ -95,7 +97,9 @@ func appendToFile(t *testing.T, filename string, ip string) {
 	// Append new IP to end of file
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	assertNoError(t, err)
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	_, err = f.WriteString(ip + "\n")
 	assertNoError(t, err)
