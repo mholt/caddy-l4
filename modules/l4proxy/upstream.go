@@ -181,10 +181,6 @@ func (u *Upstream) totalConns() int {
 //		tls_server_name <name>
 //		tls_timeout <duration>
 //		tls_trust_pool <module>
-//
-//		# DEPRECATED:
-//		tls_trusted_ca_certs <certificates...>
-//		tls_trusted_ca_pool <certificates...>
 //	}
 //	upstream <address:port>
 func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -344,22 +340,6 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
-		case "tls_trusted_ca_certs": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPEMFiles = append(u.TLS.RootCAPEMFiles, d.RemainingArgs()...)
-		case "tls_trusted_ca_pool": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPool = append(u.TLS.RootCAPool, d.RemainingArgs()...)
 		default:
 			return d.ArgErr()
 		}
