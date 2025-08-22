@@ -298,6 +298,14 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		}
 
 		upConns = append(upConns, up)
+
+		err = p.countConn(1)
+		if err != nil {
+			h.logger.Error("could not count connection",
+				zap.String("peer_address", p.address.String()),
+				zap.Error(err))
+			return upConns, err
+		}
 	}
 
 	return upConns, nil
