@@ -62,9 +62,6 @@ linters:
         text: G101 # There are no hardcoded credentials.
       - linters:
           - gosec
-        text: G115 # TODO: Either we should fix the issues or nuke the linter if it's bad
-      - linters:
-          - gosec
         path: modules/l4proxy/loadbalancing.go
         text: G404 # The choice of weakrand is deliberate.
       - linters:

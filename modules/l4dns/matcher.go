@@ -115,7 +115,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 		if n > dns.MaxMsgSize {
 			return false, nil
 		}
-		msgBytes = uint16(n)
+		msgBytes = uint16(n) //nolint:gosec // disable G115
 	}
 
 	// Unpack the DNS message with a third-party library

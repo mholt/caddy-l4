@@ -349,7 +349,7 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 		}
 
 		chunk = &MessageChunk{}
-		chunk.Length = uint8(ll)
+		chunk.Length = uint8(ll) //nolint:gosec // disable G115
 		if i == 0 {
 			chunk.Type = MessageChunkTypeAuth
 		} else {

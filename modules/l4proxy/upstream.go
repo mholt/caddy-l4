@@ -134,7 +134,7 @@ func (u *Upstream) healthy() bool {
 	}
 	if u.healthCheckPolicy != nil && u.healthCheckPolicy.MaxFails > 0 {
 		for _, p := range u.peers {
-			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) {
+			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
 				return false
 			}
 		}
@@ -382,8 +382,8 @@ func (p *peer) healthy() bool {
 
 // countConn mutates the active connection count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countConn(delta int) error {
-	result := atomic.AddInt32(&p.numConns, int32(delta))
+func (p *peer) countConn(delta int32) error {
+	result := atomic.AddInt32(&p.numConns, delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -392,8 +392,8 @@ func (p *peer) countConn(delta int) error {
 
 // countFail mutates the recent failures count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countFail(delta int) error {
-	result := atomic.AddInt32(&p.fails, int32(delta))
+func (p *peer) countFail(delta int32) error {
+	result := atomic.AddInt32(&p.fails, delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}

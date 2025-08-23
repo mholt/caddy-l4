@@ -133,7 +133,7 @@ func (h *Handler) doActiveHealthCheck(p *peer) error {
 
 	// adjust the port, if configured to be different
 	if h.HealthChecks.Active.Port > 0 {
-		addr.StartPort = uint(h.HealthChecks.Active.Port)
+		addr.StartPort = uint(h.HealthChecks.Active.Port) //nolint:gosec // disable G115
 		addr.EndPort = addr.StartPort
 	}
 

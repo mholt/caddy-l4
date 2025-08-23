@@ -824,7 +824,7 @@ func (wk *WrappedKey) ToBytes() []byte {
 	dst := make([]byte, 0, len(wk.HMAC)+len(wk.Encrypted)+LengthBytesTotal)
 	dst = append(dst, wk.HMAC...)
 	dst = append(dst, wk.Encrypted...)
-	dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)))
+	dst = BytesOrder.AppendUint16(dst, uint16(cap(dst))) //nolint:gosec // disable G115
 	return dst
 }
 
@@ -832,14 +832,14 @@ func (wk *WrappedKey) ToBytes() []byte {
 func (wk *WrappedKey) ToBytesAuth() []byte {
 	if len(wk.Payload) > 0 {
 		dst := make([]byte, 0, LengthBytesTotal+len(wk.KeyBytes)+MetaDataTypeBytesTotal+len(wk.Payload))
-		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal))
+		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal)) //nolint:gosec // disable G115
 		dst = append(dst, wk.KeyBytes...)
 		dst = append(dst, wk.Type)
 		dst = append(dst, wk.Payload...)
 		return dst
 	} else {
 		dst := make([]byte, 0, LengthBytesTotal+len(wk.KeyBytes))
-		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal))
+		dst = BytesOrder.AppendUint16(dst, uint16(cap(dst)+CryptHMACBytesTotal)) //nolint:gosec // disable G115
 		dst = append(dst, wk.KeyBytes...)
 		return dst
 	}
