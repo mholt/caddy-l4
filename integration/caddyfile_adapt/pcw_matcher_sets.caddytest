@@ -1,0 +1,125 @@
+{
+	servers {
+		packet_conn_wrappers {
+			layer4 {
+				@d dns
+				route @d {
+					proxy udp/one.one.one.one:53
+				}
+				@w wireguard
+				route @w {
+					proxy udp/192.168.1.1:51820
+				}
+			}
+		}
+	}
+}
+https://localhost {
+	tls {
+		issuer internal
+	}
+	respond "OK" 200
+}
+----------
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"packet_conn_wrappers": [
+						{
+							"routes": [
+								{
+									"handle": [
+										{
+											"handler": "proxy",
+											"upstreams": [
+												{
+													"dial": [
+														"udp/one.one.one.one:53"
+													]
+												}
+											]
+										}
+									],
+									"match": [
+										{
+											"dns": {}
+										}
+									]
+								},
+								{
+									"handle": [
+										{
+											"handler": "proxy",
+											"upstreams": [
+												{
+													"dial": [
+														"udp/192.168.1.1:51820"
+													]
+												}
+											]
+										}
+									],
+									"match": [
+										{
+											"wireguard": {}
+										}
+									]
+								}
+							],
+							"wrapper": "layer4"
+						}
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"host": [
+										"localhost"
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"body": "OK",
+													"handler": "static_response",
+													"status_code": 200
+												}
+											]
+										}
+									]
+								}
+							],
+							"terminal": true
+						}
+					]
+				}
+			}
+		},
+		"tls": {
+			"automation": {
+				"policies": [
+					{
+						"subjects": [
+							"localhost"
+						],
+						"issuers": [
+							{
+								"module": "internal"
+							}
+						]
+					}
+				]
+			}
+		}
+	}
+}
