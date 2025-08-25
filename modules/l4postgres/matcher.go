@@ -60,7 +60,7 @@ func (b *message) ReadUint32() (r uint32) {
 
 func (b *message) ReadString() (r string) {
 	end := b.offset
-	maximum := uint32(len(b.data))
+	maximum := uint32(len(b.data)) //nolint:gosec // disable G115
 	for ; end != maximum && b.data[end] != 0; end++ {
 	}
 	r = string(b.data[b.offset:end])

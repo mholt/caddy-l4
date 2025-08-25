@@ -24,8 +24,7 @@ func assertNoError(t *testing.T, err error) {
 }
 
 // testHandler is a connection handler that will set a variable to let us know it was called.
-type testHandler struct {
-}
+type testHandler struct{}
 
 // CaddyModule returns the Caddy module information.
 func (*testHandler) CaddyModule() caddy.ModuleInfo {
@@ -269,6 +268,7 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	if matched {
 		t.Fatalf("matcher did match")
 	}
+	assertNoError(t, err)
 }
 
 func TestMatchHTTP_isHttp(t *testing.T) {

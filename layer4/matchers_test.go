@@ -8,8 +8,10 @@ import (
 	"go.uber.org/zap"
 )
 
-var _ net.Conn = &dummyConn{}
-var _ net.Addr = dummyAddr{}
+var (
+	_ net.Conn = &dummyConn{}
+	_ net.Addr = dummyAddr{}
+)
 
 type dummyAddr struct {
 	ip      string
@@ -51,6 +53,7 @@ func provision(in provisionableMatcher) ConnMatcher {
 	_ = in.Provision(caddy.Context{})
 	return in
 }
+
 func TestNotMatcher(t *testing.T) {
 	for i, tc := range []struct {
 		cx        *Connection

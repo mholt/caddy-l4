@@ -75,8 +75,10 @@ type Connection struct {
 	bytesRead, bytesWritten uint64
 }
 
-var ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
-var ErrMatchingBufferFull = errors.New("matching buffer is full")
+var (
+	ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
+	ErrMatchingBufferFull         = errors.New("matching buffer is full")
+)
 
 // GetContext returns cx.Context,
 // so that caddytls.MatchServerNameRE.Match() could obtain this context without importing layer4.
@@ -111,14 +113,14 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	// buffer has been "depleted" so read from
 	// underlying connection
 	n, err = cx.Conn.Read(p)
-	cx.bytesRead += uint64(n)
+	cx.bytesRead += uint64(n) //nolint:gosec // disable G115
 
 	return
 }
 
 func (cx *Connection) Write(p []byte) (n int, err error) {
 	n, err = cx.Conn.Write(p)
-	cx.bytesWritten += uint64(n)
+	cx.bytesWritten += uint64(n) //nolint:gosec // disable G115
 	return
 }
 
@@ -159,7 +161,7 @@ func (cx *Connection) prefetch() (err error) {
 			cx.buf = append(cx.buf, tmp[:n]...)
 		}
 
-		cx.bytesRead += uint64(n)
+		cx.bytesRead += uint64(n) //nolint:gosec // disable G115
 
 		if err != nil {
 			return err

@@ -17,8 +17,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-type testIoMatcher struct {
-}
+type testIoMatcher struct{}
 
 func (*testIoMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
@@ -81,7 +80,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	if logEntry.Message != "matching connection" {
 		t.Fatalf("wrong log message | %s", logEntry.Message)
 	}
-	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) {
+	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) { //nolint:staticcheck
 		t.Fatalf("wrong error | %v", logEntry.Context[1].Interface)
 	}
 
@@ -92,8 +91,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 }
 
 // used to test the timeout of udp associations
-type testIoUdpMatcher struct {
-}
+type testIoUdpMatcher struct{}
 
 func (*testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
@@ -184,8 +182,8 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 		t.Fatalf("expected deadline exceeded error but got %s", testConnection.GetVar("err"))
 	}
 
-	elasped := testConnection.GetVar("time").(time.Time).Sub(now)
-	if !(matchingTimeout <= elasped && elasped <= 2*matchingTimeout) {
-		t.Fatalf("timeout takes too long %s", elasped)
+	elapsed := testConnection.GetVar("time").(time.Time).Sub(now)
+	if elapsed < matchingTimeout || elapsed > 2*matchingTimeout {
+		t.Fatalf("timeout takes too long %s", elapsed)
 	}
 }

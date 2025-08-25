@@ -42,7 +42,7 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	if n != len(matcherData) {
 		t.Fatalf("expected to read %d bytes but got %d", len(matcherData), n)
 	}
-	if bytes.Compare(matcherData, buf) != 0 {
+	if !bytes.Equal(matcherData, buf) {
 		t.Fatalf("expected %s but received %s", matcherData, buf)
 	}
 
@@ -59,7 +59,7 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	if n != len(matcherData) {
 		t.Fatalf("expected to read %d bytes but got %d", len(matcherData), n)
 	}
-	if bytes.Compare(matcherData, buf) != 0 {
+	if !bytes.Equal(matcherData, buf) {
 		t.Fatalf("expected %s but received %s", matcherData, buf)
 	}
 
@@ -74,7 +74,7 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	if n != len(matcherData) {
 		t.Fatalf("expected to read %d bytes but got %d", len(matcherData), n)
 	}
-	if bytes.Compare(matcherData, buf) != 0 {
+	if !bytes.Equal(matcherData, buf) {
 		t.Fatalf("expected %s but received %s", matcherData, buf)
 	}
 
@@ -87,7 +87,7 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	if n != len(consumeData) {
 		t.Fatalf("expected to read %d bytes but got %d", len(consumeData), n)
 	}
-	if bytes.Compare(consumeData, buf) != 0 {
+	if !bytes.Equal(consumeData, buf) {
 		t.Fatalf("expected %s but received %s", consumeData, buf)
 	}
 }

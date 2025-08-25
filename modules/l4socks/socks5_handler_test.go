@@ -44,7 +44,7 @@ func replay(t *testing.T, handler *Socks5Handler, expectedError string, messages
 			_, err = io.ReadFull(in, buf)
 			assertNoError(t, err)
 
-			if bytes.Compare(messages[i+1], buf) != 0 {
+			if !bytes.Equal(messages[i+1], buf) {
 				t.Fatalf("Expected % x but received % x\n", messages[i+1], buf)
 			}
 		}
