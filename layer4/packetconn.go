@@ -18,6 +18,9 @@ func init() {
 
 // PacketConnWrapper is a Caddy module that wraps App as a packet conn wrapper, it doesn't support tcp.
 type PacketConnWrapper struct {
+	Routes          RouteList      `json:"routes,omitempty"`
+	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
+
 	// probably should extract packet conn handling logic, but this will do
 	server *Server
 
@@ -35,20 +38,22 @@ func (*PacketConnWrapper) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the PacketConnWrapper.
 func (pcw *PacketConnWrapper) Provision(ctx caddy.Context) error {
 	pcw.ctx = ctx
-	if pcw.server == nil {
-		pcw.server = &Server{}
-	}
-	pcw.server.logger = ctx.Logger()
 
-	if pcw.server.MatchingTimeout <= 0 {
-		pcw.server.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
+	if pcw.MatchingTimeout <= 0 {
+		pcw.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
 
-	err := pcw.server.Routes.Provision(ctx)
+	err := pcw.Routes.Provision(ctx)
 	if err != nil {
 		return err
 	}
-	pcw.server.compiledRoute = pcw.server.Routes.Compile(pcw.server.logger, time.Duration(pcw.server.MatchingTimeout), packetConnHandler{})
+
+	logger := ctx.Logger()
+
+	pcw.server = &Server{
+		logger:        logger,
+		compiledRoute: pcw.Routes.Compile(logger, time.Duration(pcw.MatchingTimeout), packetConnHandler{}),
+	}
 
 	return nil
 }
@@ -253,10 +258,7 @@ func (pcw *PacketConnWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	if pcw.server == nil {
-		pcw.server = &Server{}
-	}
-	if err := ParseCaddyfileNestedRoutes(d, &pcw.server.Routes, &pcw.server.MatchingTimeout); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &pcw.Routes, &pcw.MatchingTimeout); err != nil {
 		return err
 	}
 
