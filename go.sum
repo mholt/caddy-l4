@@ -94,6 +94,8 @@ github.com/bradfitz/go-smtpd v0.0.0-20170404230938-deb6d6237625/go.mod h1:HYsPBT
 github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23/go.mod h1:bbYlZJ7hK1yFx9hf58LP0zeX7UjIGs20ufpu3evjr+s=
 github.com/caddyserver/certmagic v0.23.0 h1:CfpZ/50jMfG4+1J/u2LV6piJq4HOfO6ppOnOf7DkFEU=
 github.com/caddyserver/certmagic v0.23.0/go.mod h1:9mEZIWqqWoI+Gf+4Trh04MOVPD0tGSxtqsxg87hAIH4=
+github.com/caddyserver/certmagic v0.24.0 h1:EfXTWpxHAUKgDfOj6MHImJN8Jm4AMFfMT6ITuKhrDF0=
+github.com/caddyserver/certmagic v0.24.0/go.mod h1:xPT7dC1DuHHnS2yuEQCEyks+b89sUkMENh8dJF+InLE=
 github.com/caddyserver/zerossl v0.1.3 h1:onS+pxp3M8HnHpN5MMbOMyNjmTheJyWRaZYwn+YTAyA=
 github.com/caddyserver/zerossl v0.1.3/go.mod h1:CxA0acn7oEGO6//4rtrRjYgEoa4MFw/XofZnrYwGqG4=
 github.com/ccoveille/go-safecast v1.6.1 h1:Nb9WMDR8PqhnKCVs2sCB+OqhohwO5qaXtCviZkIff5Q=
@@ -435,6 +437,8 @@ github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49u
 github.com/viant/toolbox v0.24.0/go.mod h1:OxMCG57V0PXuIP2HNQrtJf2CjqdmbrOx5EkMILuUhzM=
 github.com/vnxme/caddy/v2 v2.0.0-20250813194301-985e05d95dee h1:jzcXTnn8nOlIX0aazdAiHPmYyaXjpCEvYaai7bqqAb0=
 github.com/vnxme/caddy/v2 v2.0.0-20250813194301-985e05d95dee/go.mod h1:ly5YIVCbxP8LITj7dMu33zMd9EwvLdcuuQoUwzNiQ0Y=
+github.com/vnxme/caddy/v2 v2.0.0-20250822175201-1e2ae1b66bee h1:Thr+OARAP3gHUQhWCW0/bU97gBW9V7wfrK2TeglVTLU=
+github.com/vnxme/caddy/v2 v2.0.0-20250822175201-1e2ae1b66bee/go.mod h1:TXLQHx+ev4HDpkO6PnVVHUbL6OXt6Dfe7VcIBdQnPL0=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
