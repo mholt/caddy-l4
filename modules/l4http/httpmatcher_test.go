@@ -24,11 +24,10 @@ func assertNoError(t *testing.T, err error) {
 }
 
 // testHandler is a connection handler that will set a variable to let us know it was called.
-type testHandler struct {
-}
+type testHandler struct{}
 
 // CaddyModule returns the Caddy module information.
-func (testHandler) CaddyModule() caddy.ModuleInfo {
+func (*testHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.handlers.test_handler",
 		New: func() caddy.Module { return new(testHandler) },
@@ -42,7 +41,7 @@ func (h *testHandler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 }
 
 func init() {
-	caddy.RegisterModule(testHandler{})
+	caddy.RegisterModule(&testHandler{})
 }
 
 func httpMatchTester(t *testing.T, matchers json.RawMessage, data []byte) (bool, error) {
@@ -269,6 +268,7 @@ func TestHttpMatchingGarbage(t *testing.T) {
 	if matched {
 		t.Fatalf("matcher did match")
 	}
+	assertNoError(t, err)
 }
 
 func TestMatchHTTP_isHttp(t *testing.T) {
@@ -314,7 +314,7 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, matched := MatchHTTP{}.isHttp(tc.data)
+			_, matched := (&MatchHTTP{}).isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
 			}

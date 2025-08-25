@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"io"
 	"net"
 	"os"
@@ -12,15 +11,15 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
 
-type testIoMatcher struct {
-}
+type testIoMatcher struct{}
 
-func (testIoMatcher) CaddyModule() caddy.ModuleInfo {
+func (*testIoMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.testIoMatcher",
 		New: func() caddy.Module { return new(testIoMatcher) },
@@ -37,7 +36,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	caddy.RegisterModule(testIoMatcher{})
+	caddy.RegisterModule(&testIoMatcher{})
 
 	routes := RouteList{&Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -81,7 +80,7 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 	if logEntry.Message != "matching connection" {
 		t.Fatalf("wrong log message | %s", logEntry.Message)
 	}
-	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) {
+	if !(logEntry.Context[1].Key == "error" && errors.Is(logEntry.Context[1].Interface.(error), ErrMatchingTimeout)) { //nolint:staticcheck
 		t.Fatalf("wrong error | %v", logEntry.Context[1].Interface)
 	}
 
@@ -92,10 +91,9 @@ func TestMatchingTimeoutWorks(t *testing.T) {
 }
 
 // used to test the timeout of udp associations
-type testIoUdpMatcher struct {
-}
+type testIoUdpMatcher struct{}
 
-func (testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
+func (*testIoUdpMatcher) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "layer4.matchers.testIoUdpMatcher",
 		New: func() caddy.Module { return new(testIoUdpMatcher) },
@@ -126,7 +124,7 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 
-	caddy.RegisterModule(testIoUdpMatcher{})
+	caddy.RegisterModule(&testIoUdpMatcher{})
 
 	routes := RouteList{&Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -161,7 +159,9 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	server := new(Server)
 	server.compiledRoute = compiledRoutes
 	server.logger = zap.NewNop()
-	go server.servePacket(pc)
+	go func() {
+		_ = server.servePacket(pc)
+	}()
 
 	now := time.Now()
 
@@ -182,8 +182,8 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 		t.Fatalf("expected deadline exceeded error but got %s", testConnection.GetVar("err"))
 	}
 
-	elasped := testConnection.GetVar("time").(time.Time).Sub(now)
-	if !(matchingTimeout <= elasped && elasped <= 2*matchingTimeout) {
-		t.Fatalf("timeout takes too long %s", elasped)
+	elapsed := testConnection.GetVar("time").(time.Time).Sub(now)
+	if elapsed < matchingTimeout || elapsed > 2*matchingTimeout {
+		t.Fatalf("timeout takes too long %s", elapsed)
 	}
 }

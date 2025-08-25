@@ -134,7 +134,7 @@ func (u *Upstream) healthy() bool {
 	}
 	if u.healthCheckPolicy != nil && u.healthCheckPolicy.MaxFails > 0 {
 		for _, p := range u.peers {
-			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) {
+			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
 				return false
 			}
 		}
@@ -181,10 +181,6 @@ func (u *Upstream) totalConns() int {
 //		tls_server_name <name>
 //		tls_timeout <duration>
 //		tls_trust_pool <module>
-//
-//		# DEPRECATED:
-//		tls_trusted_ca_certs <certificates...>
-//		tls_trusted_ca_pool <certificates...>
 //	}
 //	upstream <address:port>
 func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -344,22 +340,6 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
-		case "tls_trusted_ca_certs": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPEMFiles = append(u.TLS.RootCAPEMFiles, d.RemainingArgs()...)
-		case "tls_trusted_ca_pool": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPool = append(u.TLS.RootCAPool, d.RemainingArgs()...)
 		default:
 			return d.ArgErr()
 		}
@@ -402,8 +382,8 @@ func (p *peer) healthy() bool {
 
 // countConn mutates the active connection count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countConn(delta int) error {
-	result := atomic.AddInt32(&p.numConns, int32(delta))
+func (p *peer) countConn(delta int32) error {
+	result := atomic.AddInt32(&p.numConns, delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -412,8 +392,8 @@ func (p *peer) countConn(delta int) error {
 
 // countFail mutates the recent failures count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countFail(delta int) error {
-	result := atomic.AddInt32(&p.fails, int32(delta))
+func (p *peer) countFail(delta int32) error {
+	result := atomic.AddInt32(&p.fails, delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}

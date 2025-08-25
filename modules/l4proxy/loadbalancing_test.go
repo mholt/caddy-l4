@@ -53,7 +53,7 @@ func TestHostByHashing(t *testing.T) {
 		for range keyCount {
 			ip := rand.Uint32()
 			binary.LittleEndian.PutUint32(buf, ip)
-			result = append(result, fmt.Sprintf("%s", net.IP(buf)))
+			result = append(result, net.IP(buf).String())
 		}
 		return result
 	}()

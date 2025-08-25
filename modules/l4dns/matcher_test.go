@@ -55,19 +55,31 @@ func Test_MatchDNS_Match(t *testing.T) {
 		{matcher: &MatchDNS{}, data: tcpPacketAppleComA, shouldMatch: true, shouldFakeTCP: true},
 		{matcher: &MatchDNS{}, data: tcpPacketGoogleComA, shouldMatch: true, shouldFakeTCP: true},
 
-		{matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{Name: "example.com.", Type: "NS"}}},
-			data: tcpPacketExampleComA, shouldMatch: false, shouldFakeTCP: true},
-		{matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{Name: "example.com.", Type: "A", Class: "IN"}}},
-			data: tcpPacketExampleComA, shouldMatch: true, shouldFakeTCP: true},
-		{matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{TypeRegexp: "^(MX|NS)$"}}},
-			data: tcpPacketExampleComA, shouldMatch: false, shouldFakeTCP: true},
-		{matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{NameRegexp: "^(|[-0-9a-z]+\\.)example\\.com\\.$"}}},
-			data: tcpPacketExampleComA, shouldMatch: true, shouldFakeTCP: true},
+		{
+			matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{Name: "example.com.", Type: "NS"}}},
+			data:    tcpPacketExampleComA, shouldMatch: false, shouldFakeTCP: true,
+		},
+		{
+			matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{Name: "example.com.", Type: "A", Class: "IN"}}},
+			data:    tcpPacketExampleComA, shouldMatch: true, shouldFakeTCP: true,
+		},
+		{
+			matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{TypeRegexp: "^(MX|NS)$"}}},
+			data:    tcpPacketExampleComA, shouldMatch: false, shouldFakeTCP: true,
+		},
+		{
+			matcher: &MatchDNS{Allow: MatchDNSRules{&MatchDNSRule{NameRegexp: "^(|[-0-9a-z]+\\.)example\\.com\\.$"}}},
+			data:    tcpPacketExampleComA, shouldMatch: true, shouldFakeTCP: true,
+		},
 
-		{matcher: &MatchDNS{Deny: MatchDNSRules{&MatchDNSRule{Name: ".", Class: "IN"}}},
-			data: tcpPacketDotNS, shouldMatch: false, shouldFakeTCP: true},
-		{matcher: &MatchDNS{Deny: MatchDNSRules{&MatchDNSRule{Type: "A"}}},
-			data: tcpPacketDotNS, shouldMatch: true, shouldFakeTCP: true},
+		{
+			matcher: &MatchDNS{Deny: MatchDNSRules{&MatchDNSRule{Name: ".", Class: "IN"}}},
+			data:    tcpPacketDotNS, shouldMatch: false, shouldFakeTCP: true,
+		},
+		{
+			matcher: &MatchDNS{Deny: MatchDNSRules{&MatchDNSRule{Type: "A"}}},
+			data:    tcpPacketDotNS, shouldMatch: true, shouldFakeTCP: true,
+		},
 
 		{matcher: &MatchDNS{
 			Allow: MatchDNSRules{&MatchDNSRule{Name: "example.com.", Type: "A"}},
@@ -145,24 +157,29 @@ var tcpPacketAppleComA = []byte{
 	126, 193, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
 	5, 97, 112, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, // apple.com (A, IN)
 }
+
 var udpPacketAppleComA = []byte{
 	0, 7, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
 	5, 97, 112, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, // apple.com (A, IN)
 }
+
 var tcpPacketGoogleComA = []byte{
 	0, 28,
 	207, 90, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
 	6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 5, 0, 1, // google.com. (A, IN)
 }
+
 var udpPacketGoogleComA = []byte{
 	0, 11, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
 	6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, // google.com. (A, IN)
 }
+
 var tcpPacketExampleComA = []byte{
 	0, 29,
 	101, 3, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
 	7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, // example.com. (A, IN)
 }
+
 var tcpPacketDotNS = []byte{
 	0, 17,
 	213, 147, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,

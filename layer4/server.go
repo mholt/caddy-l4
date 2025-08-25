@@ -352,7 +352,6 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			// next loop will run. Don't call Read as that will reset the idle timer.
 		case <-pc.idleTimer.C:
 			done = true
-			break
 		}
 	}
 	// Idle timeout simulates socket closure.
@@ -367,7 +366,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 }
 
 func (pc *packetConn) Write(b []byte) (n int, err error) {
-	return pc.PacketConn.WriteTo(b, pc.addr)
+	return pc.WriteTo(b, pc.addr)
 }
 
 func (pc *packetConn) Close() error {

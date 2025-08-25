@@ -115,7 +115,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 		if n > dns.MaxMsgSize {
 			return false, nil
 		}
-		msgBytes = uint16(n)
+		msgBytes = uint16(n) //nolint:gosec // disable G115
 	}
 
 	// Unpack the DNS message with a third-party library
@@ -137,7 +137,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 
 	// Apply the allow and deny rules to the question section of the DNS request message
 	hasNoAllow, hasNoDeny := len(m.Allow) == 0, len(m.Deny) == 0
-	if !(hasNoAllow && hasNoDeny) {
+	if !hasNoAllow || !hasNoDeny {
 		for _, q := range msg.Question {
 			// Filter out DNS request messages with invalid question classes
 			classValue, classFound := dns.ClassToString[q.Qclass]
