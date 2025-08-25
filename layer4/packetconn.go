@@ -18,7 +18,10 @@ func init() {
 
 // PacketConnWrapper is a Caddy module that wraps App as a packet conn wrapper, it doesn't support tcp.
 type PacketConnWrapper struct {
-	Routes          RouteList      `json:"routes,omitempty"`
+	// Routes express composable logic for handling byte streams.
+	Routes RouteList `json:"routes,omitempty"`
+
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	// probably should extract packet conn handling logic, but this will do
