@@ -293,7 +293,7 @@ func (*RoundRobinSelection) CaddyModule() caddy.ModuleInfo {
 
 // Select returns an available host, if any.
 func (r *RoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
-	n := uint32(len(pool))
+	n := uint32(len(pool)) //nolint:gosec // disable G115
 	if n == 0 {
 		return nil
 	}

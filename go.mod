@@ -1,11 +1,11 @@
 module github.com/mholt/caddy-l4
 
-go 1.24
+go 1.25
 
-replace github.com/caddyserver/caddy/v2 v2.10.1-0.20250720214045-8ba7eefd0767 => github.com/vnxme/caddy/v2 v2.0.0-20250813194301-985e05d95dee
+replace github.com/caddyserver/caddy/v2 v2.10.1 => github.com/vnxme/caddy/v2 v2.0.0-20250822175201-1e2ae1b66bee
 
 require (
-	github.com/caddyserver/caddy/v2 v2.10.1-0.20250720214045-8ba7eefd0767
+	github.com/caddyserver/caddy/v2 v2.10.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/miekg/dns v1.1.63
@@ -35,7 +35,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/aryann/difflib v0.0.0-20210328193216-ff5ff6dc229b // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/caddyserver/certmagic v0.23.0 // indirect
+	github.com/caddyserver/certmagic v0.24.0 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
 	github.com/ccoveille/go-safecast v1.6.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect

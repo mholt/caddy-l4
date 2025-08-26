@@ -18,7 +18,10 @@ func init() {
 
 // PacketConnWrapper is a Caddy module that wraps App as a packet conn wrapper, it doesn't support tcp.
 type PacketConnWrapper struct {
-	Routes          RouteList      `json:"routes,omitempty"`
+	// Routes express composable logic for handling byte streams.
+	Routes RouteList `json:"routes,omitempty"`
+
+	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
 	// probably should extract packet conn handling logic, but this will do
@@ -58,10 +61,66 @@ func (pcw *PacketConnWrapper) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-var (
-	errNotPacketConn = errors.New("no packetConn found in connection context")
-	connCtxKey       = caddy.CtxKey("underlying_conn")
-)
+// WrapPacketConn wraps up a packet conn.
+func (pcw *PacketConnWrapper) WrapPacketConn(pc net.PacketConn) net.PacketConn {
+	pipe := make(chan *packet, 10)
+	go func() {
+		err := pcw.server.servePacket(&packetConnWithPipe{
+			PacketConn: pc,
+			packetPipe: pipe,
+		})
+		pipe <- &packet{
+			err: err,
+		}
+		// server.servePacket will wait for all handling to finish before returning,
+		// so it's safe to close the pipe here as no new value will be sent
+		close(pipe)
+	}()
+	wpc := &wrappedPacketConn{
+		pc:         pc,
+		packetPipe: pipe,
+	}
+	// set the deadline to zero time to initialize the timer
+	_ = wpc.SetReadDeadline(time.Time{})
+	return wpc
+}
+
+// UnmarshalCaddyfile sets up the PacketConnWrapper from Caddyfile tokens. Syntax:
+//
+//	layer4 {
+//		matching_timeout <duration>
+//		@a <matcher> [<matcher_args>]
+//		@b {
+//			<matcher> [<matcher_args>]
+//			<matcher> [<matcher_args>]
+//		}
+//		route @a @b {
+//			<handler> [<handler_args>]
+//		}
+//		@c <matcher> {
+//			<matcher_option> [<matcher_option_args>]
+//		}
+//		route @c {
+//			<handler> [<handler_args>]
+//			<handler> {
+//				<handler_option> [<handler_option_args>]
+//			}
+//		}
+//	}
+func (pcw *PacketConnWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	if err := ParseCaddyfileNestedRoutes(d, &pcw.Routes, &pcw.MatchingTimeout); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // packetConnHandler is a connection handler that unwraps the incoming connection to channel as a packet conn wrapper.
 type packetConnHandler struct{}
@@ -126,30 +185,6 @@ func (packetConnHandler) Handle(conn *Connection) error {
 			return errHijacked
 		}
 	}
-}
-
-// WrapPacketConn wraps up a packet conn.
-func (pcw *PacketConnWrapper) WrapPacketConn(pc net.PacketConn) net.PacketConn {
-	pipe := make(chan *packet, 10)
-	go func() {
-		err := pcw.server.servePacket(&packetConnWithPipe{
-			PacketConn: pc,
-			packetPipe: pipe,
-		})
-		pipe <- &packet{
-			err: err,
-		}
-		// server.servePacket will wait for all handling to finish before returning,
-		// so it's safe to close the pipe here as no new value will be sent
-		close(pipe)
-	}()
-	wpc := &wrappedPacketConn{
-		pc:         pc,
-		packetPipe: pipe,
-	}
-	// set the deadline to zero time to initialize the timer
-	_ = wpc.SetReadDeadline(time.Time{})
-	return wpc
 }
 
 // packetConnWithPipe will send all the data it read to the channel from which the wrapper can receive
@@ -228,42 +263,10 @@ func (w *wrappedPacketConn) SetWriteDeadline(t time.Time) error {
 	return w.pc.SetWriteDeadline(t)
 }
 
-// UnmarshalCaddyfile sets up the PacketConnWrapper from Caddyfile tokens. Syntax:
-//
-//	layer4 {
-//		matching_timeout <duration>
-//		@a <matcher> [<matcher_args>]
-//		@b {
-//			<matcher> [<matcher_args>]
-//			<matcher> [<matcher_args>]
-//		}
-//		route @a @b {
-//			<handler> [<handler_args>]
-//		}
-//		@c <matcher> {
-//			<matcher_option> [<matcher_option_args>]
-//		}
-//		route @c {
-//			<handler> [<handler_args>]
-//			<handler> {
-//				<handler_option> [<handler_option_args>]
-//			}
-//		}
-//	}
-func (pcw *PacketConnWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	d.Next() // consume wrapper name
-
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return d.ArgErr()
-	}
-
-	if err := ParseCaddyfileNestedRoutes(d, &pcw.Routes, &pcw.MatchingTimeout); err != nil {
-		return err
-	}
-
-	return nil
-}
+var (
+	errNotPacketConn = errors.New("no packetConn found in connection context")
+	connCtxKey       = caddy.CtxKey("underlying_conn")
+)
 
 // Interface guards
 var (

@@ -217,7 +217,7 @@ func (pp *packetProxyProtocolConn) Write(p []byte) (int, error) {
 }
 
 func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
-	var upConns []net.Conn
+	upConns := make([]net.Conn, 0, 10)
 
 	for _, p := range upstream.peers {
 		hostPort := repl.ReplaceAll(p.address.JoinHostPort(0), "")
@@ -298,6 +298,14 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		}
 
 		upConns = append(upConns, up)
+
+		err = p.countConn(1)
+		if err != nil {
+			h.logger.Error("could not count connection",
+				zap.String("peer_address", p.address.String()),
+				zap.Error(err))
+			return upConns, err
+		}
 	}
 
 	return upConns, nil

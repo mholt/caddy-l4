@@ -25,16 +25,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"golang.org/x/crypto/blake2b"
-	"golang.org/x/crypto/blake2s"
-	"golang.org/x/crypto/ripemd160"
-	"golang.org/x/crypto/sha3"
 	"hash"
 	"io"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
+
+	"golang.org/x/crypto/blake2b"
+	"golang.org/x/crypto/blake2s"
+	"golang.org/x/crypto/sha3"
 )
 
 // AuthDigest represents a digest used for computing HMACs of control messages.
@@ -184,7 +184,7 @@ func (sk *StaticKey) FromFile(path string, re *regexp.Regexp, size int, from fun
 
 	if n > 0 {
 		var s string
-		if r := re.FindStringSubmatch(string(buf[:n])); r != nil && len(r) == 2 {
+		if r := re.FindStringSubmatch(string(buf[:n])); len(r) == 2 {
 			s = strings.ReplaceAll(r[1], "\r", "")
 			s = strings.ReplaceAll(s, "\n", "")
 			if size == 0 || len(s) == size {
@@ -310,7 +310,6 @@ var AuthDigests = []*AuthDigest{
 	// Legacy digests
 	{Creator: md5.New, Names: []string{"MD5", "SSL3-MD5", "md5", "ssl3-md5"}, Size: md5.Size},
 	{Creator: sha1.New, Names: []string{"SHA-1", "SHA1", "SSL3-SHA1", "sha-1", "sha1", "ssl3-sha1"}, Size: sha1.Size},
-	{Creator: ripemd160.New, Names: []string{"RIPEMD-160", "RMD-160", "RIPEMD160", "RIPEMD", "RMD160", "ripemd-160", "rmd-160", "ripemd160", "ripemd", "rmd160"}, Size: ripemd160.Size},
 	// SHA2 digests
 	{Creator: sha256.New224, Names: []string{"SHA-224", "SHA2-224", "SHA224", "sha-224", "sha2-224", "sha224"}, Size: sha256.Size224},
 	{Creator: sha256.New, Names: []string{"SHA-256", "SHA2-256", "SHA256", "sha-256", "sha2-256", "sha256"}, Size: sha256.Size},
@@ -427,14 +426,13 @@ var StaticKeyFromFileBase64 = regexp.MustCompile("^(?:#.*?\\r?\\n)*" +
 	"-----BEGIN OpenVPN tls-crypt-v2 (?:client|server) key-----\\r?\\n" +
 	"([0-9a-zA-Z+=\\/\\r\\n]+)" +
 	"-----END OpenVPN tls-crypt-v2 (?:client|server) key-----(?:\\r?\\n)?$")
+
 var StaticKeyFromFileHex = regexp.MustCompile("^(?:#.*?\\r?\\n)*" +
 	"-----BEGIN OpenVPN Static key V1-----\\r?\\n" +
 	"([0-9a-fA-F\\r\\n]+)" +
 	"-----END OpenVPN Static key V1-----(?:\\r?\\n)?$")
 
-var (
-	ErrInvalidStaticKeyFileContents = errors.New("invalid static key file contents")
-)
+var ErrInvalidStaticKeyFileContents = errors.New("invalid static key file contents")
 
 const (
 	AuthHMACBytesMax = sha512.Size
