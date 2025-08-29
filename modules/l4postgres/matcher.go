@@ -69,8 +69,8 @@ func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 
 	// Calculate and validate payload length
 	payloadLen := msgLen - lenFieldSize
-	if payloadLen > maxPayloadSize {
-		return false, nil // Payload too large, reject to prevent DoS
+	if payloadLen > maxPayloadSize || payloadLen < 4 {
+		return false, nil // Payload too large, reject to prevent DoS and need at least 4 bytes for the code/version
 	}
 
 	// Read the payload
@@ -80,11 +80,6 @@ func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 			return false, nil // Incomplete message
 		}
 		return false, fmt.Errorf("reading payload: %w", err)
-	}
-
-	// Need at least 4 bytes for the code/version
-	if len(payload) < 4 {
-		return false, nil
 	}
 
 	// Check the first 4 bytes (code or protocol version)
@@ -158,7 +153,7 @@ func (m *MatchPostgres) Provision(ctx caddy.Context) error {
 	return nil
 }
 
-// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens.	
+// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens.
 func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 	if d.CountRemainingArgs() > 0 {
