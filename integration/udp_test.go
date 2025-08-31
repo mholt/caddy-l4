@@ -42,7 +42,7 @@ func TestUDP(t *testing.T) {
 	address := fmt.Sprintf("%s:%d", testUDPHostname, testUDPPortEcho)
 
 	messages := make([][]byte, 1)
-	for i, _ := range messages {
+	for i := range messages {
 		messages[i] = []byte(fmt.Sprintf("ECHO%04d", i))
 	}
 
@@ -60,9 +60,9 @@ func TestUDP(t *testing.T) {
 			Address:  address,
 			Messages: messages,
 		}
-		config.Check = func(t *testing.T, r []byte) {
-			if !bytes.Equal(r, messages[0]) {
-				t.Errorf("%sexpected %s, got %s", config.ExchangeId, string(r), string(messages[0]))
+		config.Check = func(t *testing.T, m []byte, r []byte) {
+			if !bytes.Equal(m, r) {
+				t.Errorf("[%s] expected %s, got %s", config.ExchangeId, string(m), string(r))
 			}
 		}
 

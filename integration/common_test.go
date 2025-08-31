@@ -75,7 +75,7 @@ type udpExchangeConfig struct {
 	// Messages contains a list of byte sequences to send.
 	Messages [][]byte
 	// Check validates a UDP response message.
-	Check func(*testing.T, []byte)
+	Check func(*testing.T, []byte, []byte)
 }
 
 func exchangeUDP(t *testing.T, config *udpExchangeConfig) {
@@ -122,7 +122,7 @@ func exchangeUDP(t *testing.T, config *udpExchangeConfig) {
 			r := buf[i][:n]
 			t.Logf("%swrote UDP message %v, read UDP response %v", logPrefix, string(m), string(r))
 
-			config.Check(t, r)
+			config.Check(t, m, r)
 		}
 
 		time.Sleep(config.Wait)
