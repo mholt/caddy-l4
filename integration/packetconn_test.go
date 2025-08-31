@@ -206,7 +206,7 @@ func testPCWWithUDPExchanges(t *testing.T, wg *sync.WaitGroup, port int) {
 // TestPCW tests the packet conn wrapper implementation.
 func TestPCW(t *testing.T) {
 	// Load Caddy
-	loadCaddyWithCaddyfile(t, testPCWCaddyfile[1:]) // skip a line break to avoid a caddyfile format warning on line 1
+	loadCaddyWithCaddyfile(t, testPCWCaddyfile[1:][:len(testPCWCaddyfile)-2]) // Workaround avoid caddyfile warnings
 
 	// Use a wait group to sync goroutines
 	var wg sync.WaitGroup
