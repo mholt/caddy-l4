@@ -66,8 +66,8 @@ type udpExchangeConfig struct {
 	ExchangeId string
 	// Timeout is a UDP connection timeout (set via conn.SetDeadline).
 	Timeout time.Duration
-	// Wait is a period of time UDP exchange sleeps between message exchanges.
-	Wait time.Duration
+	// Delay is a period of time UDP exchange sleeps between message exchanges.
+	Delay time.Duration
 
 	// Address must be given in "{address}:{port}" or another format supported by net.Dial.
 	Address string
@@ -125,7 +125,7 @@ func exchangeUDP(t *testing.T, config *udpExchangeConfig) {
 			config.Check(t, m, r)
 		}
 
-		time.Sleep(config.Wait)
+		time.Sleep(config.Delay)
 	}
 }
 

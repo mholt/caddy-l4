@@ -71,7 +71,7 @@ https://localhost, https://localhost:8443 {
 
 	testPCWMultiplier = 10 // How many times each domain is requested by DNS client
 
-	testPCWWait = 100 * time.Millisecond // How much time to wait between spawning clients
+	testPCWDelay = 100 * time.Millisecond // How much time to wait between spawning clients
 )
 
 var (
@@ -128,7 +128,7 @@ func testPCWWithDNSQueries(t *testing.T, wg *sync.WaitGroup, port int) {
 				queryDNS(t, &config)
 			}()
 
-			time.Sleep(testPCWWait)
+			time.Sleep(testPCWDelay)
 		}
 	}
 }
@@ -165,7 +165,7 @@ func testPCWWithHTTP3Requests(t *testing.T, wg *sync.WaitGroup, port int) {
 			requestHTTP3(t, &config)
 		}()
 
-		time.Sleep(testPCWWait)
+		time.Sleep(testPCWDelay)
 	}
 }
 
@@ -191,7 +191,7 @@ func testPCWWithUDPExchanges(t *testing.T, wg *sync.WaitGroup, port int) {
 			config := udpExchangeConfig{
 				ExchangeId: fmt.Sprintf("UDP-%d.%d", port, i),
 				Timeout:    3 * waitForUDPExchange,
-				Wait:       testPCWWait,
+				Delay:      testPCWDelay,
 
 				Address:  address,
 				Messages: messages,
@@ -205,7 +205,7 @@ func testPCWWithUDPExchanges(t *testing.T, wg *sync.WaitGroup, port int) {
 			exchangeUDP(t, &config)
 		}()
 
-		time.Sleep(testPCWWait)
+		time.Sleep(testPCWDelay)
 	}
 }
 
@@ -235,7 +235,7 @@ func TestPCW(t *testing.T) {
 		go testPCWWithUDPExchanges(t, &wg, port)
 	}
 
-	// Wait for all goroutines to finish
+	// Delay for all goroutines to finish
 	wg.Wait()
 
 	// Stop Caddy

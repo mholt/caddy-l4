@@ -29,7 +29,7 @@ const (
 
 	testUDPHostname = "localhost"          // Hostname that clients connect to
 	testUDPPortEcho = 2000                 // Port serving echo only
-	testUDPWait     = 0 * time.Millisecond // How much time to wait between sending messages
+	testUDPDelay    = 0 * time.Millisecond // How much time to wait between sending messages
 )
 
 func TestUDP(t *testing.T) {
@@ -55,7 +55,7 @@ func TestUDP(t *testing.T) {
 		config := udpExchangeConfig{
 			ExchangeId: fmt.Sprintf("UDP-%d", testUDPPortEcho),
 			Timeout:    waitForUDPExchange,
-			Wait:       testUDPWait,
+			Delay:      testUDPDelay,
 
 			Address:  address,
 			Messages: messages,
@@ -69,7 +69,7 @@ func TestUDP(t *testing.T) {
 		exchangeUDP(t, &config)
 	}()
 
-	// Wait for all goroutines to finish
+	// Delay for all goroutines to finish
 	wg.Wait()
 
 	// Stop Caddy
