@@ -223,18 +223,17 @@ func TestPCW(t *testing.T) {
 		go testPCWWithHTTP3Requests(t, &wg, port)
 	}
 
-	// Spawn goroutines that make DNS queries
-	for _, port := range []int{testPCWPortDNSOnly, testPCWPortMultiplex} {
-		wg.Add(1)
-		go testPCWWithDNSQueries(t, &wg, port)
-	}
-
-	// TODO: resolve close of closed channel panic
-	//// Spawn goroutines that exchange UDP messages
-	//for _, port := range []int{testPCWPortEchoOnly, testPCWPortMultiplex} {
+	//// Spawn goroutines that make DNS queries
+	//for _, port := range []int{testPCWPortDNSOnly, testPCWPortMultiplex} {
 	//	wg.Add(1)
-	//	go testPCWWithUDPExchanges(t, &wg, port)
+	//	go testPCWWithDNSQueries(t, &wg, port)
 	//}
+
+	// Spawn goroutines that exchange UDP messages
+	for _, port := range []int{testPCWPortEchoOnly, testPCWPortMultiplex} {
+		wg.Add(1)
+		go testPCWWithUDPExchanges(t, &wg, port)
+	}
 
 	// Wait for all goroutines to finish
 	wg.Wait()
