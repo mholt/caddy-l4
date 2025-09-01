@@ -149,7 +149,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 				for addr := range closeCh {
 					delete(udpConns, addr)
 					// no new connection will be created, safe to close now
-					if cnt.Load() == 0 {
+					if cnt.Load() == 0 && len(closeCh) == 0 {
 						close(closeCh)
 					}
 				}
