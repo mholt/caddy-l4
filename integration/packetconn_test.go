@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"sync"
@@ -189,11 +190,16 @@ func testPCWWithUDPExchanges(t *testing.T, wg *sync.WaitGroup, port int) {
 
 			config := udpExchangeConfig{
 				ExchangeId: fmt.Sprintf("UDP-%d.%d", port, i),
-				Timeout:    waitForUDPExchange,
+				Timeout:    3 * waitForUDPExchange,
 				Wait:       testPCWWait,
 
 				Address:  address,
 				Messages: messages,
+			}
+			config.Check = func(t *testing.T, m []byte, r []byte) {
+				if !bytes.Equal(m, r) {
+					t.Errorf("[%s] expected %s, got %s", config.ExchangeId, string(m), string(r))
+				}
 			}
 
 			exchangeUDP(t, &config)
