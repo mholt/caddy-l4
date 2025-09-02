@@ -2,6 +2,8 @@ module github.com/mholt/caddy-l4
 
 go 1.25
 
+replace github.com/caddyserver/caddy/v2 v2.10.1 => github.com/vnxme/caddy/v2 v2.0.0-20250822175201-1e2ae1b66bee
+
 require (
 	github.com/caddyserver/caddy/v2 v2.10.1
 	github.com/fsnotify/fsnotify v1.9.0
