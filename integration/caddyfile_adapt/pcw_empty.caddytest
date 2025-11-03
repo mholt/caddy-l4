@@ -1,0 +1,76 @@
+{
+	servers {
+		packet_conn_wrappers {
+			layer4
+		}
+	}
+}
+https://localhost {
+	tls {
+		issuer internal
+	}
+	respond "OK" 200
+}
+----------
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"packet_conn_wrappers": [
+						{
+							"wrapper": "layer4"
+						}
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"host": [
+										"localhost"
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"body": "OK",
+													"handler": "static_response",
+													"status_code": 200
+												}
+											]
+										}
+									]
+								}
+							],
+							"terminal": true
+						}
+					]
+				}
+			}
+		},
+		"tls": {
+			"automation": {
+				"policies": [
+					{
+						"subjects": [
+							"localhost"
+						],
+						"issuers": [
+							{
+								"module": "internal"
+							}
+						]
+					}
+				]
+			}
+		}
+	}
+}
