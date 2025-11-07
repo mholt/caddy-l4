@@ -2,9 +2,9 @@
 # Test with: echo "hello world" | nc localhost 5000
 
 [global] {
-	admin localhost:2019
+	admin off
 	log {
-		level INFO
+		level DEBUG
 	}
 }
 

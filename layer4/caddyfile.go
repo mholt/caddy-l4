@@ -34,23 +34,42 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 
 	// Process each server block
 	for i, block := range blocks {
-		// Reconstruct the full token stream: keys (addresses) followed by segments (block body)
-		var tokens []caddyfile.Token
-		tokens = append(tokens, block.Keys...)
-		for _, segment := range block.Segments {
-			tokens = append(tokens, segment...)
-		}
-		d := caddyfile.NewDispenser(tokens)
-
 		server := &Server{}
-		var inst any = server
-		unm, ok := inst.(caddyfile.Unmarshaler)
-		if !ok {
-			return warnings, d.Errf("%T is not a Caddyfile unmarshaler", inst)
+
+		// Extract listen addresses from keys
+		for _, key := range block.Keys {
+			server.Listen = append(server.Listen, key.Text)
 		}
 
-		if err := unm.UnmarshalCaddyfile(d); err != nil {
-			return warnings, err
+		// Process each segment (directive) in the block
+		for _, segment := range block.Segments {
+			d := caddyfile.NewDispenser(segment)
+			d.Next() // advance to first token
+
+			directive := d.Val()
+
+			if directive == "route" {
+				// Parse a route
+				route := &Route{}
+				if err := ParseCaddyfileNestedHandlers(d, &route.HandlersRaw); err != nil {
+					return warnings, err
+				}
+				server.Routes = append(server.Routes, route)
+			} else if directive == "matching_timeout" {
+				if !d.NextArg() {
+					return warnings, d.ArgErr()
+				}
+				dur, err := caddy.ParseDuration(d.Val())
+				if err != nil {
+					return warnings, d.Errf("parsing matching_timeout duration: %v", err)
+				}
+				server.MatchingTimeout = caddy.Duration(dur)
+			} else if len(directive) > 1 && directive[0] == '@' {
+				// Named matcher - we'd need to handle this, but let's skip for now
+				return warnings, d.Errf("named matchers not yet supported in l4.server blocks")
+			} else {
+				return warnings, d.Errf("unrecognized directive: %s", directive)
+			}
 		}
 
 		app.Servers["srv"+strconv.Itoa(i)] = server
