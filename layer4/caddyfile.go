@@ -8,68 +8,58 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/blocktypes"
+	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/configbuilder"
 )
 
 func init() {
-	httpcaddyfile.RegisterGlobalOption("layer4", parseLayer4)
+	blocktypes.RegisterChildBlockType("l4.server", "global", Setup)
 }
 
-// parseLayer4 sets up the App from Caddyfile tokens. Syntax:
+// Setup sets up the Layer4 App from xcaddyfile blocks. Syntax:
 //
-//	{
-//		layer4 {
-//			# srv0
-//			<addresses...> {
-//				...
-//			}
-//			# srv1
-//			<addresses...> {
-//				...
-//			}
-//		}
+//	[l4.server] <addresses...> {
+//		...
 //	}
-func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
+func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
 	app := &App{Servers: make(map[string]*Server)}
+	var warnings []caddyconfig.Warning
 
-	// Multiple global layer4 blocks are combined
-	if existingVal != nil {
-		appConfig, ok := existingVal.(httpcaddyfile.App)
-		if !ok {
-			return nil, d.Errf("existing %T config of unexpected type: %T", *app, existingVal)
-		}
-		err := json.Unmarshal(appConfig.Value, app)
-		if err != nil {
-			return nil, d.Errf("parsing existing %T config: %v", *app, err)
+	// Check if app already exists in options (for combining multiple blocks)
+	if existingVal, exists := options["layer4_app"]; exists {
+		if existingApp, ok := existingVal.(*App); ok {
+			app = existingApp
 		}
 	}
 
-	d.Next() // consume wrapper name
-
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return nil, d.ArgErr()
-	}
-
+	// Process each server block
 	i := len(app.Servers)
-	for nesting := d.Nesting(); d.NextBlock(nesting); {
+	for _, block := range blocks {
+		// Create a dispenser from the block's segments
+		d := caddyfile.NewDispenser(block.Segments[0])
+
 		server := &Server{}
 		var inst any = server
 		unm, ok := inst.(caddyfile.Unmarshaler)
 		if !ok {
-			return nil, d.Errf("%T is not a Caddyfile unmarshaler", inst)
+			return warnings, d.Errf("%T is not a Caddyfile unmarshaler", inst)
 		}
+
 		if err := unm.UnmarshalCaddyfile(d); err != nil {
-			return nil, err
+			return warnings, err
 		}
+
 		app.Servers["srv"+strconv.Itoa(i)] = server
 		i++
 	}
 
-	return httpcaddyfile.App{
-		Name:  "layer4",
-		Value: caddyconfig.JSON(app, nil),
-	}, nil
+	// Store the app in options for potential combining
+	options["layer4_app"] = app
+
+	// Register the app with the builder
+	builder.UpdateApp("layer4", app)
+
+	return warnings, nil
 }
 
 // ParseCaddyfileNestedRoutes parses the Caddyfile tokens for nested named matcher sets, handlers and matching timeout,

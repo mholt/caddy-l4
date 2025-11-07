@@ -1,0 +1,26 @@
+# Example xcaddyfile using the new l4.server block type
+
+[global] {
+	admin localhost:2019
+	log {
+		level INFO
+	}
+}
+
+[l4.server] :8080 {
+	route {
+		proxy localhost:9000
+	}
+}
+
+[l4.server] :8443 {
+	route {
+		tls
+		proxy localhost:9443
+	}
+}
+
+[http.server] example.com {
+	root * /var/www/html
+	file_server
+}
