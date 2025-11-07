@@ -83,16 +83,22 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
 	var warnings []caddyconfig.Warning
 
-	// Create a new app
-	app := &App{Servers: make(map[string]*Server)}
-
-	// Create the app in the builder
-	if err := builder.CreateApp("layer4", app); err != nil {
-		return warnings, fmt.Errorf("creating layer4 app: %w", err)
+	// see if the app exists already
+	app, exists := configbuilder.GetTypedApp[App](builder, "layer4")
+	if !exists {
+		if err := builder.CreateApp("layer4", app); err != nil {
+			return warnings, fmt.Errorf("creating layer4 app: %w", err)
+		}
+		app, exists = configbuilder.GetTypedApp[App](builder, "layer4")
+		if !exists {
+			// we should never get here unless we are like, racing?
+			return warnings, fmt.Errorf("fatal bug/logic error creating layer4 app")
+		}
 	}
 
+	i := len(app.Servers)
 	// Process each server block
-	for i, block := range blocks {
+	for _, block := range blocks {
 		server := &Server{}
 
 		// Extract listen addresses from keys
@@ -160,6 +166,7 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 		}
 
 		app.Servers["srv"+strconv.Itoa(i)] = server
+		i++
 	}
 
 	return warnings, nil
