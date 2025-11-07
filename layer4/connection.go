@@ -115,13 +115,13 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	n, err = cx.Conn.Read(p)
 	cx.bytesRead += uint64(n) //nolint:gosec // disable G115
 
-	return
+	return n, err
 }
 
 func (cx *Connection) Write(p []byte) (n int, err error) {
 	n, err = cx.Conn.Write(p)
 	cx.bytesWritten += uint64(n) //nolint:gosec // disable G115
-	return
+	return n, err
 }
 
 // Wrap wraps conn in a new Connection based on cx (reusing

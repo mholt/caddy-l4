@@ -8,11 +8,14 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/configbuilder"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile/blocktypes"
 )
 
 func init() {
 	httpcaddyfile.RegisterGlobalOption("layer4", parseLayer4)
+	blocktypes.RegisterChildBlockType("l4.server", "global", setup)
 }
 
 // parseLayer4 sets up the App from Caddyfile tokens. Syntax:
@@ -70,6 +73,103 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 		Name:  "layer4",
 		Value: caddyconfig.JSON(app, nil),
 	}, nil
+}
+
+// Setup sets up the Layer4 App from xcaddyfile blocks. Syntax:
+//
+//	[l4.server] <addresses...> {
+//		...
+//	}
+func setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
+	var warnings []caddyconfig.Warning
+
+	// see if the app exists already
+	app, exists := configbuilder.GetTypedApp[App](builder, "layer4")
+	if !exists {
+		if err := builder.CreateApp("layer4", app); err != nil {
+			return warnings, fmt.Errorf("creating layer4 app: %w", err)
+		}
+		app, exists = configbuilder.GetTypedApp[App](builder, "layer4")
+		if !exists {
+			// we should never get here unless we are like, racing?
+			return warnings, fmt.Errorf("fatal bug/logic error creating layer4 app")
+		}
+	}
+
+	i := len(app.Servers)
+	// Process each server block
+	for _, block := range blocks {
+		server := &Server{}
+
+		// Extract listen addresses from keys
+		server.Listen = block.GetKeysText()
+
+		// First pass: collect named matchers
+		matcherSets := make(map[string]caddy.ModuleMap)
+		for _, segment := range block.Segments {
+			directive := segment.Directive()
+			if len(directive) > 1 && directive[0] == '@' {
+				d := caddyfile.NewDispenser(segment)
+				d.Next() // position at first token (the @name)
+
+				matcherSet, err := ParseCaddyfileNestedMatcherSet(d)
+				if err != nil {
+					return warnings, err
+				}
+				matcherSets[directive] = matcherSet
+			}
+		}
+
+		// Second pass: process directives (routes, matching_timeout)
+		for _, segment := range block.Segments {
+			directive := segment.Directive()
+			d := caddyfile.NewDispenser(segment)
+			d.Next() // position at first token
+
+			switch directive {
+			case "route":
+				route := &Route{}
+
+				// Check if route has matcher arguments (@name1 @name2)
+				for d.NextArg() {
+					matcherName := d.Val()
+					if matcherSet, ok := matcherSets[matcherName]; ok {
+						route.MatcherSetsRaw = append(route.MatcherSetsRaw, matcherSet)
+					} else {
+						return warnings, d.Errf("undefined matcher set: %s", matcherName)
+					}
+				}
+
+				// Parse handlers
+				if err := ParseCaddyfileNestedHandlers(d, &route.HandlersRaw); err != nil {
+					return warnings, err
+				}
+				server.Routes = append(server.Routes, route)
+
+			case "matching_timeout":
+				if !d.NextArg() {
+					return warnings, d.ArgErr()
+				}
+				dur, err := caddy.ParseDuration(d.Val())
+				if err != nil {
+					return warnings, d.Errf("parsing matching_timeout duration: %v", err)
+				}
+				server.MatchingTimeout = caddy.Duration(dur)
+
+			default:
+				if len(directive) > 1 && directive[0] == '@' {
+					// Named matcher - already handled in first pass
+					continue
+				}
+				return warnings, d.Errf("unrecognized directive: %s", directive)
+			}
+		}
+
+		app.Servers["srv"+strconv.Itoa(i)] = server
+		i++
+	}
+
+	return warnings, nil
 }
 
 // ParseCaddyfileNestedRoutes parses the Caddyfile tokens for nested named matcher sets, handlers and matching timeout,

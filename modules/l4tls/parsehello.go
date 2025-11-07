@@ -42,17 +42,17 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 	if !s.Skip(4) || // message type and uint24 length field
 		!s.ReadUint16(&info.Version) || !s.ReadBytes(&info.Random, 32) ||
 		!readUint8LengthPrefixed(&s, &info.SessionID) {
-		return
+		return info
 	}
 
 	var cipherSuites cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&cipherSuites) {
-		return
+		return info
 	}
 	for !cipherSuites.Empty() {
 		var suite uint16
 		if !cipherSuites.ReadUint16(&suite) {
-			return
+			return info
 		}
 		if suite == scsvRenegotiation {
 			info.SecureRenegotiationSupported = true
@@ -61,17 +61,17 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 	}
 
 	if !readUint8LengthPrefixed(&s, &info.CompressionMethods) {
-		return
+		return info
 	}
 
 	if s.Empty() {
 		// ClientHello is optionally followed by extension data
-		return
+		return info
 	}
 
 	var extensions cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&extensions) || !s.Empty() {
-		return
+		return info
 	}
 
 	for !extensions.Empty() {
@@ -79,7 +79,7 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 		var extData cryptobyte.String
 		if !extensions.ReadUint16(&extension) ||
 			!extensions.ReadUint16LengthPrefixed(&extData) {
-			return
+			return info
 		}
 
 		// record that client advertised support for this extension
@@ -90,7 +90,7 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 6066, Section 3
 			var nameList cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&nameList) || nameList.Empty() {
-				return
+				return info
 			}
 			for !nameList.Empty() {
 				var nameType uint8
@@ -98,19 +98,19 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 				if !nameList.ReadUint8(&nameType) ||
 					!nameList.ReadUint16LengthPrefixed(&serverName) ||
 					serverName.Empty() {
-					return
+					return info
 				}
 				if nameType != 0 {
 					continue
 				}
 				if len(info.ServerName) != 0 {
 					// Multiple names of the same name_type are prohibited.
-					return
+					return info
 				}
 				info.ServerName = string(serverName)
 				// An SNI value may not include a trailing dot.
 				if strings.HasSuffix(info.ServerName, ".") {
-					return
+					return info
 				}
 			}
 		case extensionStatusRequest:
@@ -120,19 +120,19 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			if !extData.ReadUint8(&statusType) ||
 				!extData.ReadUint16LengthPrefixed(&ignored) ||
 				!extData.ReadUint16LengthPrefixed(&ignored) {
-				return
+				return info
 			}
 			info.OCSPStapling = statusType == statusTypeOCSP
 		case extensionSupportedCurves:
 			// RFC 4492, sections 5.1.1 and RFC 8446, Section 4.2.7
 			var curves cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&curves) || curves.Empty() {
-				return
+				return info
 			}
 			for !curves.Empty() {
 				var curve uint16
 				if !curves.ReadUint16(&curve) {
-					return
+					return info
 				}
 				info.SupportedCurves = append(info.SupportedCurves, tls.CurveID(curve))
 			}
@@ -140,7 +140,7 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 4492, Section 5.1.2
 			if !readUint8LengthPrefixed(&extData, &info.SupportedPoints) ||
 				len(info.SupportedPoints) == 0 {
-				return
+				return info
 			}
 		case extensionSessionTicket:
 			// RFC 5077, Section 3.2
@@ -150,12 +150,12 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 5246, Section 7.4.1.4.1
 			var sigAndAlgs cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&sigAndAlgs) || sigAndAlgs.Empty() {
-				return
+				return info
 			}
 			for !sigAndAlgs.Empty() {
 				var sigAndAlg uint16
 				if !sigAndAlgs.ReadUint16(&sigAndAlg) {
-					return
+					return info
 				}
 				info.SignatureSchemes = append(
 					info.SignatureSchemes, tls.SignatureScheme(sigAndAlg))
@@ -164,12 +164,12 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 8446, Section 4.2.3
 			var sigAndAlgs cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&sigAndAlgs) || sigAndAlgs.Empty() {
-				return
+				return info
 			}
 			for !sigAndAlgs.Empty() {
 				var sigAndAlg uint16
 				if !sigAndAlgs.ReadUint16(&sigAndAlg) {
-					return
+					return info
 				}
 				info.SupportedSchemesCert = append(
 					info.SupportedSchemesCert, tls.SignatureScheme(sigAndAlg))
@@ -177,19 +177,19 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 		case extensionRenegotiationInfo:
 			// RFC 5746, Section 3.2
 			if !readUint8LengthPrefixed(&extData, &info.SecureRenegotiation) {
-				return
+				return info
 			}
 			info.SecureRenegotiationSupported = true
 		case extensionALPN:
 			// RFC 7301, Section 3.1
 			var protoList cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&protoList) || protoList.Empty() {
-				return
+				return info
 			}
 			for !protoList.Empty() {
 				var proto cryptobyte.String
 				if !protoList.ReadUint8LengthPrefixed(&proto) || proto.Empty() {
-					return
+					return info
 				}
 				info.SupportedProtos = append(info.SupportedProtos, string(proto))
 			}
@@ -200,12 +200,12 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 8446, Section 4.2.1
 			var versList cryptobyte.String
 			if !extData.ReadUint8LengthPrefixed(&versList) || versList.Empty() {
-				return
+				return info
 			}
 			for !versList.Empty() {
 				var vers uint16
 				if !versList.ReadUint16(&vers) {
-					return
+					return info
 				}
 				info.SupportedVersions = append(info.SupportedVersions, vers)
 			}
@@ -213,20 +213,20 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 			// RFC 8446, Section 4.2.2
 			if !readUint16LengthPrefixed(&extData, &info.Cookie) ||
 				len(info.Cookie) == 0 {
-				return
+				return info
 			}
 		case extensionKeyShare:
 			// RFC 8446, Section 4.2.8
 			var clientShares cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&clientShares) {
-				return
+				return info
 			}
 			for !clientShares.Empty() {
 				var ks KeyShare
 				if !clientShares.ReadUint16((*uint16)(&ks.Group)) ||
 					!readUint16LengthPrefixed(&clientShares, &ks.Data) ||
 					len(ks.Data) == 0 {
-					return
+					return info
 				}
 				info.KeyShares = append(info.KeyShares, ks)
 			}
@@ -236,35 +236,35 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 		case extensionPSKModes:
 			// RFC 8446, Section 4.2.9
 			if !readUint8LengthPrefixed(&extData, &info.PSKModes) {
-				return
+				return info
 			}
 		case extensionPreSharedKey:
 			// RFC 8446, Section 4.2.11
 			if !extensions.Empty() {
-				return // pre_shared_key must be the last extension
+				return info // pre_shared_key must be the last extension
 			}
 			var identities cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&identities) || identities.Empty() {
-				return
+				return info
 			}
 			for !identities.Empty() {
 				var psk PSKIdentity
 				if !readUint16LengthPrefixed(&identities, &psk.label) ||
 					!identities.ReadUint32(&psk.obfuscatedTicketAge) ||
 					len(psk.label) == 0 {
-					return
+					return info
 				}
 				info.PSKIdentities = append(info.PSKIdentities, psk)
 			}
 			var binders cryptobyte.String
 			if !extData.ReadUint16LengthPrefixed(&binders) || binders.Empty() {
-				return
+				return info
 			}
 			for !binders.Empty() {
 				var binder []byte
 				if !readUint8LengthPrefixed(&binders, &binder) ||
 					len(binder) == 0 {
-					return
+					return info
 				}
 				info.PSKBinders = append(info.PSKBinders, binder)
 			}
@@ -274,11 +274,11 @@ func parseRawClientHello(data []byte) (info ClientHelloInfo) {
 		}
 
 		if !extData.Empty() {
-			return
+			return info
 		}
 	}
 
-	return
+	return info
 }
 
 // allKnownVersions is all the TLS versions this package knows.

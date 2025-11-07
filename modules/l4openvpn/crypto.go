@@ -154,7 +154,7 @@ type StaticKey struct {
 // FromBase64 fills sk's KeyBytes from a given base64 string.
 func (sk *StaticKey) FromBase64(s string) (err error) {
 	sk.KeyBytes, err = base64.StdEncoding.DecodeString(s)
-	return
+	return err
 }
 
 // FromGroupKeyFile fills sk's KeyBytes from a given group key file.
@@ -199,7 +199,7 @@ func (sk *StaticKey) FromFile(path string, re *regexp.Regexp, size int, from fun
 // FromHex fills sk's KeyBytes from a given hex string.
 func (sk *StaticKey) FromHex(s string) (err error) {
 	sk.KeyBytes, err = hex.DecodeString(s)
-	return
+	return err
 }
 
 // GetClientAuthBytes returns a quarter of KeyBytes to be used for authentication of control messages
