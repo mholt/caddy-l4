@@ -158,7 +158,7 @@ func (nc nextConn) Read(p []byte) (n int, err error) {
 	if err == io.EOF {
 		_ = nc.pipe.Close()
 	}
-	return
+	return n, err
 }
 
 // Interface guards
