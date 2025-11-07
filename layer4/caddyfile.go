@@ -8,12 +8,71 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/blocktypes"
 	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/configbuilder"
 )
 
 func init() {
+	httpcaddyfile.RegisterGlobalOption("layer4", parseLayer4)
 	blocktypes.RegisterChildBlockType("l4.server", "global", Setup)
+}
+
+// parseLayer4 sets up the App from Caddyfile tokens. Syntax:
+//
+//	{
+//		layer4 {
+//			# srv0
+//			<addresses...> {
+//				...
+//			}
+//			# srv1
+//			<addresses...> {
+//				...
+//			}
+//		}
+//	}
+func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
+	app := &App{Servers: make(map[string]*Server)}
+
+	// Multiple global layer4 blocks are combined
+	if existingVal != nil {
+		appConfig, ok := existingVal.(httpcaddyfile.App)
+		if !ok {
+			return nil, d.Errf("existing %T config of unexpected type: %T", *app, existingVal)
+		}
+		err := json.Unmarshal(appConfig.Value, app)
+		if err != nil {
+			return nil, d.Errf("parsing existing %T config: %v", *app, err)
+		}
+	}
+
+	d.Next() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return nil, d.ArgErr()
+	}
+
+	i := len(app.Servers)
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		server := &Server{}
+		var inst any = server
+		unm, ok := inst.(caddyfile.Unmarshaler)
+		if !ok {
+			return nil, d.Errf("%T is not a Caddyfile unmarshaler", inst)
+		}
+		if err := unm.UnmarshalCaddyfile(d); err != nil {
+			return nil, err
+		}
+		app.Servers["srv"+strconv.Itoa(i)] = server
+		i++
+	}
+
+	return httpcaddyfile.App{
+		Name:  "layer4",
+		Value: caddyconfig.JSON(app, nil),
+	}, nil
 }
 
 // Setup sets up the Layer4 App from xcaddyfile blocks. Syntax:
