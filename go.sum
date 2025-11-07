@@ -149,8 +149,8 @@ github.com/dlclark/regexp2 v1.11.5/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cn
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/elee1766/caddy/v2 v2.0.0-20251104201656-5a021df2f350 h1:7gtgVtEqgXMY8ZEBoHF18Hfb5tF6vCrn2CDV8wgxDlQ=
-github.com/elee1766/caddy/v2 v2.0.0-20251104201656-5a021df2f350/go.mod h1:hr0IouCojQKIZm6vrkDZm3zJ5Vy/5vRGuhZ4h8PEpL8=
+github.com/elee1766/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320 h1:an8tMBBOex4TyHg9oBrAmX5JOh+8wOISE7TGYkoRLfM=
+github.com/elee1766/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320/go.mod h1:hr0IouCojQKIZm6vrkDZm3zJ5Vy/5vRGuhZ4h8PEpL8=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/flynn/go-shlex v0.0.0-20150515145356-3f9db97f8568/go.mod h1:xEzjJPgXI435gkrCt3MPfRiAkVrwSbHsst4LCFVfpJc=

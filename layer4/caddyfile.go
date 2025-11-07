@@ -8,9 +8,9 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/configbuilder"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
-	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/blocktypes"
-	"github.com/caddyserver/caddy/v2/caddyconfig/xcaddyfile/configbuilder"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile/blocktypes"
 )
 
 func init() {
@@ -96,25 +96,51 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 		server := &Server{}
 
 		// Extract listen addresses from keys
-		for _, key := range block.Keys {
-			server.Listen = append(server.Listen, key.Text)
+		server.Listen = block.GetKeysText()
+
+		// First pass: collect named matchers
+		matcherSets := make(map[string]caddy.ModuleMap)
+		for _, segment := range block.Segments {
+			directive := segment.Directive()
+			if len(directive) > 1 && directive[0] == '@' {
+				d := caddyfile.NewDispenser(segment)
+				d.Next() // position at first token (the @name)
+
+				matcherSet, err := ParseCaddyfileNestedMatcherSet(d)
+				if err != nil {
+					return warnings, err
+				}
+				matcherSets[directive] = matcherSet
+			}
 		}
 
-		// Process each segment (directive) in the block
+		// Second pass: process directives (routes, matching_timeout)
 		for _, segment := range block.Segments {
+			directive := segment.Directive()
 			d := caddyfile.NewDispenser(segment)
-			d.Next() // advance to first token
+			d.Next() // position at first token
 
-			directive := d.Val()
-
-			if directive == "route" {
-				// Parse a route
+			switch directive {
+			case "route":
 				route := &Route{}
+
+				// Check if route has matcher arguments (@name1 @name2)
+				for d.NextArg() {
+					matcherName := d.Val()
+					if matcherSet, ok := matcherSets[matcherName]; ok {
+						route.MatcherSetsRaw = append(route.MatcherSetsRaw, matcherSet)
+					} else {
+						return warnings, d.Errf("undefined matcher set: %s", matcherName)
+					}
+				}
+
+				// Parse handlers
 				if err := ParseCaddyfileNestedHandlers(d, &route.HandlersRaw); err != nil {
 					return warnings, err
 				}
 				server.Routes = append(server.Routes, route)
-			} else if directive == "matching_timeout" {
+
+			case "matching_timeout":
 				if !d.NextArg() {
 					return warnings, d.ArgErr()
 				}
@@ -123,10 +149,12 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 					return warnings, d.Errf("parsing matching_timeout duration: %v", err)
 				}
 				server.MatchingTimeout = caddy.Duration(dur)
-			} else if len(directive) > 1 && directive[0] == '@' {
-				// Named matcher - we'd need to handle this, but let's skip for now
-				return warnings, d.Errf("named matchers not yet supported in l4.server blocks")
-			} else {
+
+			default:
+				if len(directive) > 1 && directive[0] == '@' {
+					// Named matcher - already handled in first pass
+					continue
+				}
 				return warnings, d.Errf("unrecognized directive: %s", directive)
 			}
 		}

@@ -2,10 +2,10 @@ module github.com/mholt/caddy-l4
 
 go 1.25
 
-replace github.com/caddyserver/caddy/v2 => github.com/elee1766/caddy/v2 v2.0.0-20251104201656-5a021df2f350
+replace github.com/caddyserver/caddy/v2 => github.com/elee1766/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320
 
 require (
-	github.com/caddyserver/caddy/v2 v2.10.1
+	github.com/caddyserver/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/miekg/dns v1.1.68
