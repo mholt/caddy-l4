@@ -15,7 +15,7 @@ import (
 
 func init() {
 	httpcaddyfile.RegisterGlobalOption("layer4", parseLayer4)
-	blocktypes.RegisterChildBlockType("l4.server", "global", Setup)
+	blocktypes.RegisterChildBlockType("l4.server", "global", setup)
 }
 
 // parseLayer4 sets up the App from Caddyfile tokens. Syntax:
@@ -80,7 +80,7 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 //	[l4.server] <addresses...> {
 //		...
 //	}
-func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
+func setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
 	var warnings []caddyconfig.Warning
 
 	// see if the app exists already
