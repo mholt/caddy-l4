@@ -1,4 +1,5 @@
 # Example xcaddyfile using the new l4.server block type
+# Test with: echo "hello world" | nc localhost 5000
 
 [global] {
 	admin localhost:2019
@@ -7,20 +8,16 @@
 	}
 }
 
-[l4.server] :8080 {
+# Echo server on port 5000 - sends back whatever you send
+[l4.server] :5000 {
 	route {
-		proxy localhost:9000
+		echo
 	}
 }
 
-[l4.server] :8443 {
+# Echo server on port 5001 - another echo example
+[l4.server] :5001 {
 	route {
-		tls
-		proxy localhost:9443
+		echo
 	}
-}
-
-[http.server] example.com {
-	root * /var/www/html
-	file_server
 }

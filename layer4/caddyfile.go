@@ -34,8 +34,13 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 
 	// Process each server block
 	for i, block := range blocks {
-		// Create a dispenser from the block's segments
-		d := caddyfile.NewDispenser(block.Segments[0])
+		// Reconstruct the full token stream: keys (addresses) followed by segments (block body)
+		var tokens []caddyfile.Token
+		tokens = append(tokens, block.Keys...)
+		for _, segment := range block.Segments {
+			tokens = append(tokens, segment...)
+		}
+		d := caddyfile.NewDispenser(tokens)
 
 		server := &Server{}
 		var inst any = server

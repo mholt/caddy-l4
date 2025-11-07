@@ -1,3 +1,6 @@
 _gitignore/
 
 .idea/
+
+main.go
+caddy
