@@ -22,19 +22,18 @@ func init() {
 //		...
 //	}
 func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
-	app := &App{Servers: make(map[string]*Server)}
 	var warnings []caddyconfig.Warning
 
-	// Check if app already exists in options (for combining multiple blocks)
-	if existingVal, exists := options["layer4_app"]; exists {
-		if existingApp, ok := existingVal.(*App); ok {
-			app = existingApp
-		}
+	// Create a new app
+	app := &App{Servers: make(map[string]*Server)}
+
+	// Create the app in the builder
+	if err := builder.CreateApp("layer4", app); err != nil {
+		return warnings, fmt.Errorf("creating layer4 app: %w", err)
 	}
 
 	// Process each server block
-	i := len(app.Servers)
-	for _, block := range blocks {
+	for i, block := range blocks {
 		// Create a dispenser from the block's segments
 		d := caddyfile.NewDispenser(block.Segments[0])
 
@@ -50,14 +49,7 @@ func Setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 		}
 
 		app.Servers["srv"+strconv.Itoa(i)] = server
-		i++
 	}
-
-	// Store the app in options for potential combining
-	options["layer4_app"] = app
-
-	// Register the app with the builder
-	builder.UpdateApp("layer4", app)
 
 	return warnings, nil
 }
