@@ -2,8 +2,8 @@
 	layer4 {
 		:443 {
 			@s4 socks4 {
-				commands BIND GET
-				networks 10.0.0.0/8 fc::/7
+				commands BIND CONNECT
+				networks 10.0.0.0/8
 				ports 443 1080
 			}
 			route @s4 {
@@ -37,11 +37,10 @@
 									"socks4": {
 										"commands": [
 											"BIND",
-											"GET"
+											"CONNECT"
 										],
 										"networks": [
-											"10.0.0.0/8",
-											"fc::/7"
+											"10.0.0.0/8"
 										],
 										"ports": [
 											443,
