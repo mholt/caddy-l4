@@ -88,6 +88,7 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// get length of the ClientHello message and read it
+	// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
 	length := int(uint16(hdr[3])<<8 | uint16(hdr[4])) // ignoring version in hdr[1:3] - like https://github.com/inetaf/tcpproxy/blob/master/sni.go#L170
 	rawHello := make([]byte, length)
 	_, err = io.ReadFull(cx, rawHello)
