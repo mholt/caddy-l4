@@ -41,3 +41,33 @@ Below is a breakdown of its key architectural components:
   the associated handlers are invoked.
 - [**Servers**](/docs/servers.md) - Apply routes to raw socket connections (TCP/UDP/Unix sockets),
   whether separate ones or those the HTTP app gets bound to.
+
+## Configuration
+
+Both Caddyfile and JSON syntax options are generally available with Caddyfile being the newer and preferred one.
+For backwards compatibility, JSON equivalents are provided for almost all Caddyfile configuration examples --
+they show how Caddy unmarshalls Caddyfile blocks and options into JSON structures.
+
+## Placeholders
+
+Environment variables having `{$VAR}` syntax are supported in Caddyfile only. They are evaluated once at launch
+before Caddyfile is parsed.
+
+Runtime [placeholders](https://caddyserver.com/docs/conventions#placeholders) having `{...}` syntax, including
+environment variables referenced as `{env.VAR}`, are supported in both Caddyfile and pure JSON, with some caveats
+described below.
+- Options of *int*, *float*, *big.int*, *duration*, and other numeric types don't support runtime placeholders at all.
+- Options of *string* type containing IPs or CIDRs (e.g. `remote_ip` matcher),
+  regular expressions (e.g. `cookie_hash_regexp` of `rdp` matcher), or
+  special values (e.g. `commands` and `credentials` of `socks5` handler) support runtime placeholders,
+  but they are evaluated **once at provision** due to the existing optimizations. A special case is `dial`
+  in `upstream` of `proxy` handler: it is evaluated 2 times: at handler provision for all known placeholders
+  (e.g. `{env.*}`) and at dial for all remaining placeholders (e.g. `{l4.*}`).
+- Other options of *string* type (e.g. `alpn` of `tls` matcher) generally support runtime placeholders,
+  and they are evaluated **each time at match or handle**. However, there are some exceptions, e.g. `tls_*` options
+  inside `upstream` of `proxy` handler, and all options inside `connection_policy` of `tls` handler, that don't support
+  runtime placeholders at all.
+
+Note: runtime placeholders support depends on handler/matcher implementations. Given some matchers and handlers
+are outside of this repository, it's up to their developers to support or restrict usage of runtime placeholders.
+For the matchers and handlers included in the package, placeholder support is explicitly described in the docs.
