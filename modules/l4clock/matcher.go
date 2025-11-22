@@ -78,12 +78,12 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 
 	after := repl.ReplaceAll(m.After, "")
 	if m.secondsAfter, err = timeParseSeconds(after, 0); err != nil {
-		return err
+		return
 	}
 
 	before := repl.ReplaceAll(m.Before, "")
 	if m.secondsBefore, err = timeParseSeconds(before, 0); err != nil {
-		return err
+		return
 	}
 
 	// Treat secondsBefore of 00:00:00 as 24:00:00
@@ -109,7 +109,7 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 	}
 	if m.location == nil {
 		if m.location, err = time.LoadLocation(timezone); err != nil {
-			return err
+			return
 		}
 	}
 

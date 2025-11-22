@@ -65,11 +65,11 @@ func (mset MatcherSet) Match(cx *Connection) (matched bool, err error) {
 			)
 		}
 		if !matched || err != nil {
-			return matched, err
+			return
 		}
 	}
 	matched = true
-	return matched, err
+	return
 }
 
 // RawMatcherSets is a group of matcher sets in their
@@ -87,11 +87,11 @@ func (mss *MatcherSets) AnyMatch(cx *Connection) (matched bool, err error) {
 	for _, m := range *mss {
 		matched, err = m.Match(cx)
 		if matched || err != nil {
-			return matched, err
+			return
 		}
 	}
 	matched = len(*mss) == 0
-	return matched, err
+	return
 }
 
 // FromInterface fills ms from any value obtained from LoadModule.

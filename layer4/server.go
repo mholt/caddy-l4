@@ -285,7 +285,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			pc.lastPacket = nil
 			pc.lastBuf = nil
 		}
-		return n, err
+		return
 	}
 	// check deadline
 	if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
@@ -317,7 +317,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				pc.lastPacket = pkt
 				pc.lastBuf = buf
 			}
-			return n, err
+			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck
 			if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
