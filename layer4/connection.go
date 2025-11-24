@@ -240,8 +240,8 @@ const prefetchChunkSize = 2048
 
 // MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
 // This is probably most relevant for the http matcher since http requests do not have a size limit.
-// 8 KiB should cover most use-cases and is similar to popular webservers.
-const MaxMatchingBytes = 8 * 1024
+// 16 KiB should cover most use-cases and is similar to popular webservers.
+const MaxMatchingBytes = 16 * 1024
 
 var bufPool = sync.Pool{
 	New: func() any {
