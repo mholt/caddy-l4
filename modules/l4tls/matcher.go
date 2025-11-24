@@ -108,6 +108,7 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 			break
 		}
 
+		// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
 		length2 := int(uint16(hdr2[3])<<8 | uint16(hdr2[4]))
 		if len(rawHello)+length2 > layer4.MaxMatchingBytes {
 			return false, fmt.Errorf("TLS records too large: %d > %d", len(rawHello)+length2, layer4.MaxMatchingBytes)
@@ -142,6 +143,7 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 				break
 			}
 
+			// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
 			length2 := int(uint16(hdr2[3])<<8 | uint16(hdr2[4]))
 
 			if len(rawHello)+length2 > layer4.MaxMatchingBytes {
