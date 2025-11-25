@@ -52,7 +52,7 @@ func ReadBytesFromTCP(cx *layer4.Connection) ([]byte, error) {
 
 	// Read a minimum number of bytes
 	buf := make([]byte, length+1)
-	n, err := io.ReadFull(cx, buf[:dnsHeaderBytes])
+	_, err := io.ReadFull(cx, buf[:dnsHeaderBytes])
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +63,7 @@ func ReadBytesFromTCP(cx *layer4.Connection) ([]byte, error) {
 	}
 
 	// Read the remaining bytes
+	var n int
 	n, err = io.ReadAtLeast(cx, buf[dnsHeaderBytes:], int(length-dnsHeaderBytes))
 	if err != nil {
 		return nil, err

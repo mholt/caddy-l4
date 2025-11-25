@@ -223,7 +223,7 @@ func (i *Inbox) Validate(secret string, prev *dns.TSIG) (*dns.TSIG, error) {
 		return nil, ErrInboxValidateNoSecret
 	}
 	if prev != nil {
-		return sig, dns.TsigVerify(i.bytes, secret, prev.MAC, !(len(prev.MAC) == 0))
+		return sig, dns.TsigVerify(i.bytes, secret, prev.MAC, len(prev.MAC) != 0)
 	}
 	return sig, dns.TsigVerify(i.bytes, secret, "", false)
 }
@@ -280,7 +280,7 @@ func (o *Outbox) PushSign(msg *dns.Msg, secret string, prev *dns.TSIG) (err erro
 	o.msg = msg
 	o.msg.Compress = o.compress
 	o.msg.SetTsig(prev.Hdr.Name, prev.Algorithm, prev.Fudge, time.Now().Unix())
-	o.bytes, _, err = dns.TsigGenerate(o.msg, secret, prev.MAC, !(len(prev.MAC) == 0))
+	o.bytes, _, err = dns.TsigGenerate(o.msg, secret, prev.MAC, len(prev.MAC) != 0)
 	if err != nil {
 		return err
 	}

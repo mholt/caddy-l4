@@ -163,21 +163,18 @@ func (c *CacheSimple) Get(r *dns.Msg) (*dns.Msg, error) {
 }
 
 // Provision spawns a goroutine to clear c's internal store.
-func (c *CacheSimple) Provision(ctx caddy.Context) error {
+func (c *CacheSimple) Provision(_ caddy.Context) error {
 	go func() {
 		t := time.NewTicker(DefCacheSimpleClearInterval)
-		for {
-			select {
-			case <-t.C:
-				t.Stop()
-				c.store.Range(func(k, v any) bool {
-					if !v.(*CacheSimpleStoreValue).IsValid() {
-						c.store.Delete(k)
-					}
-					return true
-				})
-				t.Reset(DefCacheSimpleClearInterval)
-			}
+		for range t.C {
+			t.Stop()
+			c.store.Range(func(k, v any) bool {
+				if !v.(*CacheSimpleStoreValue).IsValid() {
+					c.store.Delete(k)
+				}
+				return true
+			})
+			t.Reset(DefCacheSimpleClearInterval)
 		}
 	}()
 	return nil

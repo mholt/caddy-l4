@@ -81,8 +81,8 @@ func (z *ZoneAuth) Dispatch(in *Inbox, out *Outbox) error {
 
 	// Validate a transaction signature if provided in the incoming message
 	inSig, inSigErr := in.Validate(z.secret, nil)
-	if inSigErr != nil && !(errors.Is(inSigErr, ErrInboxValidateSkipped) ||
-		errors.Is(inSigErr, ErrInboxValidateUnsigned) || errors.Is(inSigErr, ErrInboxValidateNoSecret)) {
+	if inSigErr != nil && !errors.Is(inSigErr, ErrInboxValidateSkipped) &&
+		!errors.Is(inSigErr, ErrInboxValidateUnsigned) && !errors.Is(inSigErr, ErrInboxValidateNoSecret) {
 		// TODO(vnxme): implement more response codes for TSIG
 		// See https://www.rfc-editor.org/rfc/rfc2845
 		outMsg.Rcode = dns.RcodeNotAuth
@@ -516,7 +516,7 @@ func (z *ZoneRef) ComposeAuthRR(in *Inbox) dns.RR {
 		Retry:   2 * 3600,
 		Expire:  7 * 24 * 3600,
 		Minttl:  2 * 24 * 3600,
-		Serial:  uint32(time.Now().Unix()),
+		Serial:  uint32(min(time.Now().Unix()-time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC).Unix(), 2^32-1)), // #nosec G115
 	}
 }
 
@@ -540,8 +540,8 @@ func (z *ZoneRef) Dispatch(in *Inbox, out *Outbox) error {
 
 	// Validate a transaction signature if provided in the incoming message
 	inSig, inSigErr := in.Validate(z.secret, nil)
-	if inSigErr != nil && !(errors.Is(inSigErr, ErrInboxValidateSkipped) ||
-		errors.Is(inSigErr, ErrInboxValidateUnsigned) || errors.Is(inSigErr, ErrInboxValidateNoSecret)) {
+	if inSigErr != nil && !errors.Is(inSigErr, ErrInboxValidateSkipped) &&
+		!errors.Is(inSigErr, ErrInboxValidateUnsigned) && !errors.Is(inSigErr, ErrInboxValidateNoSecret) {
 		// TODO(vnxme): implement more response codes for TSIG
 		// See https://www.rfc-editor.org/rfc/rfc2845
 		outMsg.Rcode = dns.RcodeNotAuth
