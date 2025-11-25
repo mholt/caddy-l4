@@ -666,9 +666,7 @@ var (
 	_ caddyfile.Unmarshaler = (*ZoneRef)(nil)
 )
 
-var (
-	ErrZoneHasNoCache = errors.New("no cache")
-)
+var ErrZoneHasNoCache = errors.New("no cache")
 
 const (
 	DefZoneRecUpstreamsTimeout = 10 * time.Second

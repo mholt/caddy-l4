@@ -52,7 +52,8 @@ func UnmarshalCaddyfileOptionDuration(d *caddyfile.Dispenser, name string, value
 }
 
 func UnmarshalCaddyfileOptionModule(d *caddyfile.Dispenser, name string, value *json.RawMessage, dup *bool,
-	namespace string, inlineKey string, interfaceCheck func(string, caddyfile.Unmarshaler) error) error {
+	namespace string, inlineKey string, interfaceCheck func(string, caddyfile.Unmarshaler) error,
+) error {
 	if *dup {
 		return d.Errf("duplicate option '%s'", name)
 	}

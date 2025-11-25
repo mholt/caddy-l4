@@ -48,7 +48,7 @@ func (h *HandleDNS) HandlePassthrough(cx *layer4.Connection, _ layer4.Handler) (
 	}
 
 	// Set up a state tracker that ensures correct reader and writer performance
-	var state = stateDefault
+	state := stateDefault
 
 	// Set up waiting groups to sync this handler with the DNS server
 	wgRead := &sync.WaitGroup{}

@@ -244,6 +244,4 @@ func (r Resources) FindParam(q *dns.Question, searchWildcard, prioritizeCNAME bo
 	return rrs
 }
 
-var (
-	ErrResourcesNoSOA = errors.New("no SOA records found")
-)
+var ErrResourcesNoSOA = errors.New("no SOA records found")

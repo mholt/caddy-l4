@@ -110,19 +110,17 @@ func Test_FindDelegationNameTree_RFC6672_S2_2(t *testing.T) {
 	}
 }
 
-var (
-	rfc6672 = []string{
-		"$ORIGIN .",
-		"$TTL 0",
-		"one.com. IN DNAME one.net.",
-		"b.two.com. IN DNAME two.net.",
-		"x.three.com. IN DNAME three.net.",
-		"four.com. IN DNAME y.four.net.",
-		"five.com. IN DNAME five.com.",
-		"six. IN DNAME .",
-		"one.net. IN A 127.0.0.1",
-		"a.one.net. IN A 127.0.0.2",
-		"a.b.one.net. IN A 127.0.0.3",
-		"foo.example.net. IN A 127.0.0.4",
-	}
-)
+var rfc6672 = []string{
+	"$ORIGIN .",
+	"$TTL 0",
+	"one.com. IN DNAME one.net.",
+	"b.two.com. IN DNAME two.net.",
+	"x.three.com. IN DNAME three.net.",
+	"four.com. IN DNAME y.four.net.",
+	"five.com. IN DNAME five.com.",
+	"six. IN DNAME .",
+	"one.net. IN A 127.0.0.1",
+	"a.one.net. IN A 127.0.0.2",
+	"a.b.one.net. IN A 127.0.0.3",
+	"foo.example.net. IN A 127.0.0.4",
+}
