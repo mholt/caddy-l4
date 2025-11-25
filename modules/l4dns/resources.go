@@ -117,6 +117,8 @@ func (r Resources) FindCanonicalNameTree(q *dns.Question, f func(*dns.Question) 
 	return rrs
 }
 
+// FindDelegationNameTree recursively follows a local delegation name tree.
+// TODO(vnxme): check this function and the relevant automatic tests.
 func (r Resources) FindDelegationNameTree(q *dns.Question, f func(*dns.Question) Resources) Resources {
 	rrs := f(q)
 	if len(rrs) > 0 {

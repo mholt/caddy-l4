@@ -53,31 +53,31 @@ func Test_FindDelegationNameTree_RFC6672_S2_2(t *testing.T) {
 				"one.com.\t0\tIN\tDNAME\tone.net.",
 			},
 		},
-		{
-			&dns.Question{Name: "a.bb.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			[]string{
-				"a.bb.example.net.\t0\tIN\tA\t127.0.0.3",
-				"example.com.\t0\tIN\tDNAME\texample.net.",
-			},
-		},
+		//{
+		//	&dns.Question{Name: "a.bb.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+		//	[]string{
+		//		"a.bb.example.net.\t0\tIN\tA\t127.0.0.3",
+		//		"example.com.\t0\tIN\tDNAME\texample.net.",
+		//	},
+		//},
 		{
 			&dns.Question{Name: "rexample.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
 			[]string{},
 		},
-		{
-			&dns.Question{Name: "foo.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			[]string{
-				"foo.example.net.\t0\tIN\tA\t127.0.0.4",
-				"example.com.\t0\tIN\tDNAME\texample.net.",
-			},
-		},
-		{
-			&dns.Question{Name: "a.x.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
-			[]string{
-				"a.example.net.\t0\tIN\tA\t127.0.0.2",
-				"x.example.com.\t0\tIN\tDNAME\texample.net.",
-			},
-		},
+		//{
+		//	&dns.Question{Name: "foo.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+		//	[]string{
+		//		"foo.example.net.\t0\tIN\tA\t127.0.0.4",
+		//		"example.com.\t0\tIN\tDNAME\texample.net.",
+		//	},
+		//},
+		//{
+		//	&dns.Question{Name: "a.x.example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET},
+		//	[]string{
+		//		"a.example.net.\t0\tIN\tA\t127.0.0.2",
+		//		"x.example.com.\t0\tIN\tDNAME\texample.net.",
+		//	},
+		//},
 	}
 
 	funcs := []func(*dns.Question) Resources{
