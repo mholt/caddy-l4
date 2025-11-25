@@ -14,7 +14,7 @@ The matcher provides `pattern` field that contains a regular expression to match
 supports [placeholders](https://caddyserver.com/docs/conventions#placeholders) which are resolved at provision.
 
 The matcher also has `count` field that sets the number of bytes read from the beginning of the first packet
-to match against. By default, it equals `4`. It shouldn't exceed `8 KiB` (`MaxMatchingBytes` constant value) which is
+to match against. By default, it equals `4`. It shouldn't exceed `16 KiB` (`MaxMatchingBytes` constant value) which is
 the amount of bytes that are at most prefetched during matching.
 
 ### Caddyfile
