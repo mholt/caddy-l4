@@ -199,7 +199,12 @@ func (s *Server) handle(conn net.Conn) {
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
 	if err != nil {
-		s.logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+		s.logger.Error("handling connection",
+			zap.String("network", cx.LocalAddr().Network()),
+			zap.String("local", cx.LocalAddr().String()),
+			zap.String("remote", cx.RemoteAddr().String()),
+			zap.Error(err),
+		)
 	}
 
 	s.logger.Debug("stopped handling connection; connection stats",
