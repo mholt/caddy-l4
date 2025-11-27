@@ -78,7 +78,11 @@ func (a *App) Start() error {
 						s.logger.Debug("started handling listener socket",
 							zap.String("network", ln.Addr().Network()),
 							zap.String("address", ln.Addr().String()))
-						_ = s.serve(ln)
+						err := s.serve(ln)
+						s.logger.Error("stopped handling listener socket",
+							zap.String("network", ln.Addr().Network()),
+							zap.String("address", ln.Addr().String()),
+							zap.Error(err))
 					}(s, ln)
 				case net.PacketConn:
 					a.packetConns = append(a.packetConns, ln)
@@ -86,7 +90,11 @@ func (a *App) Start() error {
 						s.logger.Debug("started handling packet connection socket",
 							zap.String("network", ln.LocalAddr().Network()),
 							zap.String("address", ln.LocalAddr().String()))
-						_ = s.servePacket(pc)
+						err := s.servePacket(pc)
+						s.logger.Debug("stopped handling packet connection socket",
+							zap.String("network", pc.LocalAddr().Network()),
+							zap.String("address", pc.LocalAddr().String()),
+							zap.Error(err))
 					}(s, ln)
 				}
 			}
