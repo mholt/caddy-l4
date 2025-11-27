@@ -115,7 +115,8 @@ func (a *App) Stop() error {
 			a.logger.Error("closing packet connection socket",
 				zap.String("network", pc.LocalAddr().Network()),
 				zap.String("address", pc.LocalAddr().String()),
-				zap.Error(err))
+				zap.Error(err),
+			)
 		}
 	}
 	for _, ln := range a.listeners {
@@ -124,7 +125,8 @@ func (a *App) Stop() error {
 			a.logger.Error("closing listener socket",
 				zap.String("network", ln.Addr().Network()),
 				zap.String("address", ln.Addr().String()),
-				zap.Error(err))
+				zap.Error(err),
+			)
 		}
 	}
 	return nil
