@@ -189,6 +189,12 @@ func (s *Server) handle(conn net.Conn) {
 
 	cx := WrapConnection(conn, buf, s.logger)
 
+	s.logger.Debug("started handling connection",
+		zap.String("network", cx.LocalAddr().Network()),
+		zap.String("local", cx.LocalAddr().String()),
+		zap.String("remote", cx.RemoteAddr().String()),
+	)
+
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
@@ -196,7 +202,9 @@ func (s *Server) handle(conn net.Conn) {
 		s.logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
 	}
 
-	s.logger.Debug("connection stats",
+	s.logger.Debug("stopped handling connection; connection stats",
+		zap.String("network", cx.LocalAddr().Network()),
+		zap.String("local", cx.LocalAddr().String()),
 		zap.String("remote", cx.RemoteAddr().String()),
 		zap.Uint64("read", cx.bytesRead),
 		zap.Uint64("written", cx.bytesWritten),
