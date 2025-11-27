@@ -98,7 +98,7 @@ func (a *App) Stop() error {
 	for _, pc := range a.packetConns {
 		err := pc.Close()
 		if err != nil {
-			a.logger.Error("closing packet listener",
+			a.logger.Error("closing packet connection socket",
 				zap.String("network", pc.LocalAddr().Network()),
 				zap.String("address", pc.LocalAddr().String()),
 				zap.Error(err))
@@ -107,7 +107,7 @@ func (a *App) Stop() error {
 	for _, ln := range a.listeners {
 		err := ln.Close()
 		if err != nil {
-			a.logger.Error("closing listener",
+			a.logger.Error("closing listener socket",
 				zap.String("network", ln.Addr().Network()),
 				zap.String("address", ln.Addr().String()),
 				zap.Error(err))
