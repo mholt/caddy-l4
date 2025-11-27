@@ -71,22 +71,24 @@ func (a *App) Start() error {
 				return err
 			}
 			for _, lnAny := range listeners {
-				var lnAddr string
 				switch ln := lnAny.(type) {
 				case net.Listener:
 					a.listeners = append(a.listeners, ln)
-					lnAddr = caddy.JoinNetworkAddress(ln.Addr().Network(), ln.Addr().String(), "")
 					go func(s *Server, ln net.Listener) {
+						s.logger.Debug("started handling listener socket",
+							zap.String("network", ln.Addr().Network()),
+							zap.String("address", ln.Addr().String()))
 						_ = s.serve(ln)
 					}(s, ln)
 				case net.PacketConn:
 					a.packetConns = append(a.packetConns, ln)
-					lnAddr = caddy.JoinNetworkAddress(ln.LocalAddr().Network(), ln.LocalAddr().String(), "")
 					go func(s *Server, pc net.PacketConn) {
+						s.logger.Debug("started handling packet connection socket",
+							zap.String("network", ln.LocalAddr().Network()),
+							zap.String("address", ln.LocalAddr().String()))
 						_ = s.servePacket(pc)
 					}(s, ln)
 				}
-				s.logger.Debug("listening", zap.String("address", lnAddr))
 			}
 		}
 	}
