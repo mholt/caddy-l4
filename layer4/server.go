@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	IdleTimeoutDefault     = 30 * time.Second
+	idleTimeoutDefault     = 30 * time.Second
 	MatchingTimeoutDefault = 3 * time.Second
 )
 
@@ -61,7 +61,7 @@ func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
 
 	if s.IdleTimeout <= 0 {
-		s.IdleTimeout = caddy.Duration(IdleTimeoutDefault)
+		s.IdleTimeout = caddy.Duration(idleTimeoutDefault)
 	}
 
 	if s.MatchingTimeout <= 0 {
