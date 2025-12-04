@@ -104,7 +104,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	if err := layer4.ParseCaddyfileNestedRoutes(d, &h.Routes, &h.MatchingTimeout); err != nil {
+	if err := layer4.ParseCaddyfileNestedRoutes(d, &h.Routes, &h.MatchingTimeout, nil); err != nil {
 		return err
 	}
 

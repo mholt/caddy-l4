@@ -30,7 +30,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const MatchingTimeoutDefault = 3 * time.Second
+const (
+	idleTimeoutDefault     = 30 * time.Second
+	MatchingTimeoutDefault = 3 * time.Second
+)
 
 // Server represents a Caddy layer4 server.
 type Server struct {
@@ -42,6 +45,9 @@ type Server struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time before packet connection association (by downstream address:port) is removed. Default: 30s.
+	// Note: this field is only relevant for packet connections (e.g., UDP).
+	IdleTimeout caddy.Duration `json:"idle_timeout,omitempty"`
 	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
@@ -53,6 +59,10 @@ type Server struct {
 // Provision sets up the server.
 func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
+
+	if s.IdleTimeout <= 0 {
+		s.IdleTimeout = caddy.Duration(idleTimeoutDefault)
+	}
 
 	if s.MatchingTimeout <= 0 {
 		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
@@ -148,10 +158,11 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 				// No existing proxy handler is running for this downstream.
 				// Create one now.
 				conn = &packetConn{
-					PacketConn: pc,
-					readCh:     make(chan *packet, 5),
-					addr:       pkt.addr,
-					closeCh:    closeCh,
+					PacketConn:  pc,
+					readCh:      make(chan *packet, 5),
+					addr:        pkt.addr,
+					closeCh:     closeCh,
+					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
 				go func(conn *packetConn) {
@@ -196,6 +207,7 @@ func (s *Server) handle(conn net.Conn) {
 // UnmarshalCaddyfile sets up the Server from Caddyfile tokens. Syntax:
 //
 //	<address:port> [<address:port>] {
+//		idle_timeout <duration>
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -221,7 +233,7 @@ func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		s.Listen = append(s.Listen, d.Val())
 	}
 
-	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout, &s.IdleTimeout); err != nil {
 		return err
 	}
 
@@ -254,6 +266,7 @@ type packetConn struct {
 	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
+	idleTimeout   time.Duration
 	idleTimer     *time.Timer
 }
 
@@ -267,9 +280,6 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	}
 	return nil
 }
-
-// TODO: idle timeout should be configurable per server
-const udpAssociationIdleTimeout = 30 * time.Second
 
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
@@ -293,9 +303,9 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	}
 	// set or refresh idle timeout
 	if pc.idleTimer == nil {
-		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+		pc.idleTimer = time.NewTimer(pc.idleTimeout)
 	} else {
-		pc.idleTimer.Reset(udpAssociationIdleTimeout)
+		pc.idleTimer.Reset(pc.idleTimeout)
 	}
 	var done bool
 	for !done {
