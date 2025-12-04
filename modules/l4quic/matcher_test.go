@@ -100,6 +100,10 @@ func Test_MatchQUIC_Match(t *testing.T) {
 			}()
 
 			matched, err := tc.matcher.Match(cx)
+			// in tests, we can't actually feed more data to the connection
+			if errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+				err = nil
+			}
 			assertNoError(t, err)
 
 			if matched != tc.shouldMatch {
