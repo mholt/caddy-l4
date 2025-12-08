@@ -168,6 +168,11 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					return nil
 				}
 				if matched {
+					// some matchers still need more data, and this is likely a fallback route
+					// that matches anything
+					if matcherNeedMore && len(route.matcherSets) == 0 {
+						continue
+					}
 					routesStatus[i] = routeMatched
 					lastMatchedRouteIdx = i
 					lastNeedsMoreIdx = i
