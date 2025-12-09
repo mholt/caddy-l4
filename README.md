@@ -28,7 +28,7 @@ or [TLS certificate manager](https://caddyserver.com/docs/modules/tls).
 ## Introduction
 
 > [!IMPORTANT]
-> **Documentation** is available in the [docs](/docs) directory -- start with the [welcome page](/docs/README.md).
+> [**Documentation**](/docs/README.md) is available in the [docs](/docs) directory.
 > For better understanding, you may also read the code, especially type definitions and their comments.
 > It's actually a pretty simple code base. See below for tips and examples writing config.
 
