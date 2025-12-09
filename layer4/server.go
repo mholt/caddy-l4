@@ -260,8 +260,9 @@ type packetConn struct {
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
-	lastPacket *packet
-	lastBuf    *bytes.Reader
+	lastPacket  *packet
+	lastBuf     *bytes.Reader
+	lastBufSize int
 
 	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
 	deadline      atomic.Int64
@@ -283,6 +284,12 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
+}
+
+// lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
+// should be called for every successful Read().
+func (pc *packetConn) lastFrameStat() (int, bool) {
+	return pc.lastBufSize, pc.lastPacket == nil
 }
 
 func (pc *packetConn) Read(b []byte) (n int, err error) {
@@ -327,6 +334,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				pc.lastPacket = pkt
 				pc.lastBuf = buf
 			}
+			pc.lastBufSize = pkt.n
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck

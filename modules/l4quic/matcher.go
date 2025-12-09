@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -138,6 +139,12 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 		return false, nil
 	}
 
+	// Write more buffered bytes into the pipe
+	_, err = io.CopyBuffer(clientFPC, cx, buf)
+	if err != nil && !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+		return false, err
+	}
+
 	// Prepare a context with a deadline
 	qContext, qCancel := context.WithDeadline(context.Background(), time.Now().Add(QUICAcceptTimeout))
 	defer qCancel()
@@ -146,6 +153,12 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
 	if err != nil {
+		// We detect quic by using context tricks. If the deadline is reached without receiving a quic conn,
+		// there isn't enough data to make a decision.
+		// if the connection isn't quic, the error should be of other types.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return false, layer4.ErrConsumedAllPrefetchedBytes
+		}
 		return false, nil
 	}
 	defer func() { _ = qListener.Close() }()
