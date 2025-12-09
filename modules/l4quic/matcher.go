@@ -141,7 +141,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Write more buffered bytes into the pipe
 	_, err = io.CopyBuffer(clientFPC, cx, buf)
-	if !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+	if err != nil && !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
 		return false, err
 	}
 
