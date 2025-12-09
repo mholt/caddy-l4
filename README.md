@@ -22,7 +22,7 @@ Because this is a Caddy app, it can be used alongside other Caddy apps
 such as the [HTTP server](https://caddyserver.com/docs/modules/http)
 or [TLS certificate manager](https://caddyserver.com/docs/modules/tls).
 
-**Documentation** is available in the [docs](/docs/) directory -- start with the [welcome page](/docs/index.md).
+**Documentation** is available in the [docs](/docs/) directory -- start with the [welcome page](/docs/README.md).
 For better understanding, you may also read the code, especially type definitions and their comments.
 It's actually a pretty simple code base. See below for tips and examples writing config.
 
