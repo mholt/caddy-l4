@@ -29,6 +29,7 @@ import (
 	"math"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -70,18 +71,18 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 		return false, nil
 	}
 
-	// Read one byte
-	n := 1
-	buf := make([]byte, n)
-	_, err := io.ReadAtLeast(cx, buf, n)
+	// Read at least one byte
+	buf := bufPool.Get().([]byte)[:QUICPacketBytesMax+1]
+	defer bufPool.Put(buf)
+	n, err := io.ReadAtLeast(cx, buf, 1)
+	buf = buf[:n]
 	if err != nil {
 		return false, err
 	}
 
 	// Ensure the second bit of the first byte is set, i.e. continue if
 	// github.com/quic-go/quic-go/internal/wire.IsPotentialQUICPacket(buf[0]).
-	qFirstByte := buf[0]
-	if qFirstByte&QUICMagicBitValue == 0 {
+	if buf[0]&QUICMagicBitValue == 0 {
 		return false, nil
 	}
 
@@ -89,16 +90,38 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// github.com/quic-go/quic-go/internal/wire.IsLongHeaderPacket(buf[0]).
 	// Note: this behaviour may be changed in the future if there are packets
 	// that should be considered valid despite having the first bit unset.
-	if qFirstByte&QUICLongHeaderBitValue == 0 {
+	if buf[0]&QUICLongHeaderBitValue == 0 {
 		return false, nil
 	}
 
-	// Read the remaining bytes
-	buf = make([]byte, QUICPacketBytesMax+1)
-	buf[0] = qFirstByte
-	n, err = io.ReadAtLeast(cx, buf[1:], 1)
-	if err != nil || n < QUICPacketBytesMin-1 || n == QUICPacketBytesMax {
-		return false, err
+	// Check frame size lies within acceptable range
+	if n < QUICPacketBytesMin || n > QUICPacketBytesMax {
+		return false, nil
+	}
+
+	// Read remaining frames
+	var bufs [][]byte
+	bufs = append(bufs, buf)
+	defer func() {
+		// First buffer will be put when it's acquired
+		for _, b := range bufs[1:] {
+			bufPool.Put(b)
+		}
+	}()
+
+	for {
+		subBuf := bufPool.Get().([]byte)[:QUICPacketBytesMax+1]
+		n, err := cx.Read(subBuf)
+		subBuf = subBuf[:n]
+		if err != nil {
+			bufPool.Put(subBuf)
+			// Buffered data fully consumed
+			if errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+				break
+			}
+			return false, err
+		}
+		bufs = append(bufs, subBuf)
 	}
 
 	// Use a workaround to match ALPNs. This way quic.EarlyListener.Accept() exits on deadline
@@ -134,9 +157,11 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Write the buffered bytes into the pipe
-	_, err = clientFPC.WriteTo(buf[:n+1], nil)
-	if err != nil {
-		return false, nil
+	for _, b := range bufs {
+		_, err = clientFPC.Write(b)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// Prepare a context with a deadline
@@ -383,4 +408,10 @@ func newFakePacketConnPipe(local, remote net.Addr) (*fakePacketConn, *fakePacket
 func newRand() *big.Int {
 	rnd, _ := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 	return rnd
+}
+
+var bufPool = sync.Pool{
+	New: func() any {
+		return make([]byte, QUICPacketBytesMax+1)
+	},
 }
