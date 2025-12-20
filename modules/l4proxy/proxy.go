@@ -248,11 +248,11 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		// Send the PROXY protocol header.
 		if err == nil {
 			downConn := l4proxyprotocol.GetConn(down)
-			header := proxyproto.HeaderProxyFromAddrs(byte(h.proxyProtocolVersion), downConn.RemoteAddr(), downConn.LocalAddr())
-			header.Command = proxyproto.PROXY
+			header := proxyproto.HeaderProxyFromAddrs(h.proxyProtocolVersion, downConn.RemoteAddr(), downConn.LocalAddr())
 
 			// Only write the PROXY protocol header if it's not nil
 			if header != nil {
+				header.Command = proxyproto.PROXY
 				// for packet connection, prepend each message with pp
 				// unix connections always implement this interface while not necessarily in datagram mode
 				// ignore it unless the unix socket is in datagram mode
