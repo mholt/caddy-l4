@@ -5,8 +5,8 @@ go 1.25
 require (
 	github.com/caddyserver/caddy/v2 v2.10.2
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/mastercactapus/proxyprotocol v0.0.4
 	github.com/miekg/dns v1.1.68
+	github.com/pires/go-proxyproto v0.8.1
 	github.com/quic-go/quic-go v0.57.1
 	github.com/things-go/go-socks5 v0.1.0
 	go.uber.org/zap v1.27.1
@@ -87,7 +87,6 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
-	github.com/pires/go-proxyproto v0.8.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.23.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
