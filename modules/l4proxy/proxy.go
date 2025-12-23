@@ -226,42 +226,9 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		var err error
 
 		// Prepare a custom net.Dialer if LocalAddr is set
-		var dialer *net.Dialer
-		if upstream.LocalAddr != "" {
-			h.logger.Debug("local address setting detected", zap.String("local_addr", upstream.LocalAddr))
-			netaddr, addrErr := caddy.ParseNetworkAddressWithDefaults(upstream.LocalAddr, "tcp", 0)
-			if addrErr != nil {
-				h.logger.Error("error parsing local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(addrErr))
-				return nil, addrErr
-			}
-			h.logger.Debug("local address network type", zap.String("network", netaddr.Network))
-			if netaddr.PortRangeSize() > 1 {
-				h.logger.Error("local_address must be a single address, not a port range", zap.String("local_addr", upstream.LocalAddr))
-				return nil, fmt.Errorf("local_address must be a single address, not a port range")
-			}
-			dialer = &net.Dialer{}
-			switch netaddr.Network {
-			case "tcp", "tcp4", "tcp6":
-				dialer.LocalAddr, err = net.ResolveTCPAddr(netaddr.Network, netaddr.JoinHostPort(0))
-				if err != nil {
-					h.logger.Error("error resolving TCP local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(err))
-					return nil, err
-				}
-				h.logger.Debug("using TCP local address", zap.String("resolved_local_addr", dialer.LocalAddr.String()))
-			case "unix", "unixgram", "unixpacket":
-				dialer.LocalAddr, err = net.ResolveUnixAddr(netaddr.Network, netaddr.JoinHostPort(0))
-				if err != nil {
-					h.logger.Error("error resolving Unix local address", zap.String("local_addr", upstream.LocalAddr), zap.Error(err))
-					return nil, err
-				}
-				h.logger.Debug("using Unix local address", zap.Stringer("resolved_local_addr", dialer.LocalAddr))
-			case "udp", "udp4", "udp6":
-				h.logger.Error("local_address must be a TCP address, not a UDP address", zap.String("local_addr", upstream.LocalAddr))
-				return nil, fmt.Errorf("local_address must be a TCP address, not a UDP address")
-			default:
-				h.logger.Error("unsupported network for local_address", zap.String("network", netaddr.Network))
-				return nil, fmt.Errorf("unsupported network")
-			}
+		dialer, err := buildDialer(upstream.LocalAddr, p.address.Network, h.logger)
+		if err != nil {
+			return nil, err
 		}
 
 		if upstream.TLS == nil {
@@ -730,6 +697,75 @@ var (
 	_ caddyfile.Unmarshaler = (*Handler)(nil)
 	_ layer4.NextHandler    = (*Handler)(nil)
 )
+
+// buildDialer constructs a net.Dialer with LocalAddr set from localAddr if provided.
+// Returns nil if localAddr is empty.
+func buildDialer(localAddr, upstreamNetwork string, logger *zap.Logger) (*net.Dialer, error) {
+	if localAddr == "" {
+		return nil, nil
+	}
+
+	log := logger
+	if log == nil {
+		log = zap.NewNop()
+	}
+
+	defaultNet := upstreamNetwork
+	if defaultNet == "" {
+		defaultNet = "tcp"
+	}
+
+	netaddr, addrErr := caddy.ParseNetworkAddressWithDefaults(localAddr, defaultNet, 0)
+	if addrErr != nil {
+		log.Error("error parsing local address", zap.String("local_addr", localAddr), zap.Error(addrErr))
+		return nil, addrErr
+	}
+
+	if netaddr.PortRangeSize() > 1 {
+		err := fmt.Errorf("local_address must be a single address, not a port range")
+		log.Error(err.Error(), zap.String("local_addr", localAddr))
+		return nil, err
+	}
+
+	if caddy.IsUnixNetwork(defaultNet) && net.ParseIP(netaddr.Host) != nil {
+		err := fmt.Errorf("local_address must be a unix socket path for unix upstreams")
+		log.Error(err.Error(), zap.String("local_addr", localAddr))
+		return nil, err
+	}
+
+	switch netaddr.Network {
+	case "tcp", "tcp4", "tcp6":
+		addr, err := net.ResolveTCPAddr(netaddr.Network, netaddr.JoinHostPort(0))
+		if err != nil {
+			log.Error("error resolving TCP local address", zap.String("local_addr", localAddr), zap.Error(err))
+			return nil, err
+		}
+		return &net.Dialer{LocalAddr: addr}, nil
+	case "udp", "udp4", "udp6":
+		addr, err := net.ResolveUDPAddr(netaddr.Network, netaddr.JoinHostPort(0))
+		if err != nil {
+			log.Error("error resolving UDP local address", zap.String("local_addr", localAddr), zap.Error(err))
+			return nil, err
+		}
+		return &net.Dialer{LocalAddr: addr}, nil
+	case "unix", "unixgram", "unixpacket":
+		if defaultNet == "tcp" || defaultNet == "udp" {
+			err := fmt.Errorf("local_address unix socket is incompatible with upstream network %s", defaultNet)
+			log.Error(err.Error(), zap.String("local_addr", localAddr))
+			return nil, err
+		}
+		addr, err := net.ResolveUnixAddr(netaddr.Network, netaddr.JoinHostPort(0))
+		if err != nil {
+			log.Error("error resolving Unix local address", zap.String("local_addr", localAddr), zap.Error(err))
+			return nil, err
+		}
+		return &net.Dialer{LocalAddr: addr}, nil
+	default:
+		err := fmt.Errorf("unsupported network")
+		log.Error(err.Error(), zap.String("network", netaddr.Network))
+		return nil, err
+	}
+}
 
 // Used to properly shutdown half-closed connections (see PR #73).
 // Implemented by net.TCPConn, net.UnixConn, tls.Conn, qtls.Conn.
