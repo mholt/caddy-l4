@@ -128,12 +128,12 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured
-	return m.matcherSets.AnyMatch(req), nil
+	return m.matcherSets.AnyMatchWithError(req)
 }
 
 // isHttp test if the buffered data looks like HTTP by looking at the first line.
 // first boolean determines if more data is required
-func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
+func (m *MatchHTTP) isHttp(data []byte) (bool, bool) {
 	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
 	if i < 10 {
@@ -147,7 +147,7 @@ func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
 		start -= 1
 		end -= 1
 	}
-	return false, bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
+	return false, bytes.Equal(data[start:end], []byte(" HTTP/"))
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
@@ -200,17 +200,18 @@ func (m *MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Re
 	var path string
 
 	for _, h := range headers {
-		if h.Name == ":method" {
+		switch h.Name {
+		case ":method":
 			req.Method = h.Value
-		} else if h.Name == ":path" {
+		case ":path":
 			path = h.Value
 			req.RequestURI = h.Value
-		} else if h.Name == ":scheme" {
+		case ":scheme":
 			scheme = h.Value
-		} else if h.Name == ":authority" {
+		case ":authority":
 			authority = h.Value
 			req.Host = h.Value
-		} else {
+		default:
 			req.Header.Add(h.Name, h.Value)
 		}
 	}

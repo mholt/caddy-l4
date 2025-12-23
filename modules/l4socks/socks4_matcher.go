@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -82,28 +84,14 @@ func (m *Socks4Matcher) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// match commands (CD)
-	commandMatched := false
-	for _, c := range m.commands {
-		if c == buf[1] {
-			commandMatched = true
-			break
-		}
-	}
-	if !commandMatched {
+	if !slices.Contains(m.commands, buf[1]) {
 		return false, nil
 	}
 
 	// match destination port (DSTPORT)
 	if len(m.Ports) > 0 {
 		port := binary.BigEndian.Uint16(buf[2:4])
-		portMatched := false
-		for _, p := range m.Ports {
-			if p == port {
-				portMatched = true
-				break
-			}
-		}
-		if !portMatched {
+		if !slices.Contains(m.Ports, port) {
 			return false, nil
 		}
 	}

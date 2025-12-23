@@ -172,10 +172,7 @@ func (r *RandomChoiceSelection) Validate() error {
 
 // Select returns an available host, if any.
 func (r *RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
-	k := r.Choose
-	if k > len(pool) {
-		k = len(pool)
-	}
+	k := min(r.Choose, len(pool))
 	choices := make([]*Upstream, k)
 	for i, upstream := range pool {
 		if !upstream.available() {
@@ -296,11 +293,11 @@ func (*RoundRobinSelection) CaddyModule() caddy.ModuleInfo {
 
 // Select returns an available host, if any.
 func (r *RoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
-	n := uint32(len(pool))
+	n := uint32(len(pool)) //nolint:gosec // disable G115
 	if n == 0 {
 		return nil
 	}
-	for i := uint32(0); i < n; i++ {
+	for range n {
 		atomic.AddUint32(&r.robin, 1)
 		host := pool[r.robin%n]
 		if host.available() {

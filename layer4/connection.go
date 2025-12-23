@@ -37,14 +37,17 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 	repl.Set("l4.conn.wrap_time", time.Now().UTC())
 
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]interface{}))
+	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
 	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
+	_, isPacketConn := underlying.(*packetConn)
+
 	return &Connection{
-		Conn:    underlying,
-		Context: ctx,
-		Logger:  logger,
-		buf:     buf,
+		Conn:         underlying,
+		Context:      ctx,
+		Logger:       logger,
+		buf:          buf,
+		isPacketConn: isPacketConn,
 	}
 }
 
@@ -73,10 +76,16 @@ type Connection struct {
 	matching     bool
 
 	bytesRead, bytesWritten uint64
+
+	// record frame boundaries for packet conns
+	isPacketConn bool
+	frameSizes   []int
 }
 
-var ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
-var ErrMatchingBufferFull = errors.New("matching buffer is full")
+var (
+	ErrConsumedAllPrefetchedBytes = errors.New("consumed all prefetched bytes")
+	ErrMatchingBufferFull         = errors.New("matching buffer is full")
+)
 
 // GetContext returns cx.Context,
 // so that caddytls.MatchServerNameRE.Match() could obtain this context without importing layer4.
@@ -98,8 +107,23 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	// with that; we only read from the underlying conn
 	// after the buffer has been "depleted"
 	if len(cx.buf) > 0 && cx.offset < len(cx.buf) {
-		n := copy(p, cx.buf[cx.offset:])
-		cx.offset += n
+		// for packet conns, do not read past frame boundaries
+		// TODO: if a frame is read in several ops, some handlers may not work correctly
+		if cx.isPacketConn {
+			var frameOffset int
+			// find the frame that should be read from
+			for _, size := range cx.frameSizes {
+				if frameOffset <= cx.offset && cx.offset < frameOffset+size {
+					n = copy(p, cx.buf[cx.offset:min(frameOffset+size, len(cx.buf))])
+					cx.offset += n
+					break
+				}
+				frameOffset += size
+			}
+		} else {
+			n = copy(p, cx.buf[cx.offset:])
+			cx.offset += n
+		}
 		if !cx.matching && cx.offset == len(cx.buf) {
 			// if we are not in matching mode reset buf automatically after it was consumed
 			cx.offset = 0
@@ -108,17 +132,19 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 		return n, nil
 	}
 
+	// reset the frame sizes for packet conns, it's safe to do even if not a packet conn
+	cx.frameSizes = cx.frameSizes[:0]
 	// buffer has been "depleted" so read from
 	// underlying connection
 	n, err = cx.Conn.Read(p)
-	cx.bytesRead += uint64(n)
+	cx.bytesRead += uint64(n) //nolint:gosec // disable G115
 
 	return
 }
 
 func (cx *Connection) Write(p []byte) (n int, err error) {
 	n, err = cx.Conn.Write(p)
-	cx.bytesWritten += uint64(n)
+	cx.bytesWritten += uint64(n) //nolint:gosec // disable G115
 	return
 }
 
@@ -159,10 +185,18 @@ func (cx *Connection) prefetch() (err error) {
 			cx.buf = append(cx.buf, tmp[:n]...)
 		}
 
-		cx.bytesRead += uint64(n)
+		cx.bytesRead += uint64(n) //nolint:gosec // disable G115
 
 		if err != nil {
 			return err
+		}
+
+		if cx.isPacketConn {
+			// packet conn doesn't read across boundaries, only record the size if it's done
+			size, done := cx.Conn.(*packetConn).lastFrameStat()
+			if done {
+				cx.frameSizes = append(cx.frameSizes, size)
+			}
 		}
 
 		if cx.Logger.Core().Enabled(zap.DebugLevel) {
@@ -194,8 +228,8 @@ func (cx *Connection) unfreeze() {
 // SetVar sets a value in the context's variable table with
 // the given key. It overwrites any previous value with the
 // same key.
-func (cx *Connection) SetVar(key string, value interface{}) {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
+func (cx *Connection) SetVar(key string, value any) {
+	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
 	if !ok {
 		return
 	}
@@ -205,8 +239,8 @@ func (cx *Connection) SetVar(key string, value interface{}) {
 // GetVar gets a value from the context's variable table with
 // the given key. It returns the value if found, and true if
 // it found a value with that key; false otherwise.
-func (cx *Connection) GetVar(key string) interface{} {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]interface{})
+func (cx *Connection) GetVar(key string) any {
+	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -238,11 +272,11 @@ const prefetchChunkSize = 2048
 
 // MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
 // This is probably most relevant for the http matcher since http requests do not have a size limit.
-// 8 KiB should cover most use-cases and is similar to popular webservers.
-const MaxMatchingBytes = 8 * 1024
+// 16 KiB should cover most use-cases and is similar to popular webservers.
+const MaxMatchingBytes = 16 * 1024
 
 var bufPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return make([]byte, 0, prefetchChunkSize)
 	},
 }

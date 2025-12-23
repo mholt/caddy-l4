@@ -5,8 +5,22 @@
 
 version: 2
 updates:
-  # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    open-pull-requests-limit: 1
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    open-pull-requests-limit: 1
+    groups:
+      all-updates:
+        patterns:
+          - "*"
+    schedule:
+      interval: "monthly"

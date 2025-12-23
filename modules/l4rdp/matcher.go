@@ -22,12 +22,14 @@ import (
 	"net"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+
 	"github.com/mholt/caddy-l4/layer4"
 )
 
@@ -63,9 +65,9 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	// Replace placeholders in filters
 	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 	cookieHash := repl.ReplaceAll(m.CookieHash, "")
-	cookieHash = cookieHash[:min(RDPCookieHashBytesMax, uint16(len(cookieHash)))]
+	cookieHash = cookieHash[:min(RDPCookieHashBytesMax, uint16(len(cookieHash)))] //nolint:gosec // disable G115
 	customInfo := repl.ReplaceAll(m.CustomInfo, "")
-	customInfo = customInfo[:min(RDPCustomInfoBytesMax, uint16(len(customInfo)))]
+	customInfo = customInfo[:min(RDPCustomInfoBytesMax, uint16(len(customInfo)))] //nolint:gosec // disable G115
 
 	// Read a number of bytes to parse headers
 	headerBuf := make([]byte, RDPConnReqBytesMin)
@@ -128,7 +130,8 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	var RDPNegReqBytesStart uint16 = 0
 	for index, b := range payloadBuf {
 		if b == ASCIIByteCR && payloadBuf[index+1] == ASCIIByteLF {
-			RDPNegReqBytesStart = uint16(index) + 2 // start after CR LF
+			// start after CR LF
+			RDPNegReqBytesStart = uint16(index) + 2 //nolint:gosec // disable G115
 			break
 		}
 	}
@@ -166,7 +169,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		hasValidCookie = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because hash hasn't matched
@@ -187,7 +190,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 		// Validate RDPToken
 		if t.Version != RDPTokenVersion || t.Reserved != RDPTokenReserved ||
-			t.Length != RDPTokenBytesTotal || t.LengthIndicator != uint8(t.Length-5) ||
+			t.Length != RDPTokenBytesTotal || t.LengthIndicator != uint8(t.Length-5) || //nolint:gosec // disable G115
 			t.TypeCredit != x.TypeCredit || t.DstRef != x.DstRef || t.SrcRef != x.SrcRef ||
 			t.ClassOptions != x.ClassOptions {
 			break
@@ -270,20 +273,13 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		if len(m.CookiePorts) > 0 {
-			var found bool
-			for _, port := range m.CookiePorts {
-				if port == portVal {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !slices.Contains(m.CookiePorts, portVal) {
 				break
 			}
 		}
 
 		hasValidToken = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because IPs or ports haven't matched
@@ -293,7 +289,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 
 	// Process RDPCustom
 	var hasValidCustom bool
-	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin {
+	for !(hasValidCookie || hasValidToken) && RDPNegReqBytesStart >= RDPCustomBytesMin { //nolint:staticcheck
 		RDPCustomBytesTotal := RDPNegReqBytesStart // include CR LF
 
 		// Parse RDPCustom
@@ -324,7 +320,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		hasValidCustom = true
-		break
+		break //nolint:staticcheck
 	}
 
 	// NOTE: we can stop validation because info hasn't matched
@@ -658,7 +654,7 @@ func (t *RDPToken) FromBytes(src []byte) error {
 }
 
 func (t *RDPToken) ToBytes() ([]byte, error) {
-	dst := bytes.NewBuffer(make([]byte, 0, RDPTokenBytesMin+uint16(len(t.Optional))))
+	dst := bytes.NewBuffer(make([]byte, 0, RDPTokenBytesMin+uint16(len(t.Optional)))) //nolint:gosec // disable G115
 	if err := binary.Write(dst, RDPTokenBytesOrder, &t.Version); err != nil {
 		return nil, err
 	}

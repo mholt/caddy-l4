@@ -32,7 +32,7 @@ func TestHostByHashing(t *testing.T) {
 	mockPool := func() []*Upstream {
 		var result []*Upstream
 		var upstreamDial []string
-		for i := 0; i < upstreamCount; i++ {
+		for i := range upstreamCount {
 			if i%3 == 0 {
 				upstreamDial = []string{fmt.Sprintf("192.168.0.%d:8001,192.168.0.%d:9001", i+1, i+1)}
 			} else {
@@ -50,15 +50,15 @@ func TestHostByHashing(t *testing.T) {
 		// see https://gist.github.com/porjo/f1e6b79af77893ee71e857dfba2f8e9a
 		var result []string
 		buf := make([]byte, 4)
-		for i := 0; i < keyCount; i++ {
+		for range keyCount {
 			ip := rand.Uint32()
 			binary.LittleEndian.PutUint32(buf, ip)
-			result = append(result, fmt.Sprintf("%s", net.IP(buf)))
+			result = append(result, net.IP(buf).String())
 		}
 		return result
 	}()
 
-	for i := 0; i < matchCount; i++ {
+	for i := range matchCount {
 		for _, mockKey := range mockKeys {
 			selected := hostByHashing(mockPool, mockKey)
 			t.Logf("[match#%d] %s -> %s", i, mockKey, selected.String())

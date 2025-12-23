@@ -66,7 +66,7 @@ func (r *Route) Provision(ctx caddy.Context) error {
 		return err
 	}
 	var handlers Handlers
-	for _, mod := range mods.([]interface{}) {
+	for _, mod := range mods.([]any) {
 		handler := mod.(NextHandler)
 		handlers = append(handlers, handler)
 	}
@@ -120,7 +120,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		// the loop begins depends upon if there is a matched route.
 	loop:
 		// timeout matching to protect against malicious or very slow clients
-		err := cx.Conn.SetReadDeadline(deadline)
+		err := cx.SetReadDeadline(deadline)
 		if err != nil {
 			return err
 		}
@@ -168,11 +168,16 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					return nil
 				}
 				if matched {
+					// some matchers still need more data, and this is likely a fallback route
+					// that matches anything
+					if matcherNeedMore && len(route.matcherSets) == 0 {
+						continue
+					}
 					routesStatus[i] = routeMatched
 					lastMatchedRouteIdx = i
 					lastNeedsMoreIdx = i
 					// remove deadline after we matched
-					err = cx.Conn.SetReadDeadline(time.Time{})
+					err = cx.SetReadDeadline(time.Time{})
 					if err != nil {
 						return err
 					}
@@ -223,7 +228,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			}
 			// fallback route, removing deadline
 			// see: https://github.com/mholt/caddy-l4/issues/274
-			err = cx.Conn.SetReadDeadline(time.Time{})
+			err = cx.SetReadDeadline(time.Time{})
 			if err != nil {
 				return err
 			}

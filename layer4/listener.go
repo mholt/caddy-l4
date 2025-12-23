@@ -104,7 +104,7 @@ func (lw *ListenerWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	if err := ParseCaddyfileNestedRoutes(d, &lw.Routes, &lw.MatchingTimeout); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &lw.Routes, &lw.MatchingTimeout, nil); err != nil {
 		return err
 	}
 
@@ -135,8 +135,8 @@ func (l *listener) loop() {
 	for {
 		conn, err := l.Listener.Accept()
 		var nerr net.Error
-		if errors.As(err, &nerr) && nerr.Temporary() && !l.closed.Load() {
-			l.logger.Error("temporary error accepting connection", zap.Error(err))
+		if errors.As(err, &nerr) && nerr.Timeout() && !l.closed.Load() {
+			l.logger.Error("timeout accepting connection", zap.Error(err))
 			continue
 		}
 		if err != nil {

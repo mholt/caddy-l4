@@ -23,14 +23,17 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 // Setup dummy structs for test cases as in
 // https://github.com/mholt/caddy-l4/blob/master/layer4/matchers_test.go
-var _ net.Conn = &dummyConn{}
-var _ net.Addr = dummyAddr{}
+var (
+	_ net.Conn = &dummyConn{}
+	_ net.Addr = dummyAddr{}
+)
 
 type dummyAddr struct {
 	ip      string
@@ -75,7 +78,9 @@ func createIPFile(t *testing.T) (string, string) {
 	// Create the file
 	file, err := os.Create(remoteIPFile)
 	assertNoError(t, err)
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	return tempDir, remoteIPFile
 }
@@ -93,9 +98,11 @@ func wait() {
 
 func appendToFile(t *testing.T, filename string, ip string) {
 	// Append new IP to end of file
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0o600)
 	assertNoError(t, err)
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	_, err = f.WriteString(ip + "\n")
 	assertNoError(t, err)

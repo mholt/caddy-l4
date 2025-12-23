@@ -30,7 +30,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const MatchingTimeoutDefault = 3 * time.Second
+const (
+	idleTimeoutDefault     = 30 * time.Second
+	MatchingTimeoutDefault = 3 * time.Second
+)
 
 // Server represents a Caddy layer4 server.
 type Server struct {
@@ -42,6 +45,9 @@ type Server struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time before packet connection association (by downstream address:port) is removed. Default: 30s.
+	// Note: this field is only relevant for packet connections (e.g., UDP).
+	IdleTimeout caddy.Duration `json:"idle_timeout,omitempty"`
 	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
@@ -53,6 +59,10 @@ type Server struct {
 // Provision sets up the server.
 func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
+
+	if s.IdleTimeout <= 0 {
+		s.IdleTimeout = caddy.Duration(idleTimeoutDefault)
+	}
 
 	if s.MatchingTimeout <= 0 {
 		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
@@ -126,6 +136,15 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 	for {
 		select {
 		case addr := <-closeCh:
+			conn, ok := udpConns[addr]
+			if ok {
+				// This will abort any active Read() from another goroutine and return EOF
+				close(conn.readCh)
+				// Drain pending packets to ensure we release buffers back to the pool
+				for pkt := range conn.readCh {
+					udpBufPool.Put(pkt.pooledBuf)
+				}
+			}
 			// UDP connection is closed (either implicitly through timeout or by
 			// explicit call to Close()).
 			delete(udpConns, addr)
@@ -139,10 +158,11 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 				// No existing proxy handler is running for this downstream.
 				// Create one now.
 				conn = &packetConn{
-					PacketConn: pc,
-					readCh:     make(chan *packet, 5),
-					addr:       pkt.addr,
-					closeCh:    closeCh,
+					PacketConn:  pc,
+					readCh:      make(chan *packet, 5),
+					addr:        pkt.addr,
+					closeCh:     closeCh,
+					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
 				go func(conn *packetConn) {
@@ -187,6 +207,7 @@ func (s *Server) handle(conn net.Conn) {
 // UnmarshalCaddyfile sets up the Server from Caddyfile tokens. Syntax:
 //
 //	<address:port> [<address:port>] {
+//		idle_timeout <duration>
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -212,7 +233,7 @@ func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		s.Listen = append(s.Listen, d.Val())
 	}
 
-	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout, &s.IdleTimeout); err != nil {
 		return err
 	}
 
@@ -239,12 +260,14 @@ type packetConn struct {
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
-	lastPacket *packet
-	lastBuf    *bytes.Reader
+	lastPacket  *packet
+	lastBuf     *bytes.Reader
+	lastBufSize int
 
 	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
+	idleTimeout   time.Duration
 	idleTimer     *time.Timer
 }
 
@@ -259,11 +282,14 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-// TODO: idle timeout should be configurable per server
-const udpAssociationIdleTimeout = 30 * time.Second
-
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
+}
+
+// lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
+// should be called for every successful Read().
+func (pc *packetConn) lastFrameStat() (int, bool) {
+	return pc.lastBufSize, pc.lastPacket == nil
 }
 
 func (pc *packetConn) Read(b []byte) (n int, err error) {
@@ -284,9 +310,9 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	}
 	// set or refresh idle timeout
 	if pc.idleTimer == nil {
-		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+		pc.idleTimer = time.NewTimer(pc.idleTimeout)
 	} else {
-		pc.idleTimer.Reset(udpAssociationIdleTimeout)
+		pc.idleTimer.Reset(pc.idleTimeout)
 	}
 	var done bool
 	for !done {
@@ -308,6 +334,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				pc.lastPacket = pkt
 				pc.lastBuf = buf
 			}
+			pc.lastBufSize = pkt.n
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck
@@ -317,7 +344,6 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			// next loop will run. Don't call Read as that will reset the idle timer.
 		case <-pc.idleTimer.C:
 			done = true
-			break
 		}
 	}
 	// Idle timeout simulates socket closure.
@@ -332,7 +358,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 }
 
 func (pc *packetConn) Write(b []byte) (n int, err error) {
-	return pc.PacketConn.WriteTo(b, pc.addr)
+	return pc.WriteTo(b, pc.addr)
 }
 
 func (pc *packetConn) Close() error {
@@ -340,14 +366,9 @@ func (pc *packetConn) Close() error {
 		udpBufPool.Put(pc.lastPacket.pooledBuf)
 		pc.lastPacket = nil
 	}
-	// This will abort any active Read() from another goroutine and return EOF
-	close(pc.readCh)
-	// Drain pending packets to ensure we release buffers back to the pool
-	for pkt := range pc.readCh {
-		udpBufPool.Put(pkt.pooledBuf)
-	}
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
+	// Server loop is responsible to close readCh to abort Read() to avoid race.
 	pc.closeCh <- pc.addr.String()
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
@@ -357,7 +378,7 @@ func (pc *packetConn) Close() error {
 func (pc *packetConn) RemoteAddr() net.Addr { return pc.addr }
 
 var udpBufPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		// Buffers need to be as large as the largest datagram we'll consume, because
 		// ReadFrom() can't resume partial reads.  (This is standard for UDP
 		// sockets on *nix.)  So our buffer sizes are 9000 bytes to accommodate
