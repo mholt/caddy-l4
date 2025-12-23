@@ -16,6 +16,7 @@ package l4proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"net"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -225,18 +227,14 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		var up net.Conn
 		var err error
 
-		// Prepare a custom net.Dialer if LocalAddr is set
-		dialer, err := buildDialer(upstream.LocalAddr, p.address.Network, h.logger)
-		if err != nil {
-			return nil, err
+		destFam, famErr := resolveDestFamily(p.address.Network, hostPort, upstream.ResolverPreference)
+		if famErr != nil {
+			return nil, famErr
 		}
+		localAddrs := buildLocalAddrs(upstream.LocalAddr, p.address.Network, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			if dialer != nil {
-				up, err = dialer.Dial(p.address.Network, hostPort)
-			} else {
-				up, err = net.Dial(p.address.Network, hostPort)
-			}
+			up, err = dialWithLocalAddrs(localAddrs, p.address.Network, hostPort)
 		} else {
 			// the prepared config could be nil if user enabled but did not customize TLS,
 			// in which case we adopt the downstream client's TLS ClientHello for ours;
@@ -248,11 +246,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 					hellos[0].FillTLSClientConfig(tlsCfg)
 				}
 			}
-			if dialer != nil {
-				up, err = tls.DialWithDialer(dialer, p.address.Network, hostPort, tlsCfg)
-			} else {
-				up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
-			}
+			up, err = tlsDialWithLocalAddrs(localAddrs, p.address.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -698,11 +692,14 @@ var (
 	_ layer4.NextHandler    = (*Handler)(nil)
 )
 
-// buildDialer constructs a net.Dialer with LocalAddr set from localAddr if provided.
-// Returns nil if localAddr is empty.
-func buildDialer(localAddr, upstreamNetwork string, logger *zap.Logger) (*net.Dialer, error) {
+// allow tests to stub DNS resolution
+var lookupIP = net.DefaultResolver.LookupIP
+
+// buildLocalAddrs returns all candidate local addresses matching the upstream network family, in order.
+// If none match or localAddr is empty/invalid, it returns nil (use OS default).
+func buildLocalAddrs(localAddr, upstreamNetwork string, destFamily int, logger *zap.Logger) []net.Addr {
 	if localAddr == "" {
-		return nil, nil
+		return nil
 	}
 
 	log := logger
@@ -710,61 +707,229 @@ func buildDialer(localAddr, upstreamNetwork string, logger *zap.Logger) (*net.Di
 		log = zap.NewNop()
 	}
 
-	defaultNet := upstreamNetwork
-	if defaultNet == "" {
-		defaultNet = "tcp"
+	fam := ipFamilyFromNetwork(upstreamNetwork)
+	isUnixUpstream := caddy.IsUnixNetwork(upstreamNetwork)
+
+	var result []net.Addr
+
+	for _, candidate := range strings.Split(localAddr, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+
+		// Reject protocol prefixes; only raw addresses are allowed.
+		if netw, _, _, err := caddy.SplitNetworkAddress(candidate); err == nil && netw != "" {
+			continue
+		}
+
+		host, port := candidate, "0"
+		if h, p, err := net.SplitHostPort(candidate); err == nil {
+			host, port = h, p
+			if port == "" {
+				port = "0"
+			}
+		}
+
+		ip := net.ParseIP(host)
+		if ip != nil {
+			if isUnixUpstream {
+				continue
+			}
+			// choose by upstream family if specific, otherwise by destination family hint if provided
+			wantFam := fam
+			if wantFam == 0 && destFamily != 0 {
+				wantFam = destFamily
+			}
+			if wantFam == 4 && ip.To4() == nil {
+				continue
+			}
+			if wantFam == 6 && ip.To4() != nil {
+				continue
+			}
+
+			netw := upstreamNetwork
+			if strings.HasPrefix(upstreamNetwork, "udp") {
+				if addr, err := net.ResolveUDPAddr(netw, net.JoinHostPort(ip.String(), port)); err == nil {
+					result = append(result, addr)
+				}
+				continue
+			}
+			if addr, err := net.ResolveTCPAddr(netw, net.JoinHostPort(ip.String(), port)); err == nil {
+				result = append(result, addr)
+			}
+			continue
+		}
+
+		// Unix path
+		if isUnixUpstream {
+			if addr, err := net.ResolveUnixAddr(upstreamNetwork, host); err == nil {
+				result = append(result, addr)
+			}
+		}
 	}
 
-	netaddr, addrErr := caddy.ParseNetworkAddressWithDefaults(localAddr, defaultNet, 0)
-	if addrErr != nil {
-		log.Error("error parsing local address", zap.String("local_addr", localAddr), zap.Error(addrErr))
-		return nil, addrErr
+	if len(result) > 0 {
+		log.Debug("selected local addresses", zap.String("upstream_network", upstreamNetwork), zap.Int("count", len(result)), zap.Int("dest_family", destFamily))
 	}
 
-	if netaddr.PortRangeSize() > 1 {
-		err := fmt.Errorf("local_address must be a single address, not a port range")
-		log.Error(err.Error(), zap.String("local_addr", localAddr))
-		return nil, err
+	return result
+}
+
+func resolveDestFamily(network, hostPort, pref string) (int, error) {
+	if caddy.IsUnixNetwork(network) {
+		return 0, nil
+	}
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return 0, fmt.Errorf("split host/port for %s: %w", hostPort, err)
 	}
 
-	if caddy.IsUnixNetwork(defaultNet) && net.ParseIP(netaddr.Host) != nil {
-		err := fmt.Errorf("local_address must be a unix socket path for unix upstreams")
-		log.Error(err.Error(), zap.String("local_addr", localAddr))
-		return nil, err
+	// Try literal first
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.To4() != nil {
+			if pref == "ipv6_only" {
+				return 0, fmt.Errorf("resolver_preference ipv6_only but destination is IPv4 literal (%s)", host)
+			}
+			return 4, nil
+		}
+		if pref == "ipv4_only" {
+			return 0, fmt.Errorf("resolver_preference ipv4_only but destination is IPv6 literal (%s)", host)
+		}
+		return 6, nil
 	}
 
-	switch netaddr.Network {
-	case "tcp", "tcp4", "tcp6":
-		addr, err := net.ResolveTCPAddr(netaddr.Network, netaddr.JoinHostPort(0))
-		if err != nil {
-			log.Error("error resolving TCP local address", zap.String("local_addr", localAddr), zap.Error(err))
-			return nil, err
+	// Hint from network if specific
+	if fam := ipFamilyFromNetwork(network); fam != 0 {
+		if pref == "ipv4_only" && fam != 4 {
+			return 0, fmt.Errorf("resolver_preference ipv4_only but upstream network is %s for host %s", network, host)
 		}
-		return &net.Dialer{LocalAddr: addr}, nil
-	case "udp", "udp4", "udp6":
-		addr, err := net.ResolveUDPAddr(netaddr.Network, netaddr.JoinHostPort(0))
-		if err != nil {
-			log.Error("error resolving UDP local address", zap.String("local_addr", localAddr), zap.Error(err))
-			return nil, err
+		if pref == "ipv6_only" && fam != 6 {
+			return 0, fmt.Errorf("resolver_preference ipv6_only but upstream network is %s for host %s", network, host)
 		}
-		return &net.Dialer{LocalAddr: addr}, nil
-	case "unix", "unixgram", "unixpacket":
-		if defaultNet == "tcp" || defaultNet == "udp" {
-			err := fmt.Errorf("local_address unix socket is incompatible with upstream network %s", defaultNet)
-			log.Error(err.Error(), zap.String("local_addr", localAddr))
-			return nil, err
+		return fam, nil
+	}
+
+	ips, err := lookupIP(context.Background(), "ip", host)
+	if err != nil || len(ips) == 0 {
+		if err == nil {
+			err = fmt.Errorf("no DNS records for %s", host)
 		}
-		addr, err := net.ResolveUnixAddr(netaddr.Network, netaddr.JoinHostPort(0))
-		if err != nil {
-			log.Error("error resolving Unix local address", zap.String("local_addr", localAddr), zap.Error(err))
-			return nil, err
+		return 0, fmt.Errorf("resolve %s: %w", host, err)
+	}
+	var v4, v6 bool
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			v4 = true
+		} else {
+			v6 = true
 		}
-		return &net.Dialer{LocalAddr: addr}, nil
+	}
+	switch pref {
+	case "ipv4_only":
+		if v4 {
+			return 4, nil
+		}
+		return 0, fmt.Errorf("resolver_preference ipv4_only but no A records found for %s", host)
+	case "ipv6_only":
+		if v6 {
+			return 6, nil
+		}
+		return 0, fmt.Errorf("resolver_preference ipv6_only but no AAAA records found for %s", host)
+	case "ipv6_first":
+		if v6 {
+			return 6, nil
+		}
+		if v4 {
+			return 4, nil
+		}
+		return 0, fmt.Errorf("no usable DNS records for %s", host)
+	case "ipv4_first", "":
+		if v4 {
+			return 4, nil
+		}
+		if v6 {
+			return 6, nil
+		}
+		return 0, fmt.Errorf("no usable DNS records for %s", host)
 	default:
-		err := fmt.Errorf("unsupported network")
-		log.Error(err.Error(), zap.String("network", netaddr.Network))
-		return nil, err
+		if v4 {
+			return 4, nil
+		}
+		if v6 {
+			return 6, nil
+		}
+		return 0, fmt.Errorf("no usable DNS records for %s", host)
 	}
+}
+
+func ipFamilyFromNetwork(netw string) int {
+	switch netw {
+	case "tcp4", "udp4":
+		return 4
+	case "tcp6", "udp6":
+		return 6
+	default:
+		return 0
+	}
+}
+
+func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, error) {
+	if len(localAddrs) == 0 {
+		return net.Dial(network, addr)
+	}
+
+	var lastErr error
+	for _, la := range localAddrs {
+		d := &net.Dialer{LocalAddr: la}
+		conn, err := d.Dial(network, addr)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	if len(localAddrs) == 0 {
+		return tls.Dial(network, addr, cfg)
+	}
+
+	var lastErr error
+	for _, la := range localAddrs {
+		d := &net.Dialer{LocalAddr: la}
+		conn, err := tls.DialWithDialer(d, network, addr, cfg)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func isFamilyMismatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no suitable address found") ||
+		strings.Contains(msg, "address family not supported") ||
+		strings.Contains(msg, "bind: invalid argument")
+}
+
+func dialWithLocal(localAddr net.Addr, network, addr string) (net.Conn, error) {
+	if localAddr == nil {
+		return net.Dial(network, addr)
+	}
+	return (&net.Dialer{LocalAddr: localAddr}).Dial(network, addr)
+}
+
+func tlsDialWithLocal(localAddr net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	if localAddr == nil {
+		return tls.Dial(network, addr, cfg)
+	}
+	return tls.DialWithDialer(&net.Dialer{LocalAddr: localAddr}, network, addr, cfg)
 }
 
 // Used to properly shutdown half-closed connections (see PR #73).

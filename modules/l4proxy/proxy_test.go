@@ -1,6 +1,7 @@
 package l4proxy
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -10,6 +11,15 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
 )
+
+type fakeLookup struct {
+	ips []net.IP
+	err error
+}
+
+func (f fakeLookup) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	return f.ips, f.err
+}
 
 // Ensure dialPeers binds to an explicitly configured local port for TCP.
 func TestDialPeersUsesConfiguredLocalPortTCP(t *testing.T) {
@@ -34,7 +44,7 @@ func TestDialPeersUsesConfiguredLocalPortTCP(t *testing.T) {
 	}()
 
 	upstreamAddr := ln.Addr().String()
-	localAddr := fmt.Sprintf("tcp/%s", fmt.Sprintf("127.0.0.1:%d", localPort))
+	localAddr := fmt.Sprintf("127.0.0.1:%d", localPort)
 
 	parsedUpstream, err := caddy.ParseNetworkAddress(upstreamAddr)
 	if err != nil {
@@ -95,7 +105,7 @@ func TestDialPeersUsesConfiguredLocalPortUDP(t *testing.T) {
 	localPortPC.Close()
 
 	upstreamAddr := fmt.Sprintf("udp/%s", upstreamPC.LocalAddr().String())
-	localAddr := fmt.Sprintf("udp/%s", fmt.Sprintf("127.0.0.1:%d", localPort))
+	localAddr := fmt.Sprintf("127.0.0.1:%d", localPort)
 
 	parsedUpstream, err := caddy.ParseNetworkAddress(upstreamAddr)
 	if err != nil {
@@ -133,105 +143,135 @@ func TestDialPeersUsesConfiguredLocalPortUDP(t *testing.T) {
 	}
 }
 
-// Ensure IPv6 source parsing and resolution works for TCP without requiring IPv6 connectivity.
-func TestBuildDialerIPv6TCP(t *testing.T) {
-	dialer, err := buildDialer("tcp6/[2001:db8::1]:4040", "tcp6", zap.NewNop())
-	if err != nil {
-		t.Fatalf("buildDialer ipv6 tcp: %v", err)
+// Build-local-address selection tests
+func TestSelectLocalAddrIPv6TCP(t *testing.T) {
+	addrs := buildLocalAddrs("[2001:db8::1]:4040", "tcp6", 6, zap.NewNop())
+	if len(addrs) != 1 {
+		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
-	if dialer == nil {
-		t.Fatalf("expected dialer")
-	}
-	addr, ok := dialer.LocalAddr.(*net.TCPAddr)
+	addr := addrs[0]
+	tcpAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("expected TCPAddr, got %T", dialer.LocalAddr)
+		t.Fatalf("expected TCPAddr, got %T", addr)
 	}
-	if addr.Port != 4040 {
-		t.Fatalf("expected port 4040, got %d", addr.Port)
+	if tcpAddr.Port != 4040 {
+		t.Fatalf("expected port 4040, got %d", tcpAddr.Port)
 	}
-	if !addr.IP.Equal(net.ParseIP("2001:db8::1")) {
-		t.Fatalf("expected ip 2001:db8::1, got %s", addr.IP)
+	if !tcpAddr.IP.Equal(net.ParseIP("2001:db8::1")) {
+		t.Fatalf("expected ip 2001:db8::1, got %s", tcpAddr.IP)
 	}
 }
 
-// Ensure IPv6 source parsing and resolution works for UDP without requiring IPv6 connectivity.
-func TestBuildDialerIPv6UDP(t *testing.T) {
-	dialer, err := buildDialer("udp6/[2001:db8::2]:5353", "udp6", zap.NewNop())
-	if err != nil {
-		t.Fatalf("buildDialer ipv6 udp: %v", err)
+func TestSelectLocalAddrIPv6UDP(t *testing.T) {
+	addrs := buildLocalAddrs("[2001:db8::2]:5353", "udp6", 6, zap.NewNop())
+	if len(addrs) != 1 {
+		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
-	if dialer == nil {
-		t.Fatalf("expected dialer")
-	}
-	addr, ok := dialer.LocalAddr.(*net.UDPAddr)
+	addr := addrs[0]
+	udpAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
-		t.Fatalf("expected UDPAddr, got %T", dialer.LocalAddr)
+		t.Fatalf("expected UDPAddr, got %T", addr)
 	}
-	if addr.Port != 5353 {
-		t.Fatalf("expected port 5353, got %d", addr.Port)
+	if udpAddr.Port != 5353 {
+		t.Fatalf("expected port 5353, got %d", udpAddr.Port)
 	}
-	if !addr.IP.Equal(net.ParseIP("2001:db8::2")) {
-		t.Fatalf("expected ip 2001:db8::2, got %s", addr.IP)
-	}
-}
-
-func TestBuildDialerDefaultsToTCPWhenNoProtocol(t *testing.T) {
-	dialer, err := buildDialer("127.0.0.1:4040", "tcp", zap.NewNop())
-	if err != nil {
-		t.Fatalf("buildDialer default tcp: %v", err)
-	}
-	addr, ok := dialer.LocalAddr.(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("expected TCPAddr, got %T", dialer.LocalAddr)
-	}
-	if addr.Port != 4040 {
-		t.Fatalf("expected port 4040, got %d", addr.Port)
+	if !udpAddr.IP.Equal(net.ParseIP("2001:db8::2")) {
+		t.Fatalf("expected ip 2001:db8::2, got %s", udpAddr.IP)
 	}
 }
 
-func TestBuildDialerDefaultsEphemeralPortWhenMissing(t *testing.T) {
-	dialer, err := buildDialer("127.0.0.1", "tcp", zap.NewNop())
-	if err != nil {
-		t.Fatalf("buildDialer default port: %v", err)
+func TestSelectLocalAddrDefaultsToUpstreamFamily(t *testing.T) {
+	addrs := buildLocalAddrs("192.0.2.1:5353", "udp", 0, zap.NewNop())
+	if len(addrs) != 1 {
+		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
-	addr, ok := dialer.LocalAddr.(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("expected TCPAddr, got %T", dialer.LocalAddr)
-	}
-	if addr.Port != 0 {
-		t.Fatalf("expected port 0 (ephemeral), got %d", addr.Port)
+	if _, ok := addrs[0].(*net.UDPAddr); !ok {
+		t.Fatalf("expected UDPAddr, got %T", addrs[0])
 	}
 }
 
-func TestBuildDialerDefaultsToUpstreamNetworkWhenEmptyProtocol(t *testing.T) {
-	dialer, err := buildDialer("192.0.2.1:5353", "udp", zap.NewNop())
-	if err != nil {
-		t.Fatalf("buildDialer upstream default: %v", err)
+func TestSelectLocalAddrSkipsMismatchedFamilies(t *testing.T) {
+	if addrs := buildLocalAddrs("::1", "tcp4", 4, zap.NewNop()); len(addrs) != 0 {
+		t.Fatalf("expected no addr for ipv6 source with tcp4 upstream")
 	}
-	addr, ok := dialer.LocalAddr.(*net.UDPAddr)
-	if !ok {
-		t.Fatalf("expected UDPAddr, got %T", dialer.LocalAddr)
-	}
-	if addr.Port != 5353 {
-		t.Fatalf("expected port 5353, got %d", addr.Port)
+	if addrs := buildLocalAddrs("127.0.0.1", "tcp6", 6, zap.NewNop()); len(addrs) != 0 {
+		t.Fatalf("expected no addr for ipv4 source with tcp6 upstream")
 	}
 }
 
-func TestBuildDialerRejectsProtocolInLocalAddr(t *testing.T) {
-	if _, err := buildDialer("udp/127.0.0.1:53", "udp", zap.NewNop()); err == nil {
-		t.Fatalf("expected error for protocol in local_address")
+func TestSelectLocalAddrChoosesMatchingFromList(t *testing.T) {
+	addrs := buildLocalAddrs("127.0.0.1, ::1", "tcp6", 6, zap.NewNop())
+	if len(addrs) == 0 {
+		t.Fatalf("expected matching addr")
+	}
+	if tcpAddr, ok := addrs[0].(*net.TCPAddr); !ok || tcpAddr.IP.To4() != nil {
+		t.Fatalf("expected ipv6 local addr, got %T %v", addrs[0], addrs[0])
+	}
+
+	addrs = buildLocalAddrs("127.0.0.1, ::1", "tcp4", 4, zap.NewNop())
+	if len(addrs) == 0 {
+		t.Fatalf("expected matching addr")
+	}
+	if tcpAddr, ok := addrs[0].(*net.TCPAddr); !ok || tcpAddr.IP.To4() == nil {
+		t.Fatalf("expected ipv4 local addr, got %T %v", addrs[0], addrs[0])
 	}
 }
 
-func TestBuildDialerRejectsUnixForTCPUpstream(t *testing.T) {
-	if _, err := buildDialer("/tmp/l4proxy-test.sock", "tcp", zap.NewNop()); err == nil {
-		t.Fatalf("expected error for unix local_address with tcp upstream")
+func TestResolveDestFamilyWithPreferences(t *testing.T) {
+	orig := lookupIP
+	t.Cleanup(func() { lookupIP = orig })
+
+	table := []struct {
+		name   string
+		netw   string
+		host   string
+		pref   string
+		ips    []net.IP
+		expect int
+		err    bool
+	}{
+		{name: "literal v4 disallowed by pref", netw: "tcp", host: "192.0.2.1:80", pref: "ipv6_only", ips: nil, err: true},
+		{name: "literal v6 disallowed by pref", netw: "tcp", host: "[2001:db8::1]:80", pref: "ipv4_only", ips: nil, err: true},
+		{name: "hint tcp4 vs ipv6_only", netw: "tcp4", host: "example.com:80", pref: "ipv6_only", ips: []net.IP{net.ParseIP("2001:db8::1")}, err: true},
+		{name: "hint tcp6 vs ipv4_only", netw: "tcp6", host: "example.com:80", pref: "ipv4_only", ips: []net.IP{net.ParseIP("192.0.2.1")}, err: true},
+		{name: "pref v4_only with AAAA", netw: "tcp", host: "example.com:80", pref: "ipv4_only", ips: []net.IP{net.ParseIP("2001:db8::1")}, err: true},
+		{name: "pref v6_only with AAAA", netw: "tcp", host: "example.com:80", pref: "ipv6_only", ips: []net.IP{net.ParseIP("2001:db8::1")}, expect: 6},
+		{name: "pref v6_first with both", netw: "tcp", host: "example.com:80", pref: "ipv6_first", ips: []net.IP{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}, expect: 6},
+		{name: "pref v4_first with both", netw: "tcp", host: "example.com:80", pref: "ipv4_first", ips: []net.IP{net.ParseIP("2001:db8::1"), net.ParseIP("192.0.2.1")}, expect: 4},
+	}
+
+	for _, tt := range table {
+		t.Run(tt.name, func(t *testing.T) {
+			lookupIP = fakeLookup{ips: tt.ips}.LookupIP
+			got, err := resolveDestFamily(tt.netw, tt.host, tt.pref)
+			if tt.err {
+				if err == nil {
+					t.Fatalf("expected error, got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.expect {
+				t.Fatalf("got %d, want %d", got, tt.expect)
+			}
+		})
 	}
 }
 
-func TestBuildDialerRejectsIPForUnixUpstream(t *testing.T) {
-	if _, err := buildDialer("127.0.0.1", "unix", zap.NewNop()); err == nil {
-		t.Fatalf("expected error for ip local_address with unix upstream")
+func TestSelectLocalAddrUnix(t *testing.T) {
+	addrs := buildLocalAddrs("/tmp/l4proxy-src.sock", "unix", 0, zap.NewNop())
+	if len(addrs) != 1 {
+		t.Fatalf("expected 1 unix addr, got %d", len(addrs))
+	}
+	if _, ok := addrs[0].(*net.UnixAddr); !ok {
+		t.Fatalf("expected UnixAddr, got %T", addrs[0])
+	}
+
+	// IPs should be ignored for unix upstreams
+	if addrs := buildLocalAddrs("127.0.0.1", "unix", 0, zap.NewNop()); len(addrs) != 0 {
+		t.Fatalf("expected no ip addr for unix upstream")
 	}
 }
 
@@ -283,7 +323,7 @@ func TestActiveHealthCheckUsesLocalAddress(t *testing.T) {
 		if !remote.IP.Equal(net.ParseIP("127.0.0.1")) {
 			t.Fatalf("expected local bind ip 127.0.0.1, got %s", remote.IP)
 		}
-	default:
+	case <-time.After(2 * time.Second):
 		t.Fatalf("no health check connection observed")
 	}
 }

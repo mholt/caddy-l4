@@ -42,6 +42,10 @@ type Upstream struct {
 	// Local address to bind to when making the request to upstream
 	LocalAddr string `json:"local_address,omitempty"`
 
+	// Preference for address family resolution. One of: "ipv4_only", "ipv6_only",
+	// "ipv4_first", "ipv6_first". Default is "ipv4_first".
+	ResolverPreference string `json:"resolver_preference,omitempty"`
+
 	// Set this field to enable TLS to the upstream.
 	TLS *reverseproxy.TLSConfig `json:"tls,omitempty"`
 
@@ -208,6 +212,12 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
+		case "resolver_preference":
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			u.ResolverPreference = d.Val()
 		case "local_addr":
 			if hasLocalAddr {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

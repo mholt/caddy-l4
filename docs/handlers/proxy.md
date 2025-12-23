@@ -92,7 +92,14 @@ Each `upstream` has the following fields:
   protocol prefix); the protocol is inferred from each upstream dial target (TCP by default if none is specified).
   If a port is included, that exact port is used; if omitted, the OS chooses an ephemeral port (:0). Unix
   source paths are supported only for Unix upstreams; for TCP/UDP upstreams, a Unix `local_address` is invalid, and
-  for Unix upstreams an IPv4/v6 `local_address` is invalid.
+  for Unix upstreams an IPv4/v6 `local_address` is invalid. Multiple addresses may be provided as a comma-separated
+  list; the first address matching the upstream’s address family (IPv4/IPv6/Unix) is used, otherwise the OS default
+  is used. If you need to specify a port for an IPv6 source, you must use brackets: `[2001:db8::1]:12345`.
+
+- `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
+  one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. The “only” modes fail immediately
+  if the requested family is not available (e.g. no A records for `ipv4_only`, no AAAA records for `ipv6_only`), and
+  they do not fall back to the other family.
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).

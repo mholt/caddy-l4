@@ -141,19 +141,30 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	hostPort := addr.JoinHostPort(0)
 	timeout := time.Duration(h.HealthChecks.Active.Timeout)
 
-	dialer, err := buildDialer(upstream.LocalAddr, addr.Network, h.logger)
-	if err != nil {
-		return err
+	destFam, famErr := resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+	if famErr != nil {
+		return famErr
 	}
-	if dialer == nil {
-		dialer = &net.Dialer{}
-	}
-	dialer.Timeout = timeout
+	localAddrs := buildLocalAddrs(upstream.LocalAddr, addr.Network, destFam, h.logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	conn, err := dialer.DialContext(ctx, addr.Network, hostPort)
+	var conn net.Conn
+	var err error
+	if len(localAddrs) == 0 {
+		var d net.Dialer
+		d.Timeout = timeout
+		conn, err = d.DialContext(ctx, addr.Network, hostPort)
+	} else {
+		for _, la := range localAddrs {
+			d := &net.Dialer{LocalAddr: la, Timeout: timeout}
+			conn, err = d.DialContext(ctx, addr.Network, hostPort)
+			if err == nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		h.HealthChecks.Active.logger.Info("host is down",
 			zap.String("address", addr.String()),
