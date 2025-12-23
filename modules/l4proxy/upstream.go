@@ -39,7 +39,9 @@ type Upstream struct {
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
-	// Local address to bind to when making the request to upstream
+	// Local address to bind to when making the request to upstream. Multiple addresses are supported as a comma-separated list.
+	// The first address matching the upstream’s address family (IPv4/IPv6/Unix) is used, otherwise the OS default is used.
+	// Source ports can be specified for both IPv6 and IPv6, but IPv6 must use brackets when specifying the port. i.e. [2001:db8::1]:12345.
 	LocalAddr string `json:"local_address,omitempty"`
 
 	// Preference for address family resolution. One of: "ipv4_only", "ipv6_only",
