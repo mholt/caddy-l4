@@ -908,30 +908,6 @@ func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls
 	return nil, lastErr
 }
 
-func isFamilyMismatch(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "no suitable address found") ||
-		strings.Contains(msg, "address family not supported") ||
-		strings.Contains(msg, "bind: invalid argument")
-}
-
-func dialWithLocal(localAddr net.Addr, network, addr string) (net.Conn, error) {
-	if localAddr == nil {
-		return net.Dial(network, addr)
-	}
-	return (&net.Dialer{LocalAddr: localAddr}).Dial(network, addr)
-}
-
-func tlsDialWithLocal(localAddr net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
-	if localAddr == nil {
-		return tls.Dial(network, addr, cfg)
-	}
-	return tls.DialWithDialer(&net.Dialer{LocalAddr: localAddr}, network, addr, cfg)
-}
-
 // Used to properly shutdown half-closed connections (see PR #73).
 // Implemented by net.TCPConn, net.UnixConn, tls.Conn, qtls.Conn.
 type closeWriter interface {
