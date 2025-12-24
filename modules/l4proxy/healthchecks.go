@@ -15,6 +15,7 @@
 package l4proxy
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -111,7 +112,7 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 			}()
 
 			for _, p := range upstream.peers {
-				err := h.doActiveHealthCheck(p)
+				err := h.doActiveHealthCheck(upstream, p)
 				if err != nil {
 					h.HealthChecks.Active.logger.Error("active health check failed",
 						zap.String("peer", p.address.String()),
@@ -128,7 +129,7 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 // the health check. An error is returned only if the health
 // check fails to occur or if marking the host's health status
 // fails.
-func (h *Handler) doActiveHealthCheck(p *peer) error {
+func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	addr := p.address
 
 	// adjust the port, if configured to be different
@@ -140,7 +141,30 @@ func (h *Handler) doActiveHealthCheck(p *peer) error {
 	hostPort := addr.JoinHostPort(0)
 	timeout := time.Duration(h.HealthChecks.Active.Timeout)
 
-	conn, err := net.DialTimeout(addr.Network, hostPort, timeout)
+	destFam, famErr := resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+	if famErr != nil {
+		return famErr
+	}
+	localAddrs := buildLocalAddrs(upstream.LocalAddr, addr.Network, destFam, h.logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var conn net.Conn
+	var err error
+	if len(localAddrs) == 0 {
+		var d net.Dialer
+		d.Timeout = timeout
+		conn, err = d.DialContext(ctx, addr.Network, hostPort)
+	} else {
+		for _, la := range localAddrs {
+			d := &net.Dialer{LocalAddr: la, Timeout: timeout}
+			conn, err = d.DialContext(ctx, addr.Network, hostPort)
+			if err == nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		h.HealthChecks.Active.logger.Info("host is down",
 			zap.String("address", addr.String()),
