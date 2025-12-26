@@ -77,7 +77,7 @@ type Handler struct {
 	//
 	// Default: IGNORE
 	//
-	// Policy definitions are here: https://pkg.go.dev/github.com/pires/go-proxyproto@v0.7.0#Policy
+	// Policy definitions are here: https://pkg.go.dev/github.com/pires/go-proxyproto#Policy
 	FallbackPolicy Policy `json:"fallback_policy,omitempty"`
 
 	policy proxyproto.PolicyFunc
