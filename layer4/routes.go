@@ -112,8 +112,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 		var (
 			lastMatchedRouteIdx = -1
 			// it actually records where a matcher may require more data, i.e. the one that really needs more,
-			// it actually records where a matcher may require more data, i.e. the one that really needs more,
-			// the one after a matched route, the one after a not matched route with no previous routes needing more
+			// the one after a matched route, the one after a not matched route with no previous routes needing more.
 			// -1 means there is no route that requires more data
 			lastNeedsMoreIdx = -1
 			routesStatus     = make(map[int]int)
@@ -211,7 +210,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 						return nil
 					}
 				} else {
-					// update the last index to search for unmatched matchers
+					// update the last index to search for unmatched matchers.
 					if i >= lastNeedsMoreIdx {
 						lastNeedsMoreIdx = i + 1
 					}
