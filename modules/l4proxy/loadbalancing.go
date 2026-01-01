@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	weakrand "math/rand"
+	weakrand "math/rand/v2"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -111,7 +111,7 @@ func (r *RandomSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstr
 		// upstream will always be chosen if there is at
 		// least one available
 		count++
-		if (weakrand.Int() % count) == 0 {
+		if weakrand.IntN(count) == 0 {
 			randomHost = upstream
 		}
 	}
@@ -178,7 +178,7 @@ func (r *RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) 
 		if !upstream.available() {
 			continue
 		}
-		j := weakrand.Intn(i + 1)
+		j := weakrand.IntN(i + 1)
 		if j < k {
 			choices[j] = upstream
 		}
@@ -249,7 +249,7 @@ func (*LeastConnSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upst
 		// sample: https://en.wikipedia.org/wiki/Reservoir_sampling
 		if totalConns == leastConns {
 			count++
-			if (weakrand.Int() % count) == 0 {
+			if weakrand.IntN(count) == 0 {
 				best = upstream
 			}
 		}
@@ -432,7 +432,7 @@ func leastConns(upstreams []*Upstream) *Upstream {
 	if len(best) == 0 {
 		return nil
 	}
-	return best[weakrand.Intn(len(best))]
+	return best[weakrand.IntN(len(best))]
 }
 
 // hostByHashing returns an available host
