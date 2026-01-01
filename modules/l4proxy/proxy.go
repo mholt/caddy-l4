@@ -30,7 +30,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mastercactapus/proxyprotocol"
+	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
@@ -248,35 +248,23 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		// Send the PROXY protocol header.
 		if err == nil {
 			downConn := l4proxyprotocol.GetConn(down)
-			var header io.WriterTo
-			switch h.proxyProtocolVersion {
-			case 1:
-				var h proxyprotocol.HeaderV1
-				h.FromConn(downConn, false)
-				header = h
-			case 2:
-				var h proxyprotocol.HeaderV2
-				h.FromConn(downConn, false)
-				header = h
-			}
+			header := proxyproto.HeaderProxyFromAddrs(h.proxyProtocolVersion, downConn.RemoteAddr(), downConn.LocalAddr())
 
 			// Only write the PROXY protocol header if it's not nil
 			if header != nil {
+				header.Command = proxyproto.PROXY
 				// for packet connection, prepend each message with pp
 				// unix connections always implement this interface while not necessarily in datagram mode
 				// ignore it unless the unix socket is in datagram mode
 				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(p.address.Network) || p.address.Network == "unixgram") {
 					// only v2 supports UDP addresses
-					if v2, ok := header.(proxyprotocol.HeaderV2); ok {
-						la, _ := v2.Dest.(*net.UDPAddr)
-						ra, _ := v2.Src.(*net.UDPAddr)
+					if header.Version == 2 {
+						la, _ := header.DestinationAddr.(*net.UDPAddr)
+						ra, _ := header.SourceAddr.(*net.UDPAddr)
 						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
 						if la != nil && ra != nil && la.IP.IsUnspecified() {
 							// TODO: extract real local address using golang.org/x/net
-							la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
-							v2.Dest = la
-							// header is not updated automatically, a value not a pointer
-							header = v2
+							header.DestinationAddr = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
 						}
 					}
 					up = &packetProxyProtocolConn{

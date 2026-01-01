@@ -15,15 +15,15 @@
 package l4proxyprotocol
 
 import (
-	"fmt"
+	"errors"
 	"net"
-	"sort"
+	"net/netip"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/mastercactapus/proxyprotocol"
+	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
@@ -41,8 +41,46 @@ type Handler struct {
 
 	// An optional list of CIDR ranges to allow/require PROXY headers from.
 	Allow []string `json:"allow,omitempty"`
+	allow []netip.Prefix
 
-	rules  []proxyprotocol.Rule
+	// Deny is an optional list of CIDR ranges to
+	// deny PROXY headers from.
+	Deny []string `json:"deny,omitempty"`
+	deny []netip.Prefix
+
+	// FallbackPolicy specifies the policy to use if the downstream
+	// IP address is not in the Allow list nor is in the Deny list.
+	//
+	// NOTE: The generated docs which describe the value of this
+	// field is wrong because of how this type unmarshals JSON in a
+	// custom way. The field expects a string, not a number.
+	//
+	// Accepted values are: IGNORE, USE, REJECT, REQUIRE, SKIP
+	//
+	// - IGNORE: address from PROXY header, but accept connection
+	//
+	// - USE: address from PROXY header
+	//
+	// - REJECT: connection when PROXY header is sent
+	//   Note: even though the first read on the connection returns an error if
+	//   a PROXY header is present, subsequent reads do not. It is the task of
+	//   the code using the connection to handle that case properly.
+	//
+	// - REQUIRE: connection to send PROXY header, reject if not present
+	//   Note: even though the first read on the connection returns an error if
+	//   a PROXY header is not present, subsequent reads do not. It is the task
+	//   of the code using the connection to handle that case properly.
+	//
+	// - SKIP: accepts a connection without requiring the PROXY header.
+	//   Note: an example usage can be found in the SkipProxyHeaderForCIDR
+	//   function.
+	//
+	// Default: IGNORE
+	//
+	// Policy definitions are here: https://pkg.go.dev/github.com/pires/go-proxyproto#Policy
+	FallbackPolicy Policy `json:"fallback_policy,omitempty"`
+
+	policy proxyproto.PolicyFunc
 	logger *zap.Logger
 }
 
@@ -59,89 +97,78 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 	repl := caddy.NewReplacer()
 	for _, allowCIDR := range h.Allow {
 		allowCIDR = repl.ReplaceAll(allowCIDR, "")
-		_, n, err := net.ParseCIDR(allowCIDR)
+		ipnet, err := netip.ParsePrefix(allowCIDR)
 		if err != nil {
-			return fmt.Errorf("invalid subnet '%s': %w", allowCIDR, err)
+			return err
 		}
-		h.rules = append(h.rules, proxyprotocol.Rule{Timeout: time.Duration(h.Timeout), Subnet: n})
+		h.allow = append(h.allow, ipnet)
 	}
-	h.tidyRules()
+	for _, cidr := range h.Deny {
+		cidr = repl.ReplaceAll(cidr, "")
+		ipnet, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return err
+		}
+		h.deny = append(h.deny, ipnet)
+	}
+
+	h.policy = proxyproto.PolicyFunc(func(upstream net.Addr) (proxyproto.Policy, error) {
+		// trust in-memory pipes
+		if upstream.Network() == "pipe" {
+			return proxyproto.REQUIRE, nil
+		}
+		// trust unix sockets
+		if network := upstream.Network(); caddy.IsUnixNetwork(network) || caddy.IsFdNetwork(network) {
+			return proxyproto.USE, nil
+		}
+		ret := h.FallbackPolicy
+		host, _, err := net.SplitHostPort(upstream.String())
+		if err != nil {
+			return proxyproto.REJECT, err
+		}
+
+		ip, err := netip.ParseAddr(host)
+		if err != nil {
+			return proxyproto.REJECT, err
+		}
+		for _, ipnet := range h.deny {
+			if ipnet.Contains(ip) {
+				return proxyproto.REJECT, nil
+			}
+		}
+		for _, ipnet := range h.allow {
+			if ipnet.Contains(ip) {
+				ret = PolicyUSE
+				break
+			}
+		}
+		return policyToGoProxyPolicy[ret], nil
+	})
 
 	h.logger = ctx.Logger(h)
 	return nil
 }
 
-// tidyRules removes duplicate subnet rules, and use the lowest non-zero timeout.
-//
-// This is basically a copy of `Listener.SetFilter` from the proxyprotocol package.
-func (h *Handler) tidyRules() {
-	rules := h.rules
-	sort.Slice(rules, func(i, j int) bool {
-		iOnes, iBits := rules[i].Subnet.Mask.Size()
-		jOnes, jBits := rules[j].Subnet.Mask.Size()
-		if iOnes != jOnes {
-			return iOnes > jOnes
-		}
-		if iBits != jBits {
-			return iBits > jBits
-		}
-		if rules[i].Timeout != rules[j].Timeout {
-			if rules[j].Timeout == 0 {
-				return true
-			}
-			return rules[i].Timeout < rules[j].Timeout
-		}
-		return rules[i].Timeout < rules[j].Timeout
-	})
-
-	if len(rules) > 0 {
-		// deduplication
-		last := rules[0]
-		nf := rules[1:1]
-		for _, f := range rules[1:] {
-			if last.Subnet.String() == f.Subnet.String() {
-				continue
-			}
-
-			last = f
-			nf = append(nf, f)
-		}
+// newConn creates a new connection which will handle the PROXY protocol.
+func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
+	// Check policy
+	policy, err := h.policy(cx.RemoteAddr())
+	if err != nil {
+		h.logger.Debug("policy check failed", zap.Error(err))
+		return nil
 	}
-}
-
-// newConn creates a new connection which will handle the PROXY protocol. It
-// will return nil if the remote IP does not match the allowable CIDR ranges.
-//
-// This is basically a copy of `Listener.Accept` from the proxyprotocol package.
-func (h *Handler) newConn(cx *layer4.Connection) *proxyprotocol.Conn {
-	nc := func(t time.Duration) *proxyprotocol.Conn {
-		if t == 0 {
-			return proxyprotocol.NewConn(cx, time.Time{})
-		}
-		return proxyprotocol.NewConn(cx, time.Now().Add(t))
-	}
-
-	if len(h.rules) == 0 {
-		return nc(time.Duration(h.Timeout))
-	}
-
-	var remoteIP net.IP
-	switch r := cx.RemoteAddr().(type) {
-	case *net.TCPAddr:
-		remoteIP = r.IP
-	case *net.UDPAddr:
-		remoteIP = r.IP
-	default:
+	if policy == proxyproto.REJECT {
+		h.logger.Debug("connection rejected by policy")
 		return nil
 	}
 
-	for _, r := range h.rules {
-		if r.Subnet.Contains(remoteIP) {
-			return nc(r.Timeout)
-		}
+	// Create connection with timeout option
+	var opts []func(*proxyproto.Conn)
+	if h.Timeout > 0 {
+		opts = append(opts, proxyproto.SetReadHeaderTimeout(time.Duration(h.Timeout)))
 	}
 
-	return nil
+	return proxyproto.NewConn(cx, opts...)
 }
 
 // Handle handles the connections.
@@ -155,10 +182,25 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 		return next.Handle(cx)
 	}
 
-	if _, err := conn.ProxyHeader(); err != nil {
-		return fmt.Errorf("parsing the PROXY header: %v", err)
+	header := conn.ProxyHeader()
+	if header == nil {
+		// No proxy header was present, but that might be okay depending on policy
+		h.logger.Debug("no PROXY header received")
+
+		// check the policy again for the `REQUIRE` case
+		policy, err := h.policy(cx.RemoteAddr())
+		if err != nil {
+			h.logger.Debug("policy check in handler failed", zap.Error(err))
+			return nil
+		}
+		if policy == proxyproto.REQUIRE {
+			h.logger.Debug("connection rejected in handler by policy")
+			return errors.New("PROXY header required but not received")
+		}
+	} else {
+		h.logger.Debug("received PROXY header")
 	}
-	h.logger.Debug("received the PROXY header",
+	h.logger.Debug("connection established",
 		zap.String("remote", conn.RemoteAddr().String()),
 		zap.String("local", conn.LocalAddr().String()),
 	)
@@ -201,6 +243,27 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 				h.Allow = append(h.Allow, val)
 			}
+		case "deny":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			for d.NextArg() {
+				val := d.Val()
+				if val == "private_ranges" {
+					h.Deny = append(h.Deny, caddyhttp.PrivateRangesCIDR()...)
+					continue
+				}
+				h.Deny = append(h.Deny, val)
+			}
+		case "fallback_policy":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			p, err := parsePolicy(d.Val())
+			if err != nil {
+				return d.WrapErr(err)
+			}
+			h.FallbackPolicy = p
 		case "timeout":
 			if hasTimeout {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
