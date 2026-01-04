@@ -246,7 +246,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			zap.Error(err))
 
 		// Send the PROXY protocol header.
-		if err == nil {
+		if err == nil && h.proxyProtocolVersion > 0 {
 			downConn := l4proxyprotocol.GetConn(down)
 			header := proxyproto.HeaderProxyFromAddrs(h.proxyProtocolVersion, downConn.RemoteAddr(), downConn.LocalAddr())
 
