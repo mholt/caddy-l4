@@ -17,7 +17,7 @@ package l4proxy
 import (
 	"encoding/binary"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"testing"
 )
