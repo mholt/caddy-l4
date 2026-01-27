@@ -31,7 +31,8 @@ Handlers are categorized into different types based on their relationship with n
 
 | Type                  | Handler                                                | Implements                                                                                      |
 |:----------------------|:-------------------------------------------------------|:------------------------------------------------------------------------------------------------|
-| Terminal handlers     | [**echo**](/docs/handlers/echo.md)                     | Echo server, i.e. sends back exactly what it receives                                           |
+| Terminal handlers     | [**close**](/docs/handlers/close.md)                   | Closing action for connection-oriented protocols, e.g. TCP                                      |
+|                       | [**echo**](/docs/handlers/echo.md)                     | Echo server, i.e. sends back exactly what it receives                                           |
 |                       | [**proxy**](/docs/handlers/proxy.md)                   | Layer 4 proxy, capable of multiple upstreams (with load balancing and health checks)            |
 |                       | [**socks5**](/docs/handlers/socks5.md)                 | [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928) server                                        |
 | Intermediary handlers | [**proxy_protocol**](/docs/handlers/proxy_protocol.md) | Receiving [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) |
