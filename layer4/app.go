@@ -71,22 +71,36 @@ func (a *App) Start() error {
 				return err
 			}
 			for _, lnAny := range listeners {
-				var lnAddr string
 				switch ln := lnAny.(type) {
 				case net.Listener:
 					a.listeners = append(a.listeners, ln)
-					lnAddr = caddy.JoinNetworkAddress(ln.Addr().Network(), ln.Addr().String(), "")
 					go func(s *Server, ln net.Listener) {
-						_ = s.serve(ln)
+						s.logger.Debug("started handling listener socket",
+							zap.String("network", ln.Addr().Network()),
+							zap.String("address", ln.Addr().String()),
+						)
+						err := s.serve(ln)
+						s.logger.Debug("stopped handling listener socket",
+							zap.String("network", ln.Addr().Network()),
+							zap.String("address", ln.Addr().String()),
+							zap.Error(err),
+						)
 					}(s, ln)
 				case net.PacketConn:
 					a.packetConns = append(a.packetConns, ln)
-					lnAddr = caddy.JoinNetworkAddress(ln.LocalAddr().Network(), ln.LocalAddr().String(), "")
 					go func(s *Server, pc net.PacketConn) {
-						_ = s.servePacket(pc)
+						s.logger.Debug("started handling packet connection socket",
+							zap.String("network", ln.LocalAddr().Network()),
+							zap.String("address", ln.LocalAddr().String()),
+						)
+						err := s.servePacket(pc)
+						s.logger.Debug("stopped handling packet connection socket",
+							zap.String("network", pc.LocalAddr().Network()),
+							zap.String("address", pc.LocalAddr().String()),
+							zap.Error(err),
+						)
 					}(s, ln)
 				}
-				s.logger.Debug("listening", zap.String("address", lnAddr))
 			}
 		}
 	}
@@ -98,19 +112,21 @@ func (a *App) Stop() error {
 	for _, pc := range a.packetConns {
 		err := pc.Close()
 		if err != nil {
-			a.logger.Error("closing packet listener",
+			a.logger.Error("closing packet connection socket",
 				zap.String("network", pc.LocalAddr().Network()),
 				zap.String("address", pc.LocalAddr().String()),
-				zap.Error(err))
+				zap.Error(err),
+			)
 		}
 	}
 	for _, ln := range a.listeners {
 		err := ln.Close()
 		if err != nil {
-			a.logger.Error("closing listener",
+			a.logger.Error("closing listener socket",
 				zap.String("network", ln.Addr().Network()),
 				zap.String("address", ln.Addr().String()),
-				zap.Error(err))
+				zap.Error(err),
+			)
 		}
 	}
 	return nil
