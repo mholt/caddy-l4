@@ -80,7 +80,7 @@ type Handler struct {
 	// Policy definitions are here: https://pkg.go.dev/github.com/pires/go-proxyproto#Policy
 	FallbackPolicy Policy `json:"fallback_policy,omitempty"`
 
-	policy proxyproto.PolicyFunc
+	policy proxyproto.ConnPolicyFunc
 	logger *zap.Logger
 }
 
@@ -112,17 +112,17 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.deny = append(h.deny, ipnet)
 	}
 
-	h.policy = proxyproto.PolicyFunc(func(upstream net.Addr) (proxyproto.Policy, error) {
+	h.policy = func(connPolicyOptions proxyproto.ConnPolicyOptions) (proxyproto.Policy, error) {
 		// trust in-memory pipes
-		if upstream.Network() == "pipe" {
+		if connPolicyOptions.Upstream.Network() == "pipe" {
 			return proxyproto.REQUIRE, nil
 		}
 		// trust unix sockets
-		if network := upstream.Network(); caddy.IsUnixNetwork(network) || caddy.IsFdNetwork(network) {
+		if network := connPolicyOptions.Upstream.Network(); caddy.IsUnixNetwork(network) || caddy.IsFdNetwork(network) {
 			return proxyproto.USE, nil
 		}
 		ret := h.FallbackPolicy
-		host, _, err := net.SplitHostPort(upstream.String())
+		host, _, err := net.SplitHostPort(connPolicyOptions.Upstream.String())
 		if err != nil {
 			return proxyproto.REJECT, err
 		}
@@ -143,7 +143,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			}
 		}
 		return policyToGoProxyPolicy[ret], nil
-	})
+	}
 
 	h.logger = ctx.Logger(h)
 	return nil
@@ -152,7 +152,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 // newConn creates a new connection which will handle the PROXY protocol.
 func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
 	// Check policy
-	policy, err := h.policy(cx.RemoteAddr())
+	policy, err := h.policy(proxyproto.ConnPolicyOptions{Upstream: cx.RemoteAddr()})
 	if err != nil {
 		h.logger.Debug("policy check failed", zap.Error(err))
 		return nil
@@ -188,7 +188,7 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 		h.logger.Debug("no PROXY header received")
 
 		// check the policy again for the `REQUIRE` case
-		policy, err := h.policy(cx.RemoteAddr())
+		policy, err := h.policy(proxyproto.ConnPolicyOptions{Upstream: cx.RemoteAddr()})
 		if err != nil {
 			h.logger.Debug("policy check in handler failed", zap.Error(err))
 			return nil
