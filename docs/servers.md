@@ -45,8 +45,8 @@ Below is a list of valid [network address](https://caddyserver.com/docs/conventi
 | `tcp/192.168.0.1:1004`             | TCP      | 1004   | 192.168.0.1         |
 | `tcp/[2001:db8::1]:1005`           | TCP      | 1005   | 2001:db8::1         |
 | `udp/:1006`                        | UDP      | 1006   | any IPv4 or IPv6    |
-| `udp6/:1007` or `udp/0.0.0.0:1007` | UDP      | 1007   | any IPv4            |
-| `udp4/:1008` or `udp/[::]:1008`    | UDP      | 1008   | any IPv6            |
+| `udp4/:1007` or `udp/0.0.0.0:1007` | UDP      | 1007   | any IPv4            |
+| `udp6/:1008` or `udp/[::]:1008`    | UDP      | 1008   | any IPv6            |
 | `udp/127.0.0.1:1009`               | UDP      | 1009   | 127.0.0.1           |
 | `udp/[fe80::1%eth0]:1010`          | UDP      | 1010   | fe80::1 on eth0     |
 
