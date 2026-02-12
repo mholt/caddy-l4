@@ -80,7 +80,7 @@ func (a *App) Start() error {
 							zap.String("address", ln.Addr().String()),
 						)
 						err := s.serve(ln)
-						s.logger.Error("stopped handling listener socket",
+						s.logger.Debug("stopped handling listener socket",
 							zap.String("network", ln.Addr().Network()),
 							zap.String("address", ln.Addr().String()),
 							zap.Error(err),
