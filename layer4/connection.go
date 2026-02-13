@@ -212,6 +212,11 @@ func (cx *Connection) prefetch() (err error) {
 	return ErrMatchingBufferFull
 }
 
+// HasMore means there is more data available for reading. Only for packet conns.
+func (cx *Connection) HasMore() bool {
+	return cx.isPacketConn && len(cx.Conn.(*packetConn).readCh) > 0
+}
+
 // freeze activates the matching mode that only reads from cx.buf.
 func (cx *Connection) freeze() {
 	cx.matching = true
