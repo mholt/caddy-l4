@@ -6,8 +6,15 @@ title: Close Handler
 
 ## Summary
 
-The Close handler close connections. Note that it's relevant to connection-oriented protocols (e.g. TCP)
-and irrelevant to connectionless protocols (e.g. UDP).
+The Close handler close connections.
+
+Note that it's primarily relevant to *connection-oriented* protocols, i.e. `net.Conn` implementations (e.g. TCP).
+When it comes to *connectionless* protocols, i.e. `net.PacketConn` implementations (e.g. UDP), the handler closes
+a virtual connection which is created when the first packet is received on the socket from some address:port
+combination. But the sender never knows that the receiver closes this connection. Once this virtual connection
+is closed, and should the same sender (with equal address:port) continue sending traffic to Caddy, a new virtual
+connection will be created, and matching/routing repeats. Thus, the handler may only be relevant to *connectionless*
+protocols, if a user wants to filter particular packets.
 
 ## Syntax
 
