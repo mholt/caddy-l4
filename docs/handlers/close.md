@@ -6,7 +6,7 @@ title: Close Handler
 
 ## Summary
 
-The Close handler close connections.
+The Close handler closes connections.
 
 Note that it's primarily relevant to *connection-oriented* protocols, i.e. `net.Conn` implementations (e.g. TCP).
 When it comes to *connectionless* protocols, i.e. `net.PacketConn` implementations (e.g. UDP), the handler closes
