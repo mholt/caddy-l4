@@ -44,6 +44,8 @@ func init() {
 	caddy.RegisterModule(&MatchQUIC{})
 }
 
+var isTesting bool
+
 // MatchQUIC is able to match QUIC connections. Its structure
 // is different from the auto-generated documentation. This
 // value should be a map of matcher names to their values.
@@ -168,6 +170,10 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
 	done := make(chan struct{})
 	go func() {
+		// during testing the connection is not a packet conn
+		if isTesting {
+			return
+		}
 		_ = cx.WaitForMore(qContext)
 		qCancel()
 		close(done)
