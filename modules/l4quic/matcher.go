@@ -378,7 +378,6 @@ var (
 
 const (
 	QUICAcceptTimeout = 100 * time.Millisecond
-	QUICNudgeInterval = 10 * time.Millisecond
 
 	QUICCertificateCommonName     = "layer4"
 	QUICCertificateOrganization   = "caddy"
