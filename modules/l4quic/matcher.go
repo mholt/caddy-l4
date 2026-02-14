@@ -172,6 +172,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	go func() {
 		// during testing the connection is not a packet conn
 		if isTesting {
+			close(done)
 			return
 		}
 		_ = cx.WaitForMore(qContext)
