@@ -164,29 +164,20 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Prepare a context with a deadline
 	qContext, qCancel := context.WithDeadline(context.Background(), time.Now().Add(QUICAcceptTimeout))
-	defer qCancel()
 
 	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
+	done := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(QUICNudgeInterval)
-		var done bool
-		for !done {
-			select {
-			case <-ticker.C:
-				if cx.HasMore() {
-					qCancel()
-					done = true
-				}
-			case <-qContext.Done():
-				done = true
-			}
-		}
-		ticker.Stop()
+		_ = cx.WaitForMore(qContext)
+		qCancel()
+		close(done)
 	}()
 
 	// Accept a new quic.EarlyConnection
 	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
+	qCancel()
+	<-done
 	if err != nil {
 		// The only type of error here will be context.DeadlineExceeded and context.Canceled
 		return false, layer4.ErrConsumedAllPrefetchedBytes

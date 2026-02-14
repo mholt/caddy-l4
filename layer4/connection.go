@@ -15,6 +15,7 @@
 package layer4
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -215,6 +216,30 @@ func (cx *Connection) prefetch() (err error) {
 // HasMore means there is more data available for reading. Only for packet conns.
 func (cx *Connection) HasMore() bool {
 	return cx.isPacketConn && len(cx.Conn.(*packetConn).readCh) > 0
+}
+
+// WaitForMore returns when context is done, or if new data is available for reading. Only for packet conns.
+// Shouldn't be called concurrently with Read.
+func (cx *Connection) WaitForMore(ctx context.Context) error {
+	if cx.isPacketConn {
+		pc := cx.Conn.(*packetConn)
+		if pc.lastPacket != nil {
+			return nil
+		}
+		select {
+		case pkt := <-pc.readCh:
+			if pkt == nil {
+				return nil
+			}
+			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
+			pc.lastPacket = pkt
+			pc.lastBuf = buf
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return errors.New("WaitForMore is only for packet conns")
 }
 
 // freeze activates the matching mode that only reads from cx.buf.
