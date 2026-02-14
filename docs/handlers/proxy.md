@@ -262,6 +262,36 @@ filled at random:
 }
 ```
 
+An example config of the Layer 4 app that allows mixing of TLS termination and
+transparent TLS forwarding. `proxy_protocol` and `http_redirect` are optional:
+```caddyfile
+{
+    servers :443 {
+        listener_wrappers {
+            layer4 {
+                @transparent tls sni transparent.example.com
+                route @transparent {
+                    proxy transparent:443 {
+                        proxy_protocol v2
+                    }
+                }
+                http_redirect
+                tls
+            }
+        }
+    }
+}
+
+# For redirects and working ACME
+http://transparent.example.com {
+    reverse_proxy http://transparent
+}
+terminate.example.com {
+    reverse_proxy http://backend
+}
+```
+
+
 ### JSON
 
 JSON equivalent to the caddyfile config provided above:
