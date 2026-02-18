@@ -311,6 +311,9 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// TODO: idle timeout should be configurable per server
+const udpAssociationIdleTimeout = 30 * time.Second
+
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
 }
