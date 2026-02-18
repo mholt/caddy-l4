@@ -5,7 +5,7 @@ go 1.25
 replace github.com/caddyserver/caddy/v2 v2.10.1 => github.com/vnxme/caddy/v2 v2.0.0-20250822175201-1e2ae1b66bee
 
 require (
-	github.com/caddyserver/caddy/v2 v2.10.2
+	github.com/caddyserver/caddy/v2 v2.10.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/miekg/dns v1.1.72
 	github.com/pires/go-proxyproto v0.9.2
