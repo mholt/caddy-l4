@@ -15,6 +15,7 @@
 package layer4
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -40,11 +41,14 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
 	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
+	_, isPacketConn := underlying.(*packetConn)
+
 	return &Connection{
-		Conn:    underlying,
-		Context: ctx,
-		Logger:  logger,
-		buf:     buf,
+		Conn:         underlying,
+		Context:      ctx,
+		Logger:       logger,
+		buf:          buf,
+		isPacketConn: isPacketConn,
 	}
 }
 
@@ -73,6 +77,10 @@ type Connection struct {
 	matching     bool
 
 	bytesRead, bytesWritten uint64
+
+	// record frame boundaries for packet conns
+	isPacketConn bool
+	frameSizes   []int
 }
 
 var (
@@ -100,8 +108,23 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	// with that; we only read from the underlying conn
 	// after the buffer has been "depleted"
 	if len(cx.buf) > 0 && cx.offset < len(cx.buf) {
-		n := copy(p, cx.buf[cx.offset:])
-		cx.offset += n
+		// for packet conns, do not read past frame boundaries
+		// TODO: if a frame is read in several ops, some handlers may not work correctly
+		if cx.isPacketConn {
+			var frameOffset int
+			// find the frame that should be read from
+			for _, size := range cx.frameSizes {
+				if frameOffset <= cx.offset && cx.offset < frameOffset+size {
+					n = copy(p, cx.buf[cx.offset:min(frameOffset+size, len(cx.buf))])
+					cx.offset += n
+					break
+				}
+				frameOffset += size
+			}
+		} else {
+			n = copy(p, cx.buf[cx.offset:])
+			cx.offset += n
+		}
 		if !cx.matching && cx.offset == len(cx.buf) {
 			// if we are not in matching mode reset buf automatically after it was consumed
 			cx.offset = 0
@@ -110,6 +133,8 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 		return n, nil
 	}
 
+	// reset the frame sizes for packet conns, it's safe to do even if not a packet conn
+	cx.frameSizes = cx.frameSizes[:0]
 	// buffer has been "depleted" so read from
 	// underlying connection
 	n, err = cx.Conn.Read(p)
@@ -167,6 +192,14 @@ func (cx *Connection) prefetch() (err error) {
 			return err
 		}
 
+		if cx.isPacketConn {
+			// packet conn doesn't read across boundaries, only record the size if it's done
+			size, done := cx.Conn.(*packetConn).lastFrameStat()
+			if done {
+				cx.frameSizes = append(cx.frameSizes, size)
+			}
+		}
+
 		if cx.Logger.Core().Enabled(zap.DebugLevel) {
 			cx.Logger.Debug("prefetched",
 				zap.String("remote", cx.RemoteAddr().String()),
@@ -178,6 +211,35 @@ func (cx *Connection) prefetch() (err error) {
 	}
 
 	return ErrMatchingBufferFull
+}
+
+// HasMore means there is more data available for reading. Only for packet conns.
+func (cx *Connection) HasMore() bool {
+	return cx.isPacketConn && len(cx.Conn.(*packetConn).readCh) > 0
+}
+
+// WaitForMore returns when context is done, or if new data is available for reading. Only for packet conns.
+// Shouldn't be called concurrently with Read.
+func (cx *Connection) WaitForMore(ctx context.Context) error {
+	if cx.isPacketConn {
+		pc := cx.Conn.(*packetConn)
+		if pc.lastPacket != nil {
+			return nil
+		}
+		select {
+		case pkt := <-pc.readCh:
+			if pkt == nil {
+				return nil
+			}
+			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
+			pc.lastPacket = pkt
+			pc.lastBuf = buf
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return errors.New("WaitForMore is only for packet conns")
 }
 
 // freeze activates the matching mode that only reads from cx.buf.
@@ -240,8 +302,8 @@ const prefetchChunkSize = 2048
 
 // MaxMatchingBytes is the amount of bytes that are at most prefetched during matching.
 // This is probably most relevant for the http matcher since http requests do not have a size limit.
-// 8 KiB should cover most use-cases and is similar to popular webservers.
-const MaxMatchingBytes = 8 * 1024
+// 16 KiB should cover most use-cases and is similar to popular webservers.
+const MaxMatchingBytes = 16 * 1024
 
 var bufPool = sync.Pool{
 	New: func() any {

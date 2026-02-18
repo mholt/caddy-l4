@@ -31,7 +31,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const MatchingTimeoutDefault = 3 * time.Second
+const (
+	idleTimeoutDefault     = 30 * time.Second
+	MatchingTimeoutDefault = 3 * time.Second
+)
 
 // Server represents a Caddy layer4 server.
 type Server struct {
@@ -43,6 +46,9 @@ type Server struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time before packet connection association (by downstream address:port) is removed. Default: 30s.
+	// Note: this field is only relevant for packet connections (e.g., UDP).
+	IdleTimeout caddy.Duration `json:"idle_timeout,omitempty"`
 	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
@@ -54,6 +60,10 @@ type Server struct {
 // Provision sets up the server.
 func (s *Server) Provision(ctx caddy.Context, logger *zap.Logger) error {
 	s.logger = logger
+
+	if s.IdleTimeout <= 0 {
+		s.IdleTimeout = caddy.Duration(idleTimeoutDefault)
+	}
 
 	if s.MatchingTimeout <= 0 {
 		s.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
@@ -160,10 +170,11 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 				// No existing proxy handler is running for this downstream.
 				// Create one now.
 				conn = &packetConn{
-					PacketConn: pc,
-					readCh:     make(chan *packet, 5),
-					addr:       pkt.addr,
-					closeCh:    closeCh,
+					PacketConn:  pc,
+					readCh:      make(chan *packet, 5),
+					addr:        pkt.addr,
+					closeCh:     closeCh,
+					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
 				cnt.Add(1)
@@ -194,14 +205,27 @@ func (s *Server) handle(conn net.Conn) {
 	// used to retrieve the original connection inside handlers
 	cx.Context = context.WithValue(cx.Context, connCtxKey, conn)
 
+	s.logger.Debug("started handling connection",
+		zap.String("network", cx.LocalAddr().Network()),
+		zap.String("local", cx.LocalAddr().String()),
+		zap.String("remote", cx.RemoteAddr().String()),
+	)
+
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
 	if err != nil && !errors.Is(err, errHijacked) {
-		s.logger.Error("handling connection", zap.String("remote", cx.RemoteAddr().String()), zap.Error(err))
+		s.logger.Error("handling connection",
+			zap.String("network", cx.LocalAddr().Network()),
+			zap.String("local", cx.LocalAddr().String()),
+			zap.String("remote", cx.RemoteAddr().String()),
+			zap.Error(err),
+		)
 	}
 
-	s.logger.Debug("connection stats",
+	s.logger.Debug("stopped handling connection; connection stats",
+		zap.String("network", cx.LocalAddr().Network()),
+		zap.String("local", cx.LocalAddr().String()),
 		zap.String("remote", cx.RemoteAddr().String()),
 		zap.Uint64("read", cx.bytesRead),
 		zap.Uint64("written", cx.bytesWritten),
@@ -212,6 +236,7 @@ func (s *Server) handle(conn net.Conn) {
 // UnmarshalCaddyfile sets up the Server from Caddyfile tokens. Syntax:
 //
 //	<address:port> [<address:port>] {
+//		idle_timeout <duration>
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -237,7 +262,7 @@ func (s *Server) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		s.Listen = append(s.Listen, d.Val())
 	}
 
-	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &s.Routes, &s.MatchingTimeout, &s.IdleTimeout); err != nil {
 		return err
 	}
 
@@ -264,12 +289,14 @@ type packetConn struct {
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
-	lastPacket *packet
-	lastBuf    *bytes.Reader
+	lastPacket  *packet
+	lastBuf     *bytes.Reader
+	lastBufSize int
 
 	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
+	idleTimeout   time.Duration
 	idleTimer     *time.Timer
 }
 
@@ -284,9 +311,6 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-// TODO: idle timeout should be configurable per server
-const udpAssociationIdleTimeout = 30 * time.Second
-
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
 }
@@ -300,6 +324,12 @@ func (pc *packetConn) drainBuffer() {
 	for pkt := range pc.readCh {
 		udpBufPool.Put(pkt.pooledBuf)
 	}
+}
+
+// lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
+// should be called for every successful Read().
+func (pc *packetConn) lastFrameStat() (int, bool) {
+	return pc.lastBufSize, pc.lastPacket == nil
 }
 
 func (pc *packetConn) Read(b []byte) (n int, err error) {
@@ -320,9 +350,9 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	}
 	// set or refresh idle timeout
 	if pc.idleTimer == nil {
-		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+		pc.idleTimer = time.NewTimer(pc.idleTimeout)
 	} else {
-		pc.idleTimer.Reset(udpAssociationIdleTimeout)
+		pc.idleTimer.Reset(pc.idleTimeout)
 	}
 	var done bool
 	for !done {
@@ -344,6 +374,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				pc.lastPacket = pkt
 				pc.lastBuf = buf
 			}
+			pc.lastBufSize = pkt.n
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck

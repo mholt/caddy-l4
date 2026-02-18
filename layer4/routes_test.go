@@ -159,6 +159,7 @@ func TestMatchingTimeoutWorksUDP(t *testing.T) {
 	server := new(Server)
 	server.compiledRoute = compiledRoutes
 	server.logger = zap.NewNop()
+	server.IdleTimeout = caddy.Duration(idleTimeoutDefault)
 	go func() {
 		_ = server.servePacket(pc)
 	}()

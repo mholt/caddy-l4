@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -43,6 +44,8 @@ func init() {
 	caddy.RegisterModule(&MatchQUIC{})
 }
 
+var isTesting bool
+
 // MatchQUIC is able to match QUIC connections. Its structure
 // is different from the auto-generated documentation. This
 // value should be a map of matcher names to their values.
@@ -60,6 +63,18 @@ func (m *MatchQUIC) CaddyModule() caddy.ModuleInfo {
 		ID:  "layer4.matchers.quic",
 		New: func() caddy.Module { return new(MatchQUIC) },
 	}
+}
+
+// quicPipeWriter checks the length of the passed in buffer before writing
+type quicPipeWriter struct {
+	io.Writer
+}
+
+func (q quicPipeWriter) Write(p []byte) (int, error) {
+	if len(p) < QUICPacketBytesMin || len(p) > QUICPacketBytesMax {
+		return 0, errors.New("invalid length for quic packet")
+	}
+	return q.Writer.Write(p)
 }
 
 // Match returns true if the connection looks like QUIC.
@@ -138,15 +153,41 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 		return false, nil
 	}
 
+	// Write more buffered bytes into the pipe, the writer here ensures all frames are likely quic frames based on their lengths
+	_, err = io.CopyBuffer(quicPipeWriter{clientFPC}, cx, buf)
+	if err != nil && !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+		return false, err
+	}
+
+	// return if there are more data to be read, usually there will be frames buffered at the start of a connection.
+	if cx.HasMore() {
+		return false, layer4.ErrConsumedAllPrefetchedBytes
+	}
+
 	// Prepare a context with a deadline
 	qContext, qCancel := context.WithDeadline(context.Background(), time.Now().Add(QUICAcceptTimeout))
-	defer qCancel()
+
+	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
+	done := make(chan struct{})
+	go func() {
+		// during testing the connection is not a packet conn
+		if isTesting {
+			close(done)
+			return
+		}
+		_ = cx.WaitForMore(qContext)
+		qCancel()
+		close(done)
+	}()
 
 	// Accept a new quic.EarlyConnection
 	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
+	qCancel()
+	<-done
 	if err != nil {
-		return false, nil
+		// The only type of error here will be context.DeadlineExceeded and context.Canceled
+		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
 	defer func() { _ = qListener.Close() }()
 

@@ -88,11 +88,76 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// get length of the ClientHello message and read it
+	// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
 	length := int(uint16(hdr[3])<<8 | uint16(hdr[4])) // ignoring version in hdr[1:3] - like https://github.com/inetaf/tcpproxy/blob/master/sni.go#L170
 	rawHello := make([]byte, length)
 	_, err = io.ReadFull(cx, rawHello)
 	if err != nil {
 		return false, err
+	}
+
+	// Ensure we have at least 4 bytes handshake header before parsing length.
+	for len(rawHello) < 4 {
+		hdr2 := make([]byte, recordHeaderLen)
+		_, err := io.ReadFull(cx, hdr2)
+		if err != nil {
+			return false, err
+		}
+
+		if hdr2[0] != recordTypeHandshake {
+			break
+		}
+
+		// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
+		length2 := int(uint16(hdr2[3])<<8 | uint16(hdr2[4]))
+		if len(rawHello)+length2 > layer4.MaxMatchingBytes {
+			return false, fmt.Errorf("TLS records too large: %d > %d", len(rawHello)+length2, layer4.MaxMatchingBytes)
+		}
+
+		body2 := make([]byte, length2)
+		_, err = io.ReadFull(cx, body2)
+		if err != nil {
+			return false, err
+		}
+
+		rawHello = append(rawHello, body2...)
+	}
+
+	if len(rawHello) >= 4 && rawHello[0] == 1 {
+		handshakeLen := int(uint32(rawHello[1])<<16 | uint32(rawHello[2])<<8 | uint32(rawHello[3]))
+
+		if handshakeLen > layer4.MaxMatchingBytes {
+			return false, fmt.Errorf("ClientHello too large: %d > %d", handshakeLen, layer4.MaxMatchingBytes)
+		}
+
+		totalNeeded := handshakeLen + 4
+
+		for len(rawHello) < totalNeeded {
+			hdr2 := make([]byte, recordHeaderLen)
+			_, err := io.ReadFull(cx, hdr2)
+			if err != nil {
+				return false, err
+			}
+
+			if hdr2[0] != recordTypeHandshake {
+				break
+			}
+
+			// nolint:gosec // disable G602 // https://github.com/securego/gosec/issues/1406
+			length2 := int(uint16(hdr2[3])<<8 | uint16(hdr2[4]))
+
+			if len(rawHello)+length2 > layer4.MaxMatchingBytes {
+				return false, fmt.Errorf("TLS records too large: %d > %d", len(rawHello)+length2, layer4.MaxMatchingBytes)
+			}
+
+			body2 := make([]byte, length2)
+			_, err = io.ReadFull(cx, body2)
+			if err != nil {
+				return false, err
+			}
+
+			rawHello = append(rawHello, body2...)
+		}
 	}
 
 	// parse the ClientHello
