@@ -16,6 +16,7 @@ package layer4
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -103,6 +104,8 @@ func (s *Server) serve(ln net.Listener) error {
 }
 
 func (s *Server) servePacket(pc net.PacketConn) error {
+	// wait until all goroutines are done before returning
+	var cnt atomic.Uint64
 	// Spawn a goroutine whose only job is to consume packets from the socket
 	// and send to the packets channel.
 	packets := make(chan packet, 10)
@@ -138,12 +141,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 		case addr := <-closeCh:
 			conn, ok := udpConns[addr]
 			if ok {
-				// This will abort any active Read() from another goroutine and return EOF
-				close(conn.readCh)
-				// Drain pending packets to ensure we release buffers back to the pool
-				for pkt := range conn.readCh {
-					udpBufPool.Put(pkt.pooledBuf)
-				}
+				conn.drainBuffer()
 			}
 			// UDP connection is closed (either implicitly through timeout or by
 			// explicit call to Close()).
@@ -151,6 +149,20 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 
 		case pkt := <-packets:
 			if pkt.err != nil {
+				// wait for all connections to finish
+				for _, conn := range udpConns {
+					conn.drainBuffer()
+				}
+				// drain the channel so wg.Done() will be called properly
+				// reason: in this switch case, closeCh won't be read like in the other case, and
+				// connections send to closeCh during Close. If sending is blocked, their Close is stuck
+				for addr := range closeCh {
+					delete(udpConns, addr)
+					// no new connection will be created, safe to close now
+					if cnt.Load() == 0 && len(closeCh) == 0 {
+						close(closeCh)
+					}
+				}
 				return pkt.err
 			}
 			conn, ok := udpConns[pkt.addr.String()]
@@ -165,6 +177,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
+				cnt.Add(1)
 				go func(conn *packetConn) {
 					s.handle(conn)
 					// It might seem cleaner to send to closeCh here rather than
@@ -173,6 +186,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 					// packets coming in from the same downstream.  Should that
 					// happen, we'll just spin up a new handler concurrent to
 					// the old one shutting down.
+					cnt.Add(^uint64(0))
 				}(conn)
 			}
 			conn.readCh <- &pkt
@@ -188,6 +202,8 @@ func (s *Server) handle(conn net.Conn) {
 	defer bufPool.Put(buf)
 
 	cx := WrapConnection(conn, buf, s.logger)
+	// used to retrieve the original connection inside handlers
+	cx.Context = context.WithValue(cx.Context, connCtxKey, conn)
 
 	s.logger.Debug("started handling connection",
 		zap.String("network", cx.LocalAddr().Network()),
@@ -198,7 +214,7 @@ func (s *Server) handle(conn net.Conn) {
 	start := time.Now()
 	err := s.compiledRoute.Handle(cx)
 	duration := time.Since(start)
-	if err != nil {
+	if err != nil && !errors.Is(err, errHijacked) {
 		s.logger.Error("handling connection",
 			zap.String("network", cx.LocalAddr().Network()),
 			zap.String("local", cx.LocalAddr().String()),
@@ -295,8 +311,22 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// TODO: idle timeout should be configurable per server
+const udpAssociationIdleTimeout = 30 * time.Second
+
 func isDeadlineExceeded(t time.Time) bool {
 	return !t.IsZero() && t.Before(time.Now())
+}
+
+// drainBuffer drains any remaining data in the read buffer, and Close will be called automatically.
+// should only be called from the server loop goroutine.
+func (pc *packetConn) drainBuffer() {
+	// This will abort any active Read() from another goroutine and return EOF
+	close(pc.readCh)
+	// Drain pending packets to ensure we release buffers back to the pool
+	for pkt := range pc.readCh {
+		udpBufPool.Put(pkt.pooledBuf)
+	}
 }
 
 // lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
