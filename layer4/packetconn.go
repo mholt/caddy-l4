@@ -21,6 +21,8 @@ type PacketConnWrapper struct {
 	// Routes express composable logic for handling byte streams.
 	Routes RouteList `json:"routes,omitempty"`
 
+	// Maximum time before packet connection association (by downstream address:port) is removed. Default: 30s.
+	IdleTimeout caddy.Duration `json:"idle_timeout,omitempty"`
 	// Maximum time connections have to complete the matching phase (the first terminal handler is matched). Default: 3s.
 	MatchingTimeout caddy.Duration `json:"matching_timeout,omitempty"`
 
@@ -42,6 +44,10 @@ func (*PacketConnWrapper) CaddyModule() caddy.ModuleInfo {
 func (pcw *PacketConnWrapper) Provision(ctx caddy.Context) error {
 	pcw.ctx = ctx
 
+	if pcw.IdleTimeout <= 0 {
+		pcw.IdleTimeout = caddy.Duration(idleTimeoutDefault)
+	}
+
 	if pcw.MatchingTimeout <= 0 {
 		pcw.MatchingTimeout = caddy.Duration(MatchingTimeoutDefault)
 	}
@@ -54,6 +60,7 @@ func (pcw *PacketConnWrapper) Provision(ctx caddy.Context) error {
 	logger := ctx.Logger()
 
 	pcw.server = &Server{
+		IdleTimeout:   pcw.IdleTimeout,
 		logger:        logger,
 		compiledRoute: pcw.Routes.Compile(logger, time.Duration(pcw.MatchingTimeout), packetConnHandler{}),
 	}
@@ -88,6 +95,7 @@ func (pcw *PacketConnWrapper) WrapPacketConn(pc net.PacketConn) net.PacketConn {
 // UnmarshalCaddyfile sets up the PacketConnWrapper from Caddyfile tokens. Syntax:
 //
 //	layer4 {
+//		idle_timeout <duration>
 //		matching_timeout <duration>
 //		@a <matcher> [<matcher_args>]
 //		@b {
@@ -115,7 +123,7 @@ func (pcw *PacketConnWrapper) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		return d.ArgErr()
 	}
 
-	if err := ParseCaddyfileNestedRoutes(d, &pcw.Routes, &pcw.MatchingTimeout, nil); err != nil {
+	if err := ParseCaddyfileNestedRoutes(d, &pcw.Routes, &pcw.MatchingTimeout, &pcw.IdleTimeout); err != nil {
 		return err
 	}
 
@@ -172,15 +180,15 @@ func (packetConnHandler) Handle(conn *Connection) error {
 	// pass the packet to the pipe
 	// reuse the idle timer for idle timeout since Read isn't called anymore
 	if pc.idleTimer == nil {
-		pc.idleTimer = time.NewTimer(udpAssociationIdleTimeout)
+		pc.idleTimer = time.NewTimer(pc.idleTimeout)
 	} else {
-		pc.idleTimer.Reset(udpAssociationIdleTimeout)
+		pc.idleTimer.Reset(pc.idleTimeout)
 	}
 	for {
 		select {
 		case pkt := <-pc.readCh:
 			pcwp.packetPipe <- pkt
-			pc.idleTimer.Reset(udpAssociationIdleTimeout)
+			pc.idleTimer.Reset(pc.idleTimeout)
 		case <-pc.idleTimer.C:
 			return errHijacked
 		}
