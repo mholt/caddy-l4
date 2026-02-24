@@ -144,36 +144,40 @@ func (packetConnHandler) Handle(conn *Connection) error {
 	if !ok {
 		return errNotPacketConn
 	}
-	// get the first buffer to read, Read shouldn't be called on packetConn from now on
-	var firstBuf []byte
+	// first read from buffered data, Read shouldn't be called on packetConn from now on
 	if len(conn.buf) > 0 && conn.offset < len(conn.buf) {
-		switch {
-		// data is fully consumed
-		case pc.lastBuf == nil:
-			firstBuf = conn.buf[conn.offset:]
-		// data is partially consumed
-		case pc.lastBuf != nil && pc.lastBuf.Len() > 0:
+		var frameOffset int
+		// find the frame that should be read from
+		for _, size := range conn.frameSizes {
+			if frameOffset <= conn.offset && conn.offset < frameOffset+size {
+				frame := conn.buf[conn.offset:min(frameOffset+size, len(conn.buf))]
+				n := len(frame)
+				pcwp.packetPipe <- &packet{
+					pooledBuf: frame,
+					n:         n,
+					addr:      pc.addr,
+				}
+				conn.offset += n
+			}
+			frameOffset += size
+		}
+		// incomplete frame
+		if conn.offset < len(conn.buf) {
 			// reuse matching buffer
 			n := copy(conn.buf, conn.buf[conn.offset:])
 			buf := bytes.NewBuffer(conn.buf[:n])
-			_, _ = buf.ReadFrom(pc.lastBuf)
+			_, _ = pc.lastBuf.WriteTo(buf)
 
 			// release last packet buffer
 			udpBufPool.Put(pc.lastPacket.pooledBuf)
 			pc.lastPacket = nil
 			pc.lastBuf = nil
 
-			firstBuf = buf.Bytes()
-		}
-	}
-
-	// first use the buffer if any
-	if len(firstBuf) > 0 {
-		pcwp.packetPipe <- &packet{
-			pooledBuf: firstBuf,
-			n:         len(firstBuf),
-			err:       nil,
-			addr:      pc.addr,
+			pcwp.packetPipe <- &packet{
+				pooledBuf: buf.Bytes(),
+				n:         buf.Len(),
+				addr:      pc.addr,
+			}
 		}
 	}
 
