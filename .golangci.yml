@@ -58,10 +58,6 @@ linters:
     rules:
       - linters:
           - gosec
-        path: modules/l4rdp/matcher.go
-        text: G101 # There are no hardcoded credentials.
-      - linters:
-          - gosec
         path: modules/l4proxy/loadbalancing.go
         text: G404 # The choice of weakrand is deliberate.
       - linters:
