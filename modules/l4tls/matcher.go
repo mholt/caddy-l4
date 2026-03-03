@@ -175,7 +175,7 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 		// not accept our own type; but the advantage of this is that
 		// we can reuse TLS connection matchers from the tls app - but
 		// it would be nice if we found a way to give matchers all
-		// the infoz
+		// the information
 		if !matcher.Match(&chi.ClientHelloInfo) {
 			return false, nil
 		}

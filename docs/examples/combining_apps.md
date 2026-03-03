@@ -6,7 +6,7 @@ title: Combining Apps Example
 
 ## Summary
 
-This example shows hot to combine the HTTP and Layer 4 apps, i.e. use Caddy’s regular HTTP app for serving
+This example shows how to combine the HTTP and Layer 4 apps, i.e. use Caddy’s regular HTTP app for serving
 a static website while also forwarding traffic to certain backends with or without encrypting it.
 
 ## Configuration
