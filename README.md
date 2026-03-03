@@ -66,6 +66,7 @@ See below for some examples to help you get started.
 ## Config examples
 
 The following configuration examples are included in the documentation:
+- [Combining Apps](/docs/examples/combining_apps.md)
 - [DNS-over-TLS](/docs/examples/dns-over-tls.md)
 - [Echo Server](/docs/examples/echo_server.md)
 - [HTTP & HTTPS Mix](/docs/examples/http_and_https_mix.md)
