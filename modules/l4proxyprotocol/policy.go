@@ -12,21 +12,21 @@ type Policy int
 
 // as defined in: https://pkg.go.dev/github.com/pires/go-proxyproto@v0.7.0#Policy
 const (
-	// IGNORE address from PROXY header, but accept connection
+	// PolicyIGNORE ignores address from PROXY header, but accepts connection
 	PolicyIGNORE Policy = iota
-	// USE address from PROXY header
+	// PolicyUSE uses address from PROXY header
 	PolicyUSE
-	// REJECT connection when PROXY header is sent
+	// PolicyREJECT rejects connection when PROXY header is sent
 	// Note: even though the first read on the connection returns an error if
 	// a PROXY header is present, subsequent reads do not. It is the task of
 	// the code using the connection to handle that case properly.
 	PolicyREJECT
-	// REQUIRE connection to send PROXY header, reject if not present
+	// PolicyREQUIRE requires connection to send PROXY header, rejects if not present
 	// Note: even though the first read on the connection returns an error if
 	// a PROXY header is not present, subsequent reads do not. It is the task
 	// of the code using the connection to handle that case properly.
 	PolicyREQUIRE
-	// SKIP accepts a connection without requiring the PROXY header
+	// PolicySKIP accepts a connection without requiring the PROXY header
 	// Note: an example usage can be found in the SkipProxyHeaderForCIDR
 	// function.
 	PolicySKIP
