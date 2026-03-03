@@ -271,7 +271,7 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 	var cert []byte
 	cert, err = x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return fmt.Errorf("generating a x509 ceriticate: %v", err)
+		return fmt.Errorf("generating a x509 certificate: %v", err)
 	}
 
 	// Initialize a new TLS config

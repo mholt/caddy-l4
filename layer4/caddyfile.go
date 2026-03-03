@@ -157,7 +157,7 @@ func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, match
 }
 
 // ParseCaddyfileNestedHandlers parses the Caddyfile tokens for nested handlers,
-// and composes a list of their raw json configurations.
+// and composes a list of their raw JSON configurations.
 func ParseCaddyfileNestedHandlers(d *caddyfile.Dispenser, handlersRaw *[]json.RawMessage) error {
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		handlerName := d.Val()
@@ -227,7 +227,7 @@ func ParseCaddyfileNestedMatcherSet(d *caddyfile.Dispenser) (caddy.ModuleMap, er
 // where raw must be a JSON encoding of a map, and returns the modified raw.
 // In fact, it is a reverse function for caddy.getModuleNameInline.
 func SetModuleNameInline(moduleNameKey, moduleName string, raw json.RawMessage) (json.RawMessage, error) {
-	// temporarily unmarshal json into a map of string to any
+	// temporarily unmarshal JSON into a map of string to any
 	var tmp map[string]any
 	err := json.Unmarshal(raw, &tmp)
 	if err != nil {
@@ -237,7 +237,7 @@ func SetModuleNameInline(moduleNameKey, moduleName string, raw json.RawMessage) 
 	// add an inline key with the module name
 	tmp[moduleNameKey] = moduleName
 
-	// re-marshal the map into json
+	// re-marshal the map into JSON
 	result, err := json.Marshal(tmp)
 	if err != nil {
 		return nil, fmt.Errorf("re-encoding module '%s' configuration: %v", moduleName, err)
