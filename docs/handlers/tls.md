@@ -26,6 +26,60 @@ in Caddyfile.
 The handler itself supports no [placeholders](https://caddyserver.com/docs/conventions#placeholders), but they may be supported at Caddy level for some connection policy
 fields.
 
+When TLS is successfully terminated, the handler registers the following placeholders:
+- `l4.tls.cipher_suite` with the relevant cipher suite name, e.g. `TLS_CHACHA20_POLY1305_SHA256`;
+- `l4.tls.ech` having `true` if an encrypted ClientHello is offered and accepted, otherwise `false`;
+- `l4.tls.proto` with the relevant application protocol negotiated with ALPN, e.g. `h2`;
+- `l4.tls.proto_mutual` always having `true`;
+- `l4.tls.resumed` having `true` if the connection is resumed from a previous session, otherwise `false`;
+- `l4.tls.server_name` with the TLS server name requested by the client, e.g. `example.com`;
+- `l4.tls.version` with the TLS version name, e.g. `tls1.3`.
+
+### Mutual TLS
+
+For a mutual TLS (mTLS) session, the handler also registers the following placeholders:
+- `l4.tls.client.certificate_der_base64` with the base64-encoded value of the client's certificate;
+- `l4.tls.client.certificate_pem` with the PEM-encoded value of the client's certificate;
+- `l4.tls.client.fingerprint` with the SHA256 checksum of the client's certificate;
+- `l4.tls.client.public_key` with the public key of the client's certificate;
+- `l4.tls.client.public_key_sha256` with the SHA256 checksum of the client's public key;
+- `l4.tls.client.issuer` with the issuer DN of the client's certificate;
+- `l4.tls.client.serial` with the serial number of the client's certificate;
+- `l4.tls.client.subject` with the subject DN of the client's certificate;
+
+
+- `l4.tls.client.issuer.common_name` with the client's certificate issuer common name;
+- `l4.tls.client.issuer.serial` with the client's certificate issuer serial number;
+- `l4.tls.client.issuer.organization`* with the client's certificate issuer organization;
+- `l4.tls.client.issuer.organizational_unit`* with the client's certificate issuer organizational unit;
+- `l4.tls.client.issuer.country`* with the client's certificate issuer country;
+- `l4.tls.client.issuer.locality`* with the client's certificate issuer locality;
+- `l4.tls.client.issuer.province`* with the client's certificate issuer province;
+- `l4.tls.client.issuer.street_address`* with the client's certificate issuer street address;
+- `l4.tls.client.issuer.postal_code`* with the client's certificate issuer postal code;
+
+
+- `l4.tls.client.san.dns_names`* with the client's certificate SAN domain names;
+- `l4.tls.client.san.emails`* with the client's certificate SAN email addresses;
+- `l4.tls.client.san.ips`* with the client's certificate SAN IP addresses;
+- `l4.tls.client.san.uris`* with the client's certificate SAN URIs;
+
+
+- `l4.tls.client.subject.common_name` with the client's certificate subject common name;
+- `l4.tls.client.subject.serial` with the client's certificate subject serial number;
+- `l4.tls.client.subject.organization`* with the client's certificate subject organization;
+- `l4.tls.client.subject.organizational_unit`* with the client's certificate subject organizational unit;
+- `l4.tls.client.subject.country`* with the client's certificate subject country;
+- `l4.tls.client.subject.locality`* with the client's certificate subject locality;
+- `l4.tls.client.subject.province`* with the client's certificate subject province;
+- `l4.tls.client.subject.street_address`* with the client's certificate subject street address;
+- `l4.tls.client.subject.postal_code`* with the client's certificate subject postal code;
+
+Similar to how it works in the HTTP app for some TLS-related placeholders in the `http.request.tls` domain,
+if a dot and a numeric index are supplied as a suffix to the placeholder marked above with an asterisk (`*`),
+only one of the items listed in the relevant field is returned instead. E.g. `l4.tls.client.san.dns_names.0` is
+replaced with the first domain name SAN. See also the [relevant Caddy docs](https://caddyserver.com/docs/modules/http#docs).
+
 ### Caddyfile
 
 The handler supports the following syntax:
