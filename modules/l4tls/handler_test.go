@@ -51,34 +51,31 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 	}
 
 	cs := tls.ConnectionState{
-		Version:                    tls.VersionTLS13,
-		HandshakeComplete:          true,
-		ServerName:                 "foo.com",
-		CipherSuite:                tls.TLS_AES_256_GCM_SHA384,
-		PeerCertificates:           []*x509.Certificate{cert},
-		NegotiatedProtocol:         "h2",
-		NegotiatedProtocolIsMutual: true,
+		Version:            tls.VersionTLS13,
+		HandshakeComplete:  true,
+		ServerName:         "foo.com",
+		CipherSuite:        tls.TLS_AES_256_GCM_SHA384,
+		PeerCertificates:   []*x509.Certificate{cert},
+		NegotiatedProtocol: "h2",
 	}
-	addTLSVarsToReplacer(repl, cs)
+	addTLSVarsToReplacer(repl, &cs)
 
 	for i, tc := range []struct {
 		input  string
 		expect string
 	}{
-		// FIXME: These are set during the match phase, but it's unclear how to construct a test that properly
-		// exercises the entire code-path to build these.
-		// {
-		// 	input:  "{l4.tls.cipher_suite}",
-		// 	expect: "TLS_AES_256_GCM_SHA384",
-		// },
-		// {
-		// 	input:  "{l4.tls.server_name}",
-		// 	expect: "foo.com",
-		// },
-		// {
-		// 	input:  "{l4.tls.version}",
-		// 	expect: "tls1.3",
-		// },
+		{
+			input:  "{l4.tls.cipher_suite}",
+			expect: tls.CipherSuiteName(tls.TLS_AES_256_GCM_SHA384),
+		},
+		{
+			input:  "{l4.tls.server_name}",
+			expect: "foo.com",
+		},
+		{
+			input:  "{l4.tls.version}",
+			expect: "tls1.3",
+		},
 		{
 			input:  "{l4.tls.client.fingerprint}",
 			expect: "9f57b7b497cceacc5459b76ac1c3afedbc12b300e728071f55f84168ff0f7702",
@@ -105,7 +102,7 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 		},
 		{
 			input:  "{l4.tls.client.san.dns_names.1}",
-			expect: "<empty>",
+			expect: "",
 		},
 		{
 			input:  "{l4.tls.client.san.ips}",
@@ -121,7 +118,7 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 		},
 		{
 			input:  "{l4.tls.client.not_a_valid_key}",
-			expect: "<empty>",
+			expect: "",
 		},
 		{
 			input:  "{l4.tls.client.subject.common_name}",
@@ -129,7 +126,7 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 		},
 		{
 			input:  "{l4.tls.client.subject.not_a_valid_key}",
-			expect: "<empty>",
+			expect: "",
 		},
 		{
 			input:  "{l4.tls.client.issuer.common_name}",
@@ -137,10 +134,10 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 		},
 		{
 			input:  "{l4.tls.client.issuer.not_a_valid_key}",
-			expect: "<empty>",
+			expect: "",
 		},
 	} {
-		actual := repl.ReplaceAll(tc.input, "<empty>")
+		actual := repl.ReplaceAll(tc.input, "")
 		if actual != tc.expect {
 			t.Errorf("Test %d: Expected placeholder %s to be '%s' but got '%s'",
 				i, tc.input, tc.expect, actual)
