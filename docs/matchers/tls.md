@@ -22,8 +22,8 @@ in the `tls.handshake_match` namespace generally depends on their implementation
 - other modules may not resolve placeholders at all.
 
 When TLS traffic is detected, the matcher registers the following placeholders:
-- `l4.tls.server_name` with the relevant TLS server name, e.g. `example.com`;
-- `l4.tls.version` with the relevant TLS version, e.g. `772` for TLS 1.3.
+- `l4.tls.server_name` with the TLS server name requested by the client, e.g. `example.com`;
+- `l4.tls.version` with the TLS version name, e.g. `tls1.3`.
 
 ### Caddyfile
 
