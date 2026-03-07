@@ -229,13 +229,19 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			up, err = net.Dial(p.address.Network, hostPort)
 		} else {
 			// the prepared config could be nil if user enabled but did not customize TLS,
-			// in which case we adopt the downstream client's TLS ClientHello for ours;
+			// but in any case we adopt the downstream client's TLS ClientHello for ours;
 			// i.e. by default, make the client's TLS config as transparent as possible
 			tlsCfg := upstream.tlsConfig
 			if tlsCfg == nil {
 				tlsCfg = new(tls.Config)
-				if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
-					hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
+				hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			if connStates := l4tls.GetConnectionStates(down); len(connStates) > 0 {
+				nextProto := connStates[0].NegotiatedProtocol
+				if len(nextProto) > 0 {
+					tlsCfg.NextProtos = []string{nextProto}
 				}
 			}
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
