@@ -130,6 +130,9 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 // fails.
 func (h *Handler) doActiveHealthCheck(p *peer) error {
 	addr := p.address
+	if addr == nil {
+		return nil
+	}
 
 	// adjust the port, if configured to be different
 	if h.HealthChecks.Active.Port > 0 {
