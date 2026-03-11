@@ -61,33 +61,45 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 	vars := cx.Context.Value(layer4.VarsCtxKey).(map[string]any)
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 
+	var fromPlaceholder bool
+	var matcherValExpanded, valExpanded, varStr string
+	var varValue any
 	for key, vals := range *m {
-		var varValue any
 		if strings.HasPrefix(key, "{") &&
 			strings.HasSuffix(key, "}") &&
 			strings.Count(key, "{") == 1 {
 			varValue, _ = repl.Get(strings.Trim(key, "{}"))
+			fromPlaceholder = true
 		} else {
 			varValue = vars[key]
 		}
 
+		switch vv := varValue.(type) {
+		case string:
+			varStr = vv
+		case fmt.Stringer:
+			varStr = vv.String()
+		case error:
+			varStr = vv.Error()
+		case nil:
+			varStr = ""
+		default:
+			varStr = fmt.Sprintf("%v", vv)
+		}
+
+		// Only expand placeholders in values from literal variable names
+		// (e.g. map outputs). Values resolved from placeholder keys are
+		// already final and must not be re-expanded, as that would allow
+		// user input like {env.SECRET} to be evaluated.
+		valExpanded = varStr
+		if !fromPlaceholder {
+			valExpanded = repl.ReplaceAll(varStr, "")
+		}
+
 		// see if any of the values given in the matcher match the actual value
 		for _, v := range vals {
-			matcherValExpanded := repl.ReplaceAll(v, "")
-			var varStr string
-			switch vv := varValue.(type) {
-			case string:
-				varStr = vv
-			case fmt.Stringer:
-				varStr = vv.String()
-			case error:
-				varStr = vv.Error()
-			case nil:
-				varStr = ""
-			default:
-				varStr = fmt.Sprintf("%v", vv)
-			}
-			if varStr == matcherValExpanded {
+			matcherValExpanded = repl.ReplaceAll(v, "")
+			if valExpanded == matcherValExpanded {
 				return true, nil
 			}
 		}
@@ -142,9 +154,10 @@ func (*MatchVarsRE) CaddyModule() caddy.ModuleInfo {
 func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 	vars := cx.Context.Value(layer4.VarsCtxKey).(map[string]any)
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	var valExpanded, varStr string
+	var varValue any
+	var fromPlaceholder bool
 	for key, val := range *m {
-		var varValue any
-		var fromPlaceholder bool
 		if strings.HasPrefix(key, "{") &&
 			strings.HasSuffix(key, "}") &&
 			strings.Count(key, "{") == 1 {
@@ -154,7 +167,6 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 			varValue = vars[key]
 		}
 
-		var varStr string
 		switch vv := varValue.(type) {
 		case string:
 			varStr = vv
@@ -172,7 +184,7 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 		// (e.g. map outputs). Values resolved from placeholder keys are
 		// already final and must not be re-expanded, as that would allow
 		// user input like {env.SECRET} to be evaluated.
-		valExpanded := varStr
+		valExpanded = varStr
 		if !fromPlaceholder {
 			valExpanded = repl.ReplaceAll(varStr, "")
 		}
