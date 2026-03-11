@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,13 +44,26 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 
 	_, isPacketConn := underlying.(*packetConn)
 
-	return &Connection{
+	cx := &Connection{
 		Conn:         underlying,
 		Context:      ctx,
 		Logger:       logger,
 		buf:          buf,
 		isPacketConn: isPacketConn,
 	}
+
+	repl.Map(func(key string) (any, bool) {
+		// custom variables
+		if strings.HasPrefix(key, VarsReplPrefix) {
+			// variables can be dynamic, so always return true
+			// even when it may not be set; treat as empty then
+			return cx.GetVar(key[len(VarsReplPrefix):]), true
+		}
+
+		return nil, false
+	})
+
+	return cx
 }
 
 // Connection contains information about the connection as it
