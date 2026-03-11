@@ -113,7 +113,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Replace placeholders in filters
-	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 	userName := repl.ReplaceAll(m.Username, "")
 
 	// Check a plaintext username, if provided

@@ -21,6 +21,8 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
@@ -41,7 +43,7 @@ func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
 	repl := caddy.NewReplacer()
 	if ctx := hello.Context(); ctx != nil {
 		// In some situations the existing context may have no replacer
-		if replAny := ctx.Value(caddy.ReplacerCtxKey); replAny != nil {
+		if replAny := ctx.Value(layer4.ReplacerCtxKey); replAny != nil {
 			repl = replAny.(*caddy.Replacer)
 		}
 	}

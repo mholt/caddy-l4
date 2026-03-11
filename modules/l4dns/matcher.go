@@ -343,7 +343,7 @@ type MatchDNSRule struct {
 }
 
 func (r *MatchDNSRule) Match(cx context.Context, qClass string, qType string, qName string) bool {
-	repl := cx.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 
 	// Validate the question class
 	classFilter := repl.ReplaceAll(r.Class, "")

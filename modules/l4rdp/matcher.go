@@ -63,7 +63,7 @@ func (m *MatchRDP) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection looks like RDP.
 func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	// Replace placeholders in filters
-	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 	cookieHash := repl.ReplaceAll(m.CookieHash, "")
 	cookieHash = cookieHash[:min(RDPCookieHashBytesMax, uint16(len(cookieHash)))] //nolint:gosec // disable G115
 	customInfo := repl.ReplaceAll(m.CustomInfo, "")
