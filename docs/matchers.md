@@ -61,6 +61,8 @@ Matchers are categorized into different types based on their function:
 |                  | [**remote_ip_list**](/docs/matchers/remote_ip_list.md) | Based on *remote* IP (or CIDR range)                                                                                       |
 | Special matchers | [**clock**](/docs/matchers/clock.md)                   | Based on *time of matching*                                                                                                |
 |                  | [**not**](/docs/matchers/not.md)                       | *Not* matched by inner matcher sets                                                                                        |
+|                  | [**vars**](/docs/matchers/vars.md)                     | Based on variables in the context or placeholder values                                                                    |
+|                  | [**vars_regexp**](/docs/matchers/vars_regexp.md)       | Based on variables in the context or placeholder values (uses regular expressions)                                         |
 
 [^1]: Both *starting with* and *looking like* refer to matching bytes of the first incoming packet *only*.
 
