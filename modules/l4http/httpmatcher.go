@@ -123,7 +123,7 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 
 		// also add values to the replacer (TODO: we could probably find a way to use the http app's replacer values)
 		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-		repl.Set("l4.http.host", req.Host)
+		repl.Set(HTTPReplPrefix+"host", req.Host)
 	}
 
 	// we have a valid HTTP request, so we can drill down further if there are
@@ -248,6 +248,8 @@ func (m *MatchHTTP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 	return nil
 }
+
+const HTTPReplPrefix = layer4.AppReplPrefix + "http."
 
 // Interface guards
 var (

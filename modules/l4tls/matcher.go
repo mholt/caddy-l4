@@ -166,8 +166,8 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 
 	// also add values to the replacer
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-	repl.Set("l4.tls.server_name", chi.ServerName)
-	repl.Set("l4.tls.version", caddytls.ProtocolName(chi.Version))
+	repl.Set(TLSReplPrefix+"server_name", chi.ServerName)
+	repl.Set(TLSReplPrefix+"version", caddytls.ProtocolName(chi.Version))
 
 	for _, matcher := range m.matchers {
 		// TODO: even though we have more data than the standard lib's

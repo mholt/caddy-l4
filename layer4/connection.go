@@ -33,9 +33,9 @@ import (
 // Connection value.
 func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
-	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
-	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
-	repl.Set("l4.conn.wrap_time", time.Now().UTC())
+	repl.Set(ConnReplPrefix+"remote_addr", underlying.RemoteAddr())
+	repl.Set(ConnReplPrefix+"local_addr", underlying.LocalAddr())
+	repl.Set(ConnReplPrefix+"wrap_time", time.Now().UTC())
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
@@ -295,6 +295,13 @@ var (
 
 	// listenerCtxKey is the key used to get the listener from a handler
 	listenerCtxKey caddy.CtxKey = "listener"
+)
+
+const (
+	AppReplPrefix    = "l4."
+	ConnReplPrefix   = AppReplPrefix + "conn."
+	RegexpReplPrefix = AppReplPrefix + "regexp."
+	VarsReplPrefix   = AppReplPrefix + "vars."
 )
 
 // the prefetch chunk size is a very large 2kb, in order to completely fetch the ~1.7kb X25519Kyber768Draft00 based TLS ClientHello. https://pq.cloudflareresearch.com/

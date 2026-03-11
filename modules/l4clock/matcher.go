@@ -158,7 +158,7 @@ func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 }
 
 const (
-	timeKey    = "l4.conn.wrap_time"
+	timeKey    = layer4.ConnReplPrefix + "wrap_time"
 	timeLayout = time.TimeOnly
 	timeMax    = "00:00:00"
 	timeMin    = "00:00:00"
