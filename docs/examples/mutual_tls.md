@@ -42,7 +42,19 @@ the two parties in a connection authenticate each other using the TLS protocol.
                         }
                     }
                 }
-                proxy tcp/localhost:80
+                subroute {
+                    # if the client certificate common name is `developer`,
+                    # proxy HTTP/1.1 traffic to dev.local:80
+                    @dev vars {l4.tls.client.subject.common_name} developer
+                    route @dev {
+                        proxy tcp/dev.local:80
+                    }
+                    
+                    # otherwise proxy to localhost:80
+					route {
+						proxy tcp/localhost:80
+					}
+                }
             }
         }
     }
@@ -203,11 +215,43 @@ example.com {
                                     "handler": "tls"
                                 },
                                 {
-                                    "handler": "proxy",
-                                    "upstreams": [
+                                    "handler": "subroute",
+                                    "routes": [
                                         {
-                                            "dial": [
-                                                "tcp/localhost:80"
+                                            "handle": [
+                                                {
+                                                    "handler": "proxy",
+                                                    "upstreams": [
+                                                        {
+                                                            "dial": [
+                                                                "tcp/dev.local:80"
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ],
+                                            "match": [
+                                                {
+                                                    "vars": {
+                                                        "{l4.tls.client.subject.common_name}": [
+                                                            "developer"
+                                                        ]
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "handle": [
+                                                {
+                                                    "handler": "proxy",
+                                                    "upstreams": [
+                                                        {
+                                                            "dial": [
+                                                                "tcp/localhost:80"
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
                                             ]
                                         }
                                     ]
