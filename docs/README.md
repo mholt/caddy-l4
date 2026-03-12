@@ -58,7 +58,7 @@ environment variables referenced as `{env.VAR}`, are supported in both Caddyfile
 described below.
 - Options of *int*, *float*, *big.int*, *duration*, and other numeric types don't support runtime placeholders at all.
 - Options of *string* type containing IPs or CIDRs (e.g. `remote_ip` matcher),
-  regular expressions (e.g. `cookie_hash_regexp` of `rdp` matcher), or
+  regular expressions (e.g. `cookie_hash_regexp` of `rdp` matcher, but not `vars_regexp` patterns), or
   special values (e.g. `commands` and `credentials` of `socks5` handler) support runtime placeholders,
   but they are evaluated **once at provision** due to the existing optimizations. A special case is `dial`
   in `upstream` of `proxy` handler: it is evaluated 2 times: at handler provision for all known placeholders

@@ -123,6 +123,11 @@ func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, match
 			return dd.ArgErr()
 		}
 
+		// set the matcher name (without @) in the dispenser context so
+		// that matcher modules can access it to use it as their name
+		// (e.g. regexp matchers which use the name for capture groups)
+		dd.SetContext(caddyfile.MatcherNameCtxKey, matcherSetName[1:])
+
 		dd.Reset() // reset dispenser after argument/block checks above
 		dd.Next()  // consume wrapper name again
 		matcherSet, err := ParseCaddyfileNestedMatcherSet(dd)

@@ -171,11 +171,11 @@ func addTLSVarsToReplacer(repl *caddy.Replacer, cs *tls.ConnectionState) {
 	}
 
 	repl.Map(func(key string) (any, bool) {
-		if !strings.HasPrefix(key, "l4.tls.") {
+		if !strings.HasPrefix(key, TLSReplPrefix) {
 			return nil, false
 		}
 
-		field := strings.ToLower(key[len("l4.tls."):])
+		field := strings.ToLower(key[len(TLSReplPrefix):])
 
 		if strings.HasPrefix(field, "client.") {
 			cert := getTLSPeerCert(cs)
@@ -427,6 +427,8 @@ func getTLSPeerCert(cs *tls.ConnectionState) *x509.Certificate {
 	}
 	return cs.PeerCertificates[0]
 }
+
+const TLSReplPrefix = layer4.AppReplPrefix + "tls."
 
 // Interface guards
 var (

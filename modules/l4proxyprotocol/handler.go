@@ -206,7 +206,7 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	)
 
 	// Set conn as a custom variable on cx.
-	cx.SetVar("l4.proxy_protocol.conn", conn)
+	cx.SetVar(connReplKey, conn)
 
 	return next.Handle(cx.Wrap(conn))
 }
@@ -292,11 +292,17 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // GetConn gets the connection which holds the information received from the PROXY protocol.
 func GetConn(cx *layer4.Connection) net.Conn {
-	if val := cx.GetVar("l4.proxy_protocol.conn"); val != nil {
+	if val := cx.GetVar(connReplKey); val != nil {
 		return val.(net.Conn)
 	}
 	return cx.Conn
 }
+
+const (
+	ProxyProtocolReplPrefix = layer4.AppReplPrefix + "proxy_protocol."
+
+	connReplKey = ProxyProtocolReplPrefix + "conn"
+)
 
 // Interface guards
 var (
