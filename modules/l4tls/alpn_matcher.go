@@ -15,14 +15,13 @@
 package l4tls
 
 import (
+	"context"
 	"crypto/tls"
 	"slices"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
-
-	"github.com/mholt/caddy-l4/layer4"
 )
 
 func init() {
@@ -40,12 +39,25 @@ func (*MatchALPN) CaddyModule() caddy.ModuleInfo {
 }
 
 func (m *MatchALPN) Match(hello *tls.ClientHelloInfo) bool {
-	repl := caddy.NewReplacer()
-	if ctx := hello.Context(); ctx != nil {
+	ctx := hello.Context()
+	if ctx == nil {
+		// layer4.Connection implements GetContext() to pass its context here,
+		// since hello.Context() returns nil
+		if mayHaveContext, ok := hello.Conn.(interface{ GetContext() context.Context }); ok {
+			ctx = mayHaveContext.GetContext()
+		}
+	}
+
+	var repl *caddy.Replacer
+	if ctx != nil {
 		// In some situations the existing context may have no replacer
-		if replAny := ctx.Value(layer4.ReplacerCtxKey); replAny != nil {
+		if replAny := ctx.Value(caddy.ReplacerCtxKey); replAny != nil {
 			repl = replAny.(*caddy.Replacer)
 		}
+	}
+
+	if repl == nil {
+		repl = caddy.NewReplacer()
 	}
 
 	clientProtocols := hello.SupportedProtos
