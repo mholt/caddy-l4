@@ -15,7 +15,6 @@
 package l4dns
 
 import (
-	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -395,17 +394,21 @@ var (
 	_ caddy.Provisioner = (*MatchDNSRule)(nil)
 )
 
+// Replacer prefixes and keys; names of context variables
+const (
+	dnsMessagesVarName = "dns_messages"
+)
+
 const (
 	dnsHeaderBytes uint16 = 12 // read this many bytes to parse a DNS message header (equals dns.headerSize)
-	dnsMessagesKey        = "dns_messages"
 	dnsSpecialAny         = "*"
 )
 
 func appendMessage(cx *layer4.Connection, msg *dns.Msg) {
 	var messages []*dns.Msg
-	if val := cx.GetVar(dnsMessagesKey); val != nil {
+	if val := cx.GetVar(dnsMessagesVarName); val != nil {
 		messages = val.([]*dns.Msg)
 	}
 	messages = append(messages, msg)
-	cx.SetVar(dnsMessagesKey, messages)
+	cx.SetVar(dnsMessagesVarName, messages)
 }

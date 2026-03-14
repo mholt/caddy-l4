@@ -127,7 +127,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Add a username to the replacer
-	repl.Set(WinboxReplPrefix+"username", msg.GetUsername())
+	repl.Set(winboxUsernameReplKey, msg.GetUsername())
 
 	return true, nil
 }
@@ -395,7 +395,12 @@ var (
 	MessageAuthUsernameRegexp = regexp.MustCompile("^[0-9A-Za-z](?:[-#.0-9@A-Z_a-z]+[0-9A-Za-z])?$")
 )
 
-const WinboxReplPrefix = layer4.AppReplPrefix + "winbox."
+// Replacer prefixes and keys; names of context variables
+const (
+	winboxReplPrefix = layer4.AppReplPrefix + "winbox."
+
+	winboxUsernameReplKey = winboxReplPrefix + "username"
+)
 
 const (
 	MessageAuthBytesMax            = 4 + MessageAuthUsernameBytesMax + 1 + MessageAuthPublicKeyBytesTotal + 1

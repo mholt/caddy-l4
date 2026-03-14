@@ -65,75 +65,75 @@ eqp31wM9il1n+guTNyxJd+FzVAH+hCZE5K+tCgVDdVFUlDEHHbS/wqb2PSIoouLV
 		expect string
 	}{
 		{
-			input:  "{" + TLSReplPrefix + "cipher_suite}",
+			input:  "{" + tlsReplPrefix + "cipher_suite}",
 			expect: tls.CipherSuiteName(tls.TLS_AES_256_GCM_SHA384),
 		},
 		{
-			input:  "{" + TLSReplPrefix + "server_name}",
+			input:  "{" + tlsReplPrefix + "server_name}",
 			expect: "foo.com",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "version}",
+			input:  "{" + tlsReplPrefix + "version}",
 			expect: "tls1.3",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.fingerprint}",
+			input:  "{" + tlsReplPrefix + "client.fingerprint}",
 			expect: "9f57b7b497cceacc5459b76ac1c3afedbc12b300e728071f55f84168ff0f7702",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.issuer}",
+			input:  "{" + tlsReplPrefix + "client.issuer}",
 			expect: "CN=Caddy Test CA",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.serial}",
+			input:  "{" + tlsReplPrefix + "client.serial}",
 			expect: "2",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.subject}",
+			input:  "{" + tlsReplPrefix + "client.subject}",
 			expect: "CN=client.localdomain",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.san.dns_names}",
+			input:  "{" + tlsReplPrefix + "client.san.dns_names}",
 			expect: "[localhost]",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.san.dns_names.0}",
+			input:  "{" + tlsReplPrefix + "client.san.dns_names.0}",
 			expect: "localhost",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.san.dns_names.1}",
+			input:  "{" + tlsReplPrefix + "client.san.dns_names.1}",
 			expect: "",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.san.ips}",
+			input:  "{" + tlsReplPrefix + "client.san.ips}",
 			expect: "[127.0.0.1]",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.san.ips.0}",
+			input:  "{" + tlsReplPrefix + "client.san.ips.0}",
 			expect: "127.0.0.1",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.certificate_pem}",
+			input:  "{" + tlsReplPrefix + "client.certificate_pem}",
 			expect: string(clientCert) + "\n", // returned value comes with a newline appended to it
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.not_a_valid_key}",
+			input:  "{" + tlsReplPrefix + "client.not_a_valid_key}",
 			expect: "",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.subject.common_name}",
+			input:  "{" + tlsReplPrefix + "client.subject.common_name}",
 			expect: "client.localdomain",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.subject.not_a_valid_key}",
+			input:  "{" + tlsReplPrefix + "client.subject.not_a_valid_key}",
 			expect: "",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.issuer.common_name}",
+			input:  "{" + tlsReplPrefix + "client.issuer.common_name}",
 			expect: "Caddy Test CA",
 		},
 		{
-			input:  "{" + TLSReplPrefix + "client.issuer.not_a_valid_key}",
+			input:  "{" + tlsReplPrefix + "client.issuer.not_a_valid_key}",
 			expect: "",
 		},
 	} {

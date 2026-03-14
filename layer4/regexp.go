@@ -58,9 +58,9 @@ func (mre *MatchRegexp) Match(input string, repl *caddy.Replacer) bool {
 	for i, match := range matches {
 		keySuffix := strconv.Itoa(i)
 		if mre.Name != "" {
-			repl.Set(RegexpReplPrefix+mre.Name+"."+keySuffix, match)
+			repl.Set(regexpReplPrefix+mre.Name+"."+keySuffix, match)
 		}
-		repl.Set(RegexpReplPrefix+keySuffix, match)
+		repl.Set(regexpReplPrefix+keySuffix, match)
 	}
 
 	// then by name
@@ -71,9 +71,9 @@ func (mre *MatchRegexp) Match(input string, repl *caddy.Replacer) bool {
 		}
 
 		if mre.Name != "" {
-			repl.Set(RegexpReplPrefix+mre.Name+"."+name, matches[i])
+			repl.Set(regexpReplPrefix+mre.Name+"."+name, matches[i])
 		}
-		repl.Set(RegexpReplPrefix+name, matches[i])
+		repl.Set(regexpReplPrefix+name, matches[i])
 	}
 
 	return true

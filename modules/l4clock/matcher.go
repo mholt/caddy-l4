@@ -60,10 +60,10 @@ func (m *MatchClock) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection wrapping/matching occurs within m's time points.
 func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Replacer()
-	t, known := repl.Get(timeKey)
+	t, known := repl.Get(layer4.ConnWrapTimeReplKey)
 	if !known {
 		t = time.Now().UTC()
-		repl.Set(timeKey, t)
+		repl.Set(layer4.ConnWrapTimeReplKey, t)
 	}
 	secondsNow := timeToSeconds(t.(time.Time).In(m.location))
 	if secondsNow >= m.secondsAfter && secondsNow < m.secondsBefore {
@@ -158,7 +158,6 @@ func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 }
 
 const (
-	timeKey    = layer4.ConnReplPrefix + "wrap_time"
 	timeLayout = time.TimeOnly
 	timeMax    = "00:00:00"
 	timeMin    = "00:00:00"

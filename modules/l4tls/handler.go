@@ -171,11 +171,11 @@ func addTLSVarsToReplacer(repl *caddy.Replacer, cs *tls.ConnectionState) {
 	}
 
 	repl.Map(func(key string) (any, bool) {
-		if !strings.HasPrefix(key, TLSReplPrefix) {
+		if !strings.HasPrefix(key, tlsReplPrefix) {
 			return nil, false
 		}
 
-		field := strings.ToLower(key[len(TLSReplPrefix):])
+		field := strings.ToLower(key[len(tlsReplPrefix):])
 
 		if strings.HasPrefix(field, "client.") {
 			cert := getTLSPeerCert(cs)
@@ -368,17 +368,17 @@ func addTLSVarsToReplacer(repl *caddy.Replacer, cs *tls.ConnectionState) {
 
 func appendClientHello(cx *layer4.Connection, chi ClientHelloInfo) {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	clientHellos = append(clientHellos, chi)
-	cx.SetVar("tls_client_hellos", clientHellos)
+	cx.SetVar(tlsClientHellosVarName, clientHellos)
 }
 
 // GetClientHelloInfos gets ClientHello information for all the terminated TLS connections.
 func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	return clientHellos
@@ -386,17 +386,17 @@ func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 
 func appendConnectionState(cx *layer4.Connection, cs *tls.ConnectionState) {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	connectionStates = append(connectionStates, cs)
-	cx.SetVar("tls_connection_states", connectionStates)
+	cx.SetVar(layer4.TLSConnectionStatesVarName, connectionStates)
 }
 
 // GetConnectionStates gets the tls.ConnectionState for all the terminated TLS connections.
 func GetConnectionStates(cx *layer4.Connection) []*tls.ConnectionState {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	return connectionStates
@@ -428,11 +428,14 @@ func getTLSPeerCert(cs *tls.ConnectionState) *x509.Certificate {
 	return cs.PeerCertificates[0]
 }
 
-const TLSReplPrefix = layer4.AppReplPrefix + "tls."
-
 // Interface guards
 var (
 	_ caddy.Provisioner     = (*Handler)(nil)
 	_ caddyfile.Unmarshaler = (*Handler)(nil)
 	_ layer4.NextHandler    = (*Handler)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	tlsClientHellosVarName = "tls_client_hellos"
 )

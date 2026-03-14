@@ -34,9 +34,9 @@ import (
 // Connection value.
 func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
-	repl.Set(ConnReplPrefix+"remote_addr", underlying.RemoteAddr())
-	repl.Set(ConnReplPrefix+"local_addr", underlying.LocalAddr())
-	repl.Set(ConnReplPrefix+"wrap_time", time.Now().UTC())
+	repl.Set(connRemoteAddrReplKey, underlying.RemoteAddr())
+	repl.Set(connLocalAddrReplKey, underlying.LocalAddr())
+	repl.Set(ConnWrapTimeReplKey, time.Now().UTC())
 
 	vars := make(map[string]any)
 
@@ -58,10 +58,10 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 
 	repl.Map(func(key string) (any, bool) {
 		// custom variables
-		if strings.HasPrefix(key, VarsReplPrefix) {
+		if strings.HasPrefix(key, varsReplPrefix) {
 			// variables can be dynamic, so always return true
 			// even when it may not be set; treat as empty then
-			return cx.GetVar(key[len(VarsReplPrefix):]), true
+			return cx.GetVar(key[len(varsReplPrefix):]), true
 		}
 
 		return nil, false
@@ -318,11 +318,18 @@ var (
 	listenerCtxKey caddy.CtxKey = "listener"
 )
 
+// Replacer prefixes and keys; names of context variables
 const (
 	AppReplPrefix    = "l4."
-	ConnReplPrefix   = AppReplPrefix + "conn."
-	RegexpReplPrefix = AppReplPrefix + "regexp."
-	VarsReplPrefix   = AppReplPrefix + "vars."
+	connReplPrefix   = AppReplPrefix + "conn."
+	regexpReplPrefix = AppReplPrefix + "regexp."
+	varsReplPrefix   = AppReplPrefix + "vars."
+
+	connLocalAddrReplKey  = connReplPrefix + "local_addr"
+	connRemoteAddrReplKey = connReplPrefix + "remote_addr"
+	ConnWrapTimeReplKey   = connReplPrefix + "wrap_time"
+
+	TLSConnectionStatesVarName = "tls_connection_states"
 )
 
 // the prefetch chunk size is a very large 2kb, in order to completely fetch the ~1.7kb X25519Kyber768Draft00 based TLS ClientHello. https://pq.cloudflareresearch.com/

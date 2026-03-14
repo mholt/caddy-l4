@@ -195,9 +195,9 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qState := qConn.ConnectionState()
 
 	// Add values to the replacer
-	repl.Set(QUICReplPrefix+"tls.server_name", qState.TLS.ServerName)
-	repl.Set(QUICReplPrefix+"tls.version", qState.TLS.Version)
-	repl.Set(QUICReplPrefix+"version", qState.Version.String())
+	repl.Set(quicTLSServerNameReplKey, qState.TLS.ServerName)
+	repl.Set(quicTLSVersionReplKey, qState.TLS.Version)
+	repl.Set(quicVersionReplKey, qState.Version.String())
 
 	// Fill a tls.ClientHelloInfo structure
 	chi := &tls.ClientHelloInfo{
@@ -383,7 +383,14 @@ var (
 	_ interface{ SetWriteBuffer(int) error } = (*fakePacketConn)(nil)
 )
 
-const QUICReplPrefix = layer4.AppReplPrefix + "quic."
+// Replacer prefixes and keys; names of context variables
+const (
+	quicReplPrefix = layer4.AppReplPrefix + "quic."
+
+	quicTLSServerNameReplKey = quicReplPrefix + "tls.server_name"
+	quicTLSVersionReplKey    = quicReplPrefix + "tls.version"
+	quicVersionReplKey       = quicReplPrefix + "version"
+)
 
 const (
 	QUICAcceptTimeout = 100 * time.Millisecond

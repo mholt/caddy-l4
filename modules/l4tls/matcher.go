@@ -166,8 +166,8 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 
 	// also add values to the replacer
 	repl := cx.Replacer()
-	repl.Set(TLSReplPrefix+"server_name", chi.ServerName)
-	repl.Set(TLSReplPrefix+"version", caddytls.ProtocolName(chi.Version))
+	repl.Set(tlsServerNameReplKey, chi.ServerName)
+	repl.Set(tlsVersionReplKey, caddytls.ProtocolName(chi.Version))
 
 	for _, matcher := range m.matchers {
 		// TODO: even though we have more data than the standard lib's
@@ -216,6 +216,14 @@ var (
 	_ caddyfile.Unmarshaler = (*MatchTLS)(nil)
 	_ json.Marshaler        = (*MatchTLS)(nil)
 	_ json.Unmarshaler      = (*MatchTLS)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	tlsReplPrefix = layer4.AppReplPrefix + "tls."
+
+	tlsServerNameReplKey = tlsReplPrefix + "server_name"
+	tlsVersionReplKey    = tlsReplPrefix + "version"
 )
 
 // ParseCaddyfileNestedMatcherSet parses the Caddyfile tokens for a nested
