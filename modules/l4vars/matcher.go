@@ -58,8 +58,7 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 		return true, nil
 	}
 
-	vars := cx.Context.Value(layer4.VarsCtxKey).(map[string]any)
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 
 	var fromPlaceholder bool
 	var matcherValExpanded, valExpanded, varStr, v string
@@ -71,7 +70,7 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 			varValue, _ = repl.Get(strings.Trim(key, "{}"))
 			fromPlaceholder = true
 		} else {
-			varValue = vars[key]
+			varValue = cx.GetVar(key)
 			fromPlaceholder = false
 		}
 
@@ -153,8 +152,7 @@ func (*MatchVarsRE) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection satisfies the applicable criteria,
 // i.e. the context variables or placeholders match the given regular expressions.
 func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
-	vars := cx.Context.Value(layer4.VarsCtxKey).(map[string]any)
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	var valExpanded, varStr string
 	var varValue any
 	var fromPlaceholder, match bool
@@ -165,7 +163,7 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 			varValue, _ = repl.Get(strings.Trim(key, "{}"))
 			fromPlaceholder = true
 		} else {
-			varValue = vars[key]
+			varValue = cx.GetVar(key)
 			fromPlaceholder = false
 		}
 

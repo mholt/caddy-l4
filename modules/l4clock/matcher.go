@@ -59,7 +59,7 @@ func (m *MatchClock) CaddyModule() caddy.ModuleInfo {
 
 // Match returns true if the connection wrapping/matching occurs within m's time points.
 func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	t, known := repl.Get(timeKey)
 	if !known {
 		t = time.Now().UTC()

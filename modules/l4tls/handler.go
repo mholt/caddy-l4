@@ -112,7 +112,7 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	appendConnectionState(cx, &connectionState)
 
 	// add values to the replacer
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	addTLSVarsToReplacer(repl, &connectionState)
 
 	// all future reads/writes will now be decrypted/encrypted

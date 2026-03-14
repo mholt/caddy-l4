@@ -165,7 +165,7 @@ func (m *MatchTLS) Match(cx *layer4.Connection) (bool, error) {
 	chi.Conn = cx
 
 	// also add values to the replacer
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	repl.Set(TLSReplPrefix+"server_name", chi.ServerName)
 	repl.Set(TLSReplPrefix+"version", caddytls.ProtocolName(chi.Version))
 

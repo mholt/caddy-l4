@@ -38,8 +38,10 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 	repl.Set(ConnReplPrefix+"local_addr", underlying.LocalAddr())
 	repl.Set(ConnReplPrefix+"wrap_time", time.Now().UTC())
 
+	vars := make(map[string]any)
+
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
+	ctx = context.WithValue(ctx, VarsCtxKey, vars)
 	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
 	_, isPacketConn := underlying.(*packetConn)
@@ -50,6 +52,8 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 		Logger:       logger,
 		buf:          buf,
 		isPacketConn: isPacketConn,
+		repl:         repl,
+		vars:         vars,
 	}
 
 	repl.Map(func(key string) (any, bool) {
@@ -95,6 +99,10 @@ type Connection struct {
 	// record frame boundaries for packet conns
 	isPacketConn bool
 	frameSizes   []int
+
+	// shortcuts for key elements of the context
+	repl *caddy.Replacer
+	vars map[string]any
 }
 
 var (
@@ -177,6 +185,8 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 		matching:     cx.matching,
 		bytesRead:    cx.bytesRead,
 		bytesWritten: cx.bytesWritten,
+		repl:         cx.repl,
+		vars:         cx.vars,
 	}
 }
 
@@ -273,22 +283,19 @@ func (cx *Connection) unfreeze() {
 // the given key. It overwrites any previous value with the
 // same key.
 func (cx *Connection) SetVar(key string, value any) {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
-	if !ok {
-		return
-	}
-	varMap[key] = value
+	cx.vars[key] = value
 }
 
 // GetVar gets a value from the context's variable table with
 // the given key. It returns the value if found, and true if
 // it found a value with that key; false otherwise.
 func (cx *Connection) GetVar(key string) any {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
-	if !ok {
-		return nil
-	}
-	return varMap[key]
+	return cx.vars[key]
+}
+
+// Replacer returns a pointer to the replacer in the connection context
+func (cx *Connection) Replacer() *caddy.Replacer {
+	return cx.repl
 }
 
 // MatchingBytes returns all bytes currently available for matching. This is only intended for reading.

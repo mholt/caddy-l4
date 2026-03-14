@@ -45,14 +45,13 @@ func (*HandleVars) CaddyModule() caddy.ModuleInfo {
 
 // Handle sets custom context variables for the connection.
 func (h *HandleVars) Handle(cx *layer4.Connection, next layer4.Handler) error {
-	vars := cx.Context.Value(layer4.VarsCtxKey).(map[string]any)
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	for k, v := range *h {
 		keyExpanded := repl.ReplaceAll(k, "")
 		if valStr, ok := v.(string); ok {
 			v = repl.ReplaceAll(valStr, "")
 		}
-		vars[keyExpanded] = v
+		cx.SetVar(keyExpanded, v)
 	}
 	return next.Handle(cx)
 }

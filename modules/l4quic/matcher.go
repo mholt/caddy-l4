@@ -117,7 +117,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Use a workaround to match ALPNs. This way quic.EarlyListener.Accept() exits on deadline
 	// if it receives a packet having an ALPN other than those present in tls.Config.NextProtos.
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates, MinVersion: tls.VersionTLS13}
 	for _, matcher := range m.matchers {
 		if alpnMatcher, ok := matcher.(*l4tls.MatchALPN); ok {
