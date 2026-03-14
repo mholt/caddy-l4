@@ -196,7 +196,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Add values to the replacer
 	repl.Set(quicTLSServerNameReplKey, qState.TLS.ServerName)
-	repl.Set(quicTLSVersionReplKey, qState.TLS.Version)
+	repl.Set(quicTLSVersionReplKey, caddytls.ProtocolName(qState.TLS.Version))
 	repl.Set(quicVersionReplKey, qState.Version.String())
 
 	// Fill a tls.ClientHelloInfo structure
