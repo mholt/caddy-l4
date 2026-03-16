@@ -52,9 +52,6 @@ func (chi ClientHelloInfo) FillTLSClientConfig(cfg *tls.Config) {
 	if cfg.NextProtos == nil {
 		cfg.NextProtos = chi.SupportedProtos
 	}
-	if cfg.ServerName == "" {
-		cfg.ServerName = chi.ServerName
-	}
 	if cfg.CipherSuites == nil {
 		cfg.CipherSuites = chi.CipherSuites
 	}
