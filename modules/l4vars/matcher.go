@@ -62,7 +62,7 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 
 	var fromPlaceholder bool
-	var matcherValExpanded, valExpanded, varStr string
+	var matcherValExpanded, valExpanded, varStr, v string
 	var varValue any
 	for key, vals := range *m {
 		if strings.HasPrefix(key, "{") &&
@@ -72,6 +72,7 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 			fromPlaceholder = true
 		} else {
 			varValue = vars[key]
+			fromPlaceholder = false
 		}
 
 		switch vv := varValue.(type) {
@@ -97,7 +98,7 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		// see if any of the values given in the matcher match the actual value
-		for _, v := range vals {
+		for _, v = range vals {
 			matcherValExpanded = repl.ReplaceAll(v, "")
 			if valExpanded == matcherValExpanded {
 				return true, nil
@@ -156,7 +157,7 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
 	var valExpanded, varStr string
 	var varValue any
-	var fromPlaceholder bool
+	var fromPlaceholder, match bool
 	for key, val := range *m {
 		if strings.HasPrefix(key, "{") &&
 			strings.HasSuffix(key, "}") &&
@@ -165,6 +166,7 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 			fromPlaceholder = true
 		} else {
 			varValue = vars[key]
+			fromPlaceholder = false
 		}
 
 		switch vv := varValue.(type) {
@@ -188,7 +190,7 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 		if !fromPlaceholder {
 			valExpanded = repl.ReplaceAll(varStr, "")
 		}
-		if match := val.Match(valExpanded, repl); match {
+		if match = val.Match(valExpanded, repl); match {
 			return match, nil
 		}
 	}
