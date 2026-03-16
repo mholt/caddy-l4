@@ -244,6 +244,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 					tlsCfg.NextProtos = []string{nextProto}
 				}
 			}
+			tlsCfg.ServerName = repl.ReplaceAll(tlsCfg.ServerName, "")
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
