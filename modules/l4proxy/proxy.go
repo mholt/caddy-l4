@@ -228,22 +228,28 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		if upstream.TLS == nil {
 			up, err = net.Dial(p.address.Network, hostPort)
 		} else {
-			// the prepared config could be nil if user enabled but did not customize TLS,
-			// but in any case we adopt the downstream client's TLS ClientHello for ours;
-			// i.e. by default, make the client's TLS config as transparent as possible
+			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
 			if tlsCfg == nil {
 				tlsCfg = new(tls.Config)
 			}
+			// In any case we adopt the downstream client's TLS ClientHello for the upstream;
+			// i.e. by default, make the client's TLS config as transparent as possible,
+			// except for the server name which is automatically set to the upstream hostname
+			// unless the user explicitly configured it to have a different value
 			if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
 				hellos[0].FillTLSClientConfig(tlsCfg)
 			}
+			// If there is a downstream TLS connection and a non-empty negotiated protocol,
+			// the upstream TLS config should have it as the only supported protocol
+			// TODO: Make the upstream application-layer protocol customizable
 			if connStates := l4tls.GetConnectionStates(down); len(connStates) > 0 {
 				nextProto := connStates[0].NegotiatedProtocol
 				if len(nextProto) > 0 {
 					tlsCfg.NextProtos = []string{nextProto}
 				}
 			}
+			// Expand any placeholders in the upstream server name before dialing it
 			tlsCfg.ServerName = repl.ReplaceAll(tlsCfg.ServerName, "")
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
