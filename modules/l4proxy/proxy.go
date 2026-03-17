@@ -249,8 +249,15 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 					tlsCfg.NextProtos = []string{nextProto}
 				}
 			}
-			// Expand any placeholders in the upstream server name before dialing it
-			tlsCfg.ServerName = repl.ReplaceAll(tlsCfg.ServerName, "")
+			// Expand any placeholders in the upstream server name before dialing it;
+			// since the same upstream TLS config is reused for subsequent connections,
+			// we have to clone it if any placeholders in ServerName are expanded
+			valServerName := repl.ReplaceAll(tlsCfg.ServerName, "")
+			if valServerName != tlsCfg.ServerName {
+				newTLSCfg := tlsCfg.Clone()
+				newTLSCfg.ServerName = valServerName
+				tlsCfg = newTLSCfg
+			}
 			up, err = tls.Dial(p.address.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
