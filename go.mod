@@ -8,11 +8,11 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/pires/go-proxyproto v0.11.0
 	github.com/quic-go/quic-go v0.59.0
-	github.com/things-go/go-socks5 v0.1.0
+	github.com/things-go/go-socks5 v0.1.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
-	golang.org/x/time v0.14.0
+	golang.org/x/time v0.15.0
 )
 
 require (
