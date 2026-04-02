@@ -17,7 +17,7 @@ which has the mandatory `pattern` field containing a regular expression and the 
 
 If the key is surrounded by `{ }`, it is assumed to be a placeholder. Otherwise, it will be considered a variable name.
 
-[Placeholders](https://caddyserver.com/docs/conventions#placeholders) in the keys are not expanded, but placeholders in the values of variables are resolved at match.
+[Placeholders](https://caddyserver.com/docs/conventions#placeholders) in the keys and values of variables and other placeholders are not expanded.
 There is no secure way to resolve placeholders in the regular expressions either at provision, or at match.
 
 Upon a match, it adds placeholders to the connection: `{l4.regexp.name.capture_group}` where `name` is

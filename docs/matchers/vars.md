@@ -17,8 +17,8 @@ the variable can be in order to match (logical OR'ed).
 
 If the key is surrounded by `{ }`, it is assumed to be a placeholder. Otherwise, it will be considered a variable name.
 
-[Placeholders](https://caddyserver.com/docs/conventions#placeholders) in the keys are not expanded,
-but placeholders in both the values of variables and the possible values are resolved at match.
+[Placeholders](https://caddyserver.com/docs/conventions#placeholders) in the keys and values of variables and other placeholders are not expanded,
+but placeholders in the possible values are resolved at match.
 
 ### Caddyfile
 

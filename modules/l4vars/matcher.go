@@ -60,18 +60,15 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 
 	repl := cx.Replacer()
 
-	var fromPlaceholder bool
-	var matcherValExpanded, valExpanded, varStr, v string
+	var matcherValExpanded, varStr, v string
 	var varValue any
 	for key, vals := range *m {
 		if strings.HasPrefix(key, "{") &&
 			strings.HasSuffix(key, "}") &&
 			strings.Count(key, "{") == 1 {
 			varValue, _ = repl.Get(strings.Trim(key, "{}"))
-			fromPlaceholder = true
 		} else {
 			varValue = cx.GetVar(key)
-			fromPlaceholder = false
 		}
 
 		switch vv := varValue.(type) {
@@ -87,19 +84,15 @@ func (m *MatchVars) Match(cx *layer4.Connection) (bool, error) {
 			varStr = fmt.Sprintf("%v", vv)
 		}
 
-		// Only expand placeholders in values from literal variable names
-		// (e.g. map outputs). Values resolved from placeholder keys are
+		// Don't expand placeholders in values from literal variable names
+		// (e.g. map outputs) or other placeholders. These values are
 		// already final and must not be re-expanded, as that would allow
 		// user input like {env.SECRET} to be evaluated.
-		valExpanded = varStr
-		if !fromPlaceholder {
-			valExpanded = repl.ReplaceAll(varStr, "")
-		}
 
 		// see if any of the values given in the matcher match the actual value
 		for _, v = range vals {
 			matcherValExpanded = repl.ReplaceAll(v, "")
-			if valExpanded == matcherValExpanded {
+			if varStr == matcherValExpanded {
 				return true, nil
 			}
 		}
@@ -153,18 +146,16 @@ func (*MatchVarsRE) CaddyModule() caddy.ModuleInfo {
 // i.e. the context variables or placeholders match the given regular expressions.
 func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Replacer()
-	var valExpanded, varStr string
+	var match bool
+	var varStr string
 	var varValue any
-	var fromPlaceholder, match bool
 	for key, val := range *m {
 		if strings.HasPrefix(key, "{") &&
 			strings.HasSuffix(key, "}") &&
 			strings.Count(key, "{") == 1 {
 			varValue, _ = repl.Get(strings.Trim(key, "{}"))
-			fromPlaceholder = true
 		} else {
 			varValue = cx.GetVar(key)
-			fromPlaceholder = false
 		}
 
 		switch vv := varValue.(type) {
@@ -180,15 +171,12 @@ func (m *MatchVarsRE) Match(cx *layer4.Connection) (bool, error) {
 			varStr = fmt.Sprintf("%v", vv)
 		}
 
-		// Only expand placeholders in values from literal variable names
-		// (e.g. map outputs). Values resolved from placeholder keys are
+		// Don't expand placeholders in values from literal variable names
+		// (e.g. map outputs) or other placeholders. These values are
 		// already final and must not be re-expanded, as that would allow
 		// user input like {env.SECRET} to be evaluated.
-		valExpanded = varStr
-		if !fromPlaceholder {
-			valExpanded = repl.ReplaceAll(varStr, "")
-		}
-		if match = val.Match(valExpanded, repl); match {
+
+		if match = val.Match(varStr, repl); match {
 			return match, nil
 		}
 	}
