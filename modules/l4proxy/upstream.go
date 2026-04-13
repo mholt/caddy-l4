@@ -134,7 +134,7 @@ func (u *Upstream) healthy() bool {
 	}
 	if u.healthCheckPolicy != nil && u.healthCheckPolicy.MaxFails > 0 {
 		for _, p := range u.peers {
-			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
+			if p.fails.Load() >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
 				return false
 			}
 		}
@@ -364,26 +364,26 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // (even if there is more than 1 instance of a config,
 // that does not duplicate the actual backend).
 type peer struct {
-	numConns  int32
-	unhealthy int32
-	fails     int32
+	numConns  atomic.Int32
+	unhealthy atomic.Int32
+	fails     atomic.Int32
 	address   caddy.NetworkAddress
 }
 
 // getNumConns returns the number of active connections with the peer.
 func (p *peer) getNumConns() int {
-	return int(atomic.LoadInt32(&p.numConns))
+	return int(p.numConns.Load())
 }
 
 // healthy returns true if the peer is not unhealthy.
 func (p *peer) healthy() bool {
-	return atomic.LoadInt32(&p.unhealthy) == 0
+	return p.unhealthy.Load() == 0
 }
 
 // countConn mutates the active connection count by
 // delta. It returns an error if the adjustment fails.
 func (p *peer) countConn(delta int32) error {
-	result := atomic.AddInt32(&p.numConns, delta)
+	result := p.numConns.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -393,7 +393,7 @@ func (p *peer) countConn(delta int32) error {
 // countFail mutates the recent failures count by
 // delta. It returns an error if the adjustment fails.
 func (p *peer) countFail(delta int32) error {
-	result := atomic.AddInt32(&p.fails, delta)
+	result := p.fails.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -407,7 +407,7 @@ func (p *peer) setHealthy(healthy bool) (bool, error) {
 	if healthy {
 		unhealthy, compare = 0, 1
 	}
-	swapped := atomic.CompareAndSwapInt32(&p.unhealthy, compare, unhealthy)
+	swapped := p.unhealthy.CompareAndSwap(compare, unhealthy)
 	return swapped, nil
 }
 
