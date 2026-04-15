@@ -782,7 +782,7 @@ const (
 		2 + // 2 bytes for CR LF
 		0
 	RDPTokenOptionalCookieBytesStart uint16 = 0
-	RDPTokenOptionalCookiePrefix            = "Cookie: msts=" // nolint:gosec // disable G101
+	RDPTokenOptionalCookiePrefix            = "Cookie: msts=" //nolint:gosec // disable G101
 	RDPTokenOptionalCookieReserved          = "0000"
 	RDPTokenOptionalCookieSeparator  uint8  = 0x2E
 
