@@ -144,7 +144,7 @@ type MatchOpenVPN struct {
 	// may be present in OpenVPN client config files inside `<tls-crypt-v2/>` block or generated with `openvpn
 	// --tls-crypt-v2 [server.key] --genkey tls-crypt-v2-client` command. No comments (starting with '#' or '-')
 	// are allowed.
-	ClientKeys []string `json:"client_keys,omitempty"` // nolint:gosec // disable G117
+	ClientKeys []string `json:"client_keys,omitempty"` //nolint:gosec // disable G117
 	// ClientKeyFiles is a list of paths to files containing 2048-bit client key which may be present in OpenVPN
 	// config files after `tls-crypt-v2` directive. These are the same keys as those ClientKeys introduce, but
 	// these fields are complementary. If both are set, a joint list of client keys is created. Any comments in
