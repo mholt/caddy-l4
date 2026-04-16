@@ -23,8 +23,8 @@ in the `tls.handshake_match` namespace generally depends on their implementation
 
 When QUIC traffic is detected, the matcher registers the following placeholders:
 - `l4.quic.tls.server_name` with the relevant TLS server name, e.g. `example.com`;
-- `l4.quic.tls.version` with the relevant TLS version, e.g. `772` for TLS 1.3;
-- `l4.quic.version` with the relevant QUIC version, e.g. `draft-29`, `v1`, `v2`. 
+- `l4.quic.tls.version` with the relevant TLS version, e.g. `tls1.3` for TLS 1.3;
+- `l4.quic.version` with the relevant QUIC version, e.g. `draft-29`, `v1`, `v2`.
 
 ### Caddyfile
 

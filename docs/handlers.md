@@ -38,6 +38,7 @@ Handlers are categorized into different types based on their relationship with n
 | Intermediary handlers | [**proxy_protocol**](/docs/handlers/proxy_protocol.md) | Receiving [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) |
 |                       | [**tls**](/docs/handlers/tls.md)                       | TLS termination                                                                                 |
 |                       | [**throttle**](/docs/handlers/throttle.md)             | Connection throttling to simulate slowness and latency                                          |
+|                       | [**vars**](/docs/handlers/vars.md)                     | Adding custom variables to the connection context                                               |
 | Special handlers      | [**subroute**](/docs/handlers/subroute.md)             | Recursion logic, i.e. allows to match and handle already matched connections                    |
 |                       | [**tee**](/docs/handlers/tee.md)                       | Branching logic, i.e. allows to handle connections with concurrent handler chains               |
 

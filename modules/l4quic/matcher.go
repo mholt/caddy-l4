@@ -117,7 +117,7 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Use a workaround to match ALPNs. This way quic.EarlyListener.Accept() exits on deadline
 	// if it receives a packet having an ALPN other than those present in tls.Config.NextProtos.
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates, MinVersion: tls.VersionTLS13}
 	for _, matcher := range m.matchers {
 		if alpnMatcher, ok := matcher.(*l4tls.MatchALPN); ok {
@@ -195,9 +195,9 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qState := qConn.ConnectionState()
 
 	// Add values to the replacer
-	repl.Set("l4.quic.tls.server_name", qState.TLS.ServerName)
-	repl.Set("l4.quic.tls.version", qState.TLS.Version)
-	repl.Set("l4.quic.version", qState.Version.String())
+	repl.Set(quicTLSServerNameReplKey, qState.TLS.ServerName)
+	repl.Set(quicTLSVersionReplKey, caddytls.ProtocolName(qState.TLS.Version))
+	repl.Set(quicVersionReplKey, qState.Version.String())
 
 	// Fill a tls.ClientHelloInfo structure
 	chi := &tls.ClientHelloInfo{
@@ -381,6 +381,15 @@ var (
 	_ net.PacketConn                         = (*fakePacketConn)(nil)
 	_ interface{ SetReadBuffer(int) error }  = (*fakePacketConn)(nil)
 	_ interface{ SetWriteBuffer(int) error } = (*fakePacketConn)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	quicReplPrefix = layer4.AppReplPrefix + "quic."
+
+	quicTLSServerNameReplKey = quicReplPrefix + "tls.server_name"
+	quicTLSVersionReplKey    = quicReplPrefix + "tls.version"
+	quicVersionReplKey       = quicReplPrefix + "version"
 )
 
 const (

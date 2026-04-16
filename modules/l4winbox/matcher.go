@@ -113,7 +113,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Replace placeholders in filters
-	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	userName := repl.ReplaceAll(m.Username, "")
 
 	// Check a plaintext username, if provided
@@ -127,7 +127,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Add a username to the replacer
-	repl.Set("l4.winbox.username", msg.GetUsername())
+	repl.Set(winboxUsernameReplKey, msg.GetUsername())
 
 	return true, nil
 }
@@ -393,6 +393,13 @@ var (
 	ErrNotEnoughSourceBytes = errors.New("not enough source bytes")
 
 	MessageAuthUsernameRegexp = regexp.MustCompile("^[0-9A-Za-z](?:[-#.0-9@A-Z_a-z]+[0-9A-Za-z])?$")
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	winboxReplPrefix = layer4.AppReplPrefix + "winbox."
+
+	winboxUsernameReplKey = winboxReplPrefix + "username"
 )
 
 const (

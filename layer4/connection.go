@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,23 +34,40 @@ import (
 // Connection value.
 func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
-	repl.Set("l4.conn.remote_addr", underlying.RemoteAddr())
-	repl.Set("l4.conn.local_addr", underlying.LocalAddr())
-	repl.Set("l4.conn.wrap_time", time.Now().UTC())
+	repl.Set(connRemoteAddrReplKey, underlying.RemoteAddr())
+	repl.Set(connLocalAddrReplKey, underlying.LocalAddr())
+	repl.Set(ConnWrapTimeReplKey, time.Now().UTC())
+
+	vars := make(map[string]any)
 
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, VarsCtxKey, make(map[string]any))
+	ctx = context.WithValue(ctx, VarsCtxKey, vars)
 	ctx = context.WithValue(ctx, ReplacerCtxKey, repl)
 
 	_, isPacketConn := underlying.(*packetConn)
 
-	return &Connection{
+	cx := &Connection{
 		Conn:         underlying,
 		Context:      ctx,
 		Logger:       logger,
 		buf:          buf,
 		isPacketConn: isPacketConn,
+		repl:         repl,
+		vars:         vars,
 	}
+
+	repl.Map(func(key string) (any, bool) {
+		// custom variables
+		if strings.HasPrefix(key, varsReplPrefix) {
+			// variables can be dynamic, so always return true
+			// even when it may not be set; treat as empty then
+			return cx.GetVar(key[len(varsReplPrefix):]), true
+		}
+
+		return nil, false
+	})
+
+	return cx
 }
 
 // Connection contains information about the connection as it
@@ -81,6 +99,10 @@ type Connection struct {
 	// record frame boundaries for packet conns
 	isPacketConn bool
 	frameSizes   []int
+
+	// shortcuts for key elements of the context
+	repl *caddy.Replacer
+	vars map[string]any
 }
 
 var (
@@ -163,6 +185,8 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 		matching:     cx.matching,
 		bytesRead:    cx.bytesRead,
 		bytesWritten: cx.bytesWritten,
+		repl:         cx.repl,
+		vars:         cx.vars,
 	}
 }
 
@@ -259,22 +283,19 @@ func (cx *Connection) unfreeze() {
 // the given key. It overwrites any previous value with the
 // same key.
 func (cx *Connection) SetVar(key string, value any) {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
-	if !ok {
-		return
-	}
-	varMap[key] = value
+	cx.vars[key] = value
 }
 
 // GetVar gets a value from the context's variable table with
 // the given key. It returns the value if found, and true if
 // it found a value with that key; false otherwise.
 func (cx *Connection) GetVar(key string) any {
-	varMap, ok := cx.Context.Value(VarsCtxKey).(map[string]any)
-	if !ok {
-		return nil
-	}
-	return varMap[key]
+	return cx.vars[key]
+}
+
+// Replacer returns a pointer to the replacer in the connection context
+func (cx *Connection) Replacer() *caddy.Replacer {
+	return cx.repl
 }
 
 // MatchingBytes returns all bytes currently available for matching. This is only intended for reading.
@@ -295,6 +316,20 @@ var (
 
 	// listenerCtxKey is the key used to get the listener from a handler
 	listenerCtxKey caddy.CtxKey = "listener"
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	AppReplPrefix    = "l4."
+	connReplPrefix   = AppReplPrefix + "conn."
+	regexpReplPrefix = AppReplPrefix + "regexp."
+	varsReplPrefix   = AppReplPrefix + "vars."
+
+	connLocalAddrReplKey  = connReplPrefix + "local_addr"
+	connRemoteAddrReplKey = connReplPrefix + "remote_addr"
+	ConnWrapTimeReplKey   = connReplPrefix + "wrap_time"
+
+	TLSConnectionStatesVarName = "tls_connection_states"
 )
 
 // the prefetch chunk size is a very large 2kb, in order to completely fetch the ~1.7kb X25519Kyber768Draft00 based TLS ClientHello. https://pq.cloudflareresearch.com/

@@ -79,7 +79,7 @@ func (m *MatchHTTP) Provision(ctx caddy.Context) error {
 // Match returns true if the conn starts with an HTTP request.
 func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	// TODO: do we need a more standardized way to amortize matchers? or at least to remember decoded results from previous matchers?
-	req, ok := cx.GetVar("http_request").(*http.Request)
+	req, ok := cx.GetVar(httpRequestVarName).(*http.Request)
 	if !ok {
 		var err error
 
@@ -119,11 +119,10 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 		req = caddyhttp.PrepareRequest(req, caddy.NewReplacer(), nil, nil)
 
 		// remember this for future use
-		cx.SetVar("http_request", req)
+		cx.SetVar(httpRequestVarName, req)
 
 		// also add values to the replacer (TODO: we could probably find a way to use the http app's replacer values)
-		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-		repl.Set("l4.http.host", req.Host)
+		cx.Replacer().Set(httpHostReplKey, req.Host)
 	}
 
 	// we have a valid HTTP request, so we can drill down further if there are
@@ -256,4 +255,13 @@ var (
 	_ json.Marshaler        = (*MatchHTTP)(nil)
 	_ json.Unmarshaler      = (*MatchHTTP)(nil)
 	_ layer4.ConnMatcher    = (*MatchHTTP)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	httpReplPrefix = layer4.AppReplPrefix + "http."
+
+	httpHostReplKey = httpReplPrefix + "host"
+
+	httpRequestVarName = "http_request"
 )
