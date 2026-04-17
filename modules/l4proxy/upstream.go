@@ -30,17 +30,17 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 )
 
-// parse and validate address.
+// parseAddress parses and validates the dial address.
 // For addresses containing any runtime placeholders,
-// this should be called on each request
-// after placeholders has been completely replaced.
+// this function should be called on each request
+// after placeholders have been completely replaced.
 func parseAddress(addr string) (*caddy.NetworkAddress, error) {
 	address, err := caddy.ParseNetworkAddress(addr)
 	if err != nil {
 		return nil, err
 	}
 	if address.PortRangeSize() != 1 {
-		return nil, fmt.Errorf("%s: port ranges not currently supported", addr)
+		return nil, fmt.Errorf("%s: port ranges are currently not supported", addr)
 	}
 	return &address, nil
 }
@@ -50,8 +50,9 @@ type UpstreamPool []*Upstream
 
 // Upstream represents a proxy upstream.
 type Upstream struct {
-	// The network addresses to dial. Supports placeholders
-	// ranges currently (each address must be exactly 1 socket).
+	// The network addresses to dial. It supports placeholders in both
+	// the host part, i.e. before `:`, and the port part, i.e. after `:`.
+	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
 	// Set this field to enable TLS to the upstream.
@@ -73,16 +74,16 @@ func (u *Upstream) String() string {
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
-		// replace runtime placeholders
+		// Replace runtime placeholders.
 		// Note: ReplaceKnown is used here instead of ReplaceAll to let unknown placeholders be replaced later
 		// in Handler.dialPeers. E.g. {l4.tls.server_name}:443 will allow for dynamic TLS SNI based upstreams.
 		replDialAddr := repl.ReplaceKnown(dialAddr, "")
 
-		// create or load peer info
+		// Create or load peer info
 		p := &peer{dialAddr: replDialAddr}
-		// parse and validate address if upstream not dynamic
-		// If upstream address contains placeholders, skip parsing here
-		// then do this after replacing all placeholders in Handler.dialPeers.
+		// Parse and validate the dial address if the upstream isn't dynamic.
+		// If the upstream address contains placeholders, skip parsing here,
+		// then do it after replacing all placeholders in Handler.dialPeers.
 		if !strings.Contains(p.dialAddr, "{") || !strings.Contains(p.dialAddr, "}") {
 			address, err := parseAddress(p.dialAddr)
 			if err != nil {
