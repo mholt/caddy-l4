@@ -83,7 +83,7 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		// parse and validate address if upstream not dynamic
 		// If upstream address contains placeholders, skip parsing here
 		// then do this after replacing all placeholders in Handler.dialPeers.
-		if !(strings.Contains(p.dialAddr, "{") && strings.Contains(p.dialAddr, "}")) {
+		if !strings.Contains(p.dialAddr, "{") || !strings.Contains(p.dialAddr, "}") {
 			address, err := parseAddress(p.dialAddr)
 			if err != nil {
 				return err
