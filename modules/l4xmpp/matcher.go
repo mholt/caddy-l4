@@ -68,8 +68,10 @@ func (m *MatchXMPP) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-var xmppWord = "jabber"
-var minXmppLength = 50
+var (
+	xmppWord      = "jabber"
+	minXmppLength = 50
+)
 
 // Interface guards
 var (

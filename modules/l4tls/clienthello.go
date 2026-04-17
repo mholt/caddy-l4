@@ -49,20 +49,28 @@ type ClientHelloInfo struct {
 // FillTLSClientConfig fills cfg (a client-side TLS config) with information
 // from chi. It does not overwrite any fields in cfg that are already non-zero.
 func (chi ClientHelloInfo) FillTLSClientConfig(cfg *tls.Config) {
+	// We do not assign cfg.ServerName to chi.ServerName here,
+	// because the upstream connection (cfg) shouldn't have
+	// the same server name as the downstream connection (chi),
+	// yet it might be the case. By default, the upstream
+	// connection will have an empty server name which sets it
+	// equal to the upstream hostname under the hood of crypto/tls.
+	// If cfg.ServerName contains placeholders, they will be expanded
+	// at match, so that `{l4.tls.server_name}` could make
+	// the upstream connection copy the downstream server name. See also:
+	// https://github.com/mholt/caddy-l4/issues/392#issuecomment-4061385214
+
 	if cfg.NextProtos == nil {
-		cfg.NextProtos = chi.ClientHelloInfo.SupportedProtos
-	}
-	if cfg.ServerName == "" {
-		cfg.ServerName = chi.ClientHelloInfo.ServerName
+		cfg.NextProtos = chi.SupportedProtos
 	}
 	if cfg.CipherSuites == nil {
-		cfg.CipherSuites = chi.ClientHelloInfo.CipherSuites
+		cfg.CipherSuites = chi.CipherSuites
 	}
 	if cfg.CurvePreferences == nil {
-		cfg.CurvePreferences = chi.ClientHelloInfo.SupportedCurves
+		cfg.CurvePreferences = chi.SupportedCurves
 	}
 	var minVer, maxVer uint16
-	for _, ver := range chi.ClientHelloInfo.SupportedVersions {
+	for _, ver := range chi.SupportedVersions {
 		if minVer == 0 || ver < minVer {
 			minVer = ver
 		}

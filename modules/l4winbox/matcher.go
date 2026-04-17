@@ -74,8 +74,9 @@ func (m *MatchWinbox) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection bytes match the regular expression.
 func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	// Read a minimum number of bytes
-	hdr := make([]byte, 2)
-	n, err := io.ReadFull(cx, hdr)
+	n := 2
+	hdr := make([]byte, n)
+	_, err := io.ReadFull(cx, hdr)
 	if err != nil || hdr[0] < MessageAuthBytesMin-2 || hdr[1] != MessageChunkTypeAuth {
 		return false, err
 	}
@@ -112,7 +113,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Replace placeholders in filters
-	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	userName := repl.ReplaceAll(m.Username, "")
 
 	// Check a plaintext username, if provided
@@ -126,7 +127,7 @@ func (m *MatchWinbox) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Add a username to the replacer
-	repl.Set("l4.winbox.username", msg.GetUsername())
+	repl.Set(winboxUsernameReplKey, msg.GetUsername())
 
 	return true, nil
 }
@@ -252,10 +253,11 @@ func (msg *MessageAuth) FromBytes(src []byte) error {
 		return ErrNotEnoughSourceBytes
 	}
 
-	p, q := 0, l/(MessageChunkBytesMax+2)+1
+	var p int
+	q := l/(MessageChunkBytesMax+2) + 1
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
-	for i := 0; i < q; i++ {
+	for i := range q {
 		chunk = &MessageChunk{}
 		p = i * (MessageChunkBytesMax + 2)
 
@@ -334,11 +336,12 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 	dst = append(dst, msg.PublicKeyBytes...)
 	dst = append(dst, msg.PublicKeyParity)
 
-	p, q := 0, l/MessageChunkBytesMax+1
+	var p int
+	q := l/MessageChunkBytesMax + 1
 	chunks := make([]*MessageChunk, 0, q)
 	var chunk *MessageChunk
 	var ll int
-	for i := 0; i < q; i++ {
+	for i := range q {
 		p = i * MessageChunkBytesMax
 		ll = min(MessageChunkBytesMax, l-p)
 		if ll == 0 {
@@ -346,7 +349,7 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 		}
 
 		chunk = &MessageChunk{}
-		chunk.Length = uint8(ll)
+		chunk.Length = uint8(ll) //nolint:gosec // disable G115
 		if i == 0 {
 			chunk.Type = MessageChunkTypeAuth
 		} else {
@@ -356,7 +359,6 @@ func (msg *MessageAuth) ToChunks() []*MessageChunk {
 		chunks = append(chunks, chunk)
 	}
 
-	dst = dst[:0]
 	return chunks
 }
 
@@ -391,6 +393,13 @@ var (
 	ErrNotEnoughSourceBytes = errors.New("not enough source bytes")
 
 	MessageAuthUsernameRegexp = regexp.MustCompile("^[0-9A-Za-z](?:[-#.0-9@A-Z_a-z]+[0-9A-Za-z])?$")
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	winboxReplPrefix = layer4.AppReplPrefix + "winbox."
+
+	winboxUsernameReplKey = winboxReplPrefix + "username"
 )
 
 const (

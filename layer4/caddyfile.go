@@ -54,7 +54,7 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 	i := len(app.Servers)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		server := &Server{}
-		var inst interface{} = server
+		var inst any = server
 		unm, ok := inst.(caddyfile.Unmarshaler)
 		if !ok {
 			return nil, d.Errf("%T is not a Caddyfile unmarshaler", inst)
@@ -72,10 +72,10 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 	}, nil
 }
 
-// ParseCaddyfileNestedRoutes parses the Caddyfile tokens for nested named matcher sets, handlers and matching timeout,
-// composes a list of route configurations, and adjusts the matching timeout.
-func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, matchingTimeout *caddy.Duration) error {
-	var hasMatchingTimeout bool
+// ParseCaddyfileNestedRoutes parses the Caddyfile tokens for nested named matcher sets, handlers, idle and matching
+// timeouts, composes a list of route configurations, and adjusts the idle and matching timeouts.
+func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, matchingTimeout *caddy.Duration, idleTimeout *caddy.Duration) error {
+	var hasIdleTimeout, hasMatchingTimeout bool
 	matcherSetTokensByName, routeTokens := make(map[string][]caddyfile.Token), make([]caddyfile.Token, 0)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -84,6 +84,18 @@ func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, match
 				return d.Errf("duplicate matcher set '%s'", d.Val())
 			}
 			matcherSetTokensByName[optionName] = append(matcherSetTokensByName[optionName], d.NextSegment()...)
+		} else if optionName == "idle_timeout" && idleTimeout != nil {
+			if hasIdleTimeout {
+				return d.Errf("duplicate option '%s'", optionName)
+			}
+			if d.CountRemainingArgs() > 1 || !d.NextArg() {
+				return d.ArgErr()
+			}
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing option '%s' duration: %v", optionName, err)
+			}
+			*idleTimeout, hasIdleTimeout = caddy.Duration(dur), true
 		} else if optionName == "matching_timeout" {
 			if hasMatchingTimeout {
 				return d.Errf("duplicate option '%s'", optionName)
@@ -110,6 +122,11 @@ func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, match
 		if !dd.NextArg() && !dd.NextBlock(dd.Nesting()) {
 			return dd.ArgErr()
 		}
+
+		// set the matcher name (without @) in the dispenser context so
+		// that matcher modules can access it to use it as their name
+		// (e.g. regexp matchers which use the name for capture groups)
+		dd.SetContext(caddyfile.MatcherNameCtxKey, matcherSetName[1:])
 
 		dd.Reset() // reset dispenser after argument/block checks above
 		dd.Next()  // consume wrapper name again
@@ -145,7 +162,7 @@ func ParseCaddyfileNestedRoutes(d *caddyfile.Dispenser, routes *RouteList, match
 }
 
 // ParseCaddyfileNestedHandlers parses the Caddyfile tokens for nested handlers,
-// and composes a list of their raw json configurations.
+// and composes a list of their raw JSON configurations.
 func ParseCaddyfileNestedHandlers(d *caddyfile.Dispenser, handlersRaw *[]json.RawMessage) error {
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		handlerName := d.Val()
@@ -215,7 +232,7 @@ func ParseCaddyfileNestedMatcherSet(d *caddyfile.Dispenser) (caddy.ModuleMap, er
 // where raw must be a JSON encoding of a map, and returns the modified raw.
 // In fact, it is a reverse function for caddy.getModuleNameInline.
 func SetModuleNameInline(moduleNameKey, moduleName string, raw json.RawMessage) (json.RawMessage, error) {
-	// temporarily unmarshal json into a map of string to any
+	// temporarily unmarshal JSON into a map of string to any
 	var tmp map[string]any
 	err := json.Unmarshal(raw, &tmp)
 	if err != nil {
@@ -225,7 +242,7 @@ func SetModuleNameInline(moduleNameKey, moduleName string, raw json.RawMessage) 
 	// add an inline key with the module name
 	tmp[moduleNameKey] = moduleName
 
-	// re-marshal the map into json
+	// re-marshal the map into JSON
 	result, err := json.Marshal(tmp)
 	if err != nil {
 		return nil, fmt.Errorf("re-encoding module '%s' configuration: %v", moduleName, err)

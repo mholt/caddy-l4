@@ -137,8 +137,10 @@ func Test_MatchWireGuard_Match(t *testing.T) {
 	}
 }
 
-var packet00000001 = []byte{uint8(MessageTypeInitiation), 0x00, 0x00, 0x00}
-var packet00000002 = []byte{uint8(MessageTypeResponse), 0x00, 0x00, 0x00}
-var packet00000003 = []byte{uint8(MessageTypeCookieReply), 0x00, 0x00, 0x00}
-var packet00000004 = []byte{uint8(MessageTypeTransport), 0x00, 0x00, 0x00}
-var packet010077FF = []byte{uint8(MessageTypeInitiation), 0x00, 0x77, 0xFF}
+var (
+	packet00000001 = []byte{uint8(MessageTypeInitiation), 0x00, 0x00, 0x00}
+	packet00000002 = []byte{uint8(MessageTypeResponse), 0x00, 0x00, 0x00}
+	packet00000003 = []byte{uint8(MessageTypeCookieReply), 0x00, 0x00, 0x00}
+	packet00000004 = []byte{uint8(MessageTypeTransport), 0x00, 0x00, 0x00}
+	packet010077FF = []byte{uint8(MessageTypeInitiation), 0x00, 0x77, 0xFF}
+)

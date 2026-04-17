@@ -94,9 +94,9 @@ func (mss *MatcherSets) AnyMatch(cx *Connection) (matched bool, err error) {
 	return
 }
 
-// FromInterface fills ms from an interface{} value obtained from LoadModule.
-func (mss *MatcherSets) FromInterface(matcherSets interface{}) error {
-	for _, matcherSetIfaces := range matcherSets.([]map[string]interface{}) {
+// FromInterface fills ms from any value obtained from LoadModule.
+func (mss *MatcherSets) FromInterface(matcherSets any) error {
+	for _, matcherSetIfaces := range matcherSets.([]map[string]any) {
 		var matcherSet MatcherSet
 		for _, matcher := range matcherSetIfaces {
 			connMatcher, ok := matcher.(ConnMatcher)

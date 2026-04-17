@@ -79,7 +79,7 @@ func (m *MatchHTTP) Provision(ctx caddy.Context) error {
 // Match returns true if the conn starts with an HTTP request.
 func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 	// TODO: do we need a more standardized way to amortize matchers? or at least to remember decoded results from previous matchers?
-	req, ok := cx.GetVar("http_request").(*http.Request)
+	req, ok := cx.GetVar(httpRequestVarName).(*http.Request)
 	if !ok {
 		var err error
 
@@ -119,22 +119,21 @@ func (m *MatchHTTP) Match(cx *layer4.Connection) (bool, error) {
 		req = caddyhttp.PrepareRequest(req, caddy.NewReplacer(), nil, nil)
 
 		// remember this for future use
-		cx.SetVar("http_request", req)
+		cx.SetVar(httpRequestVarName, req)
 
 		// also add values to the replacer (TODO: we could probably find a way to use the http app's replacer values)
-		repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-		repl.Set("l4.http.host", req.Host)
+		cx.Replacer().Set(httpHostReplKey, req.Host)
 	}
 
 	// we have a valid HTTP request, so we can drill down further if there are
 	// any more matchers configured
-	return m.matcherSets.AnyMatch(req), nil
+	return m.matcherSets.AnyMatchWithError(req)
 }
 
 // isHttp test if the buffered data looks like HTTP by looking at the first line.
 // first boolean determines if more data is required
-func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
-	// try to find the end of a http request line, for example " HTTP/1.1\r\n"
+func (m *MatchHTTP) isHttp(data []byte) (bool, bool) {
+	// try to find the end of an http request line, for example " HTTP/1.1\r\n"
 	i := bytes.IndexByte(data, 0x0a) // find first new line
 	if i < 10 {
 		return true, false
@@ -147,7 +146,7 @@ func (m MatchHTTP) isHttp(data []byte) (bool, bool) {
 		start -= 1
 		end -= 1
 	}
-	return false, bytes.Compare(data[start:end], []byte(" HTTP/")) == 0
+	return false, bytes.Equal(data[start:end], []byte(" HTTP/"))
 }
 
 // Parses information from a http2 request with prior knowledge (RFC 7540 Section 3.4)
@@ -200,17 +199,18 @@ func (m *MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Re
 	var path string
 
 	for _, h := range headers {
-		if h.Name == ":method" {
+		switch h.Name {
+		case ":method":
 			req.Method = h.Value
-		} else if h.Name == ":path" {
+		case ":path":
 			path = h.Value
 			req.RequestURI = h.Value
-		} else if h.Name == ":scheme" {
+		case ":scheme":
 			scheme = h.Value
-		} else if h.Name == ":authority" {
+		case ":authority":
 			authority = h.Value
 			req.Host = h.Value
-		} else {
+		default:
 			req.Header.Add(h.Name, h.Value)
 		}
 	}
@@ -255,4 +255,13 @@ var (
 	_ json.Marshaler        = (*MatchHTTP)(nil)
 	_ json.Unmarshaler      = (*MatchHTTP)(nil)
 	_ layer4.ConnMatcher    = (*MatchHTTP)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	httpReplPrefix = layer4.AppReplPrefix + "http."
+
+	httpHostReplKey = httpReplPrefix + "host"
+
+	httpRequestVarName = "http_request"
 )

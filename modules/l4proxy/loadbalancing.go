@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	weakrand "math/rand"
+	weakrand "math/rand/v2"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -111,7 +111,7 @@ func (r *RandomSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstr
 		// upstream will always be chosen if there is at
 		// least one available
 		count++
-		if (weakrand.Int() % count) == 0 {
+		if weakrand.IntN(count) == 0 {
 			randomHost = upstream
 		}
 	}
@@ -172,16 +172,13 @@ func (r *RandomChoiceSelection) Validate() error {
 
 // Select returns an available host, if any.
 func (r *RandomChoiceSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
-	k := r.Choose
-	if k > len(pool) {
-		k = len(pool)
-	}
+	k := min(r.Choose, len(pool))
 	choices := make([]*Upstream, k)
 	for i, upstream := range pool {
 		if !upstream.available() {
 			continue
 		}
-		j := weakrand.Intn(i + 1)
+		j := weakrand.IntN(i + 1)
 		if j < k {
 			choices[j] = upstream
 		}
@@ -252,7 +249,7 @@ func (*LeastConnSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upst
 		// sample: https://en.wikipedia.org/wiki/Reservoir_sampling
 		if totalConns == leastConns {
 			count++
-			if (weakrand.Int() % count) == 0 {
+			if weakrand.IntN(count) == 0 {
 				best = upstream
 			}
 		}
@@ -296,11 +293,11 @@ func (*RoundRobinSelection) CaddyModule() caddy.ModuleInfo {
 
 // Select returns an available host, if any.
 func (r *RoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
-	n := uint32(len(pool))
+	n := uint32(len(pool)) //nolint:gosec // disable G115
 	if n == 0 {
 		return nil
 	}
-	for i := uint32(0); i < n; i++ {
+	for range n {
 		atomic.AddUint32(&r.robin, 1)
 		host := pool[r.robin%n]
 		if host.available() {
@@ -435,7 +432,7 @@ func leastConns(upstreams []*Upstream) *Upstream {
 	if len(best) == 0 {
 		return nil
 	}
-	return best[weakrand.Intn(len(best))]
+	return best[weakrand.IntN(len(best))]
 }
 
 // hostByHashing returns an available host

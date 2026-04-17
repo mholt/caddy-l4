@@ -15,6 +15,7 @@
 package l4proxy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mastercactapus/proxyprotocol"
+	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
@@ -150,7 +151,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the downstream connection.
 func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
-	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := down.Replacer()
 
 	start := time.Now()
 
@@ -196,8 +197,27 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	return nil
 }
 
+// packetProxyProtocolConn sends every message prepended with proxy protocol
+type packetProxyProtocolConn struct {
+	net.Conn
+	header io.WriterTo // both of the pp header types implement this interface
+}
+
+func (pp *packetProxyProtocolConn) Write(p []byte) (int, error) {
+	// TODO: pool the buffer
+	buf := new(bytes.Buffer)
+	// send pp and payload in a single message
+	_, _ = pp.header.WriteTo(buf)
+	buf.Write(p)
+	_, err := buf.WriteTo(pp.Conn)
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *layer4.Connection) ([]net.Conn, error) {
-	var upConns []net.Conn
+	upConns := make([]net.Conn, 0, 10)
 
 	for _, p := range upstream.peers {
 		hostPort := repl.ReplaceAll(p.dialAddr, "")
@@ -216,15 +236,35 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		if upstream.TLS == nil {
 			up, err = net.Dial(addr.Network, hostPort)
 		} else {
-			// the prepared config could be nil if user enabled but did not customize TLS,
-			// in which case we adopt the downstream client's TLS ClientHello for ours;
-			// i.e. by default, make the client's TLS config as transparent as possible
+			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
 			if tlsCfg == nil {
 				tlsCfg = new(tls.Config)
-				if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
-					hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			// In any case we adopt the downstream client's TLS ClientHello for the upstream;
+			// i.e. by default, make the client's TLS config as transparent as possible,
+			// except for the server name which is automatically set to the upstream hostname
+			// unless the user explicitly configured it to have a different value
+			if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
+				hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			// If there is a downstream TLS connection and a non-empty negotiated protocol,
+			// the upstream TLS config should have it as the only supported protocol
+			// TODO: Make the upstream application-layer protocol customizable
+			if connStates := l4tls.GetConnectionStates(down); len(connStates) > 0 {
+				nextProto := connStates[0].NegotiatedProtocol
+				if len(nextProto) > 0 {
+					tlsCfg.NextProtos = []string{nextProto}
 				}
+			}
+			// Expand any placeholders in the upstream server name before dialing it;
+			// since the same upstream TLS config is reused for subsequent connections,
+			// we have to clone it if any placeholders in ServerName are expanded
+			valServerName := repl.ReplaceAll(tlsCfg.ServerName, "")
+			if valServerName != tlsCfg.ServerName {
+				newTLSCfg := tlsCfg.Clone()
+				newTLSCfg.ServerName = valServerName
+				tlsCfg = newTLSCfg
 			}
 			up, err = tls.Dial(addr.Network, hostPort, tlsCfg)
 		}
@@ -234,17 +274,34 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			zap.Error(err))
 
 		// Send the PROXY protocol header.
-		if err == nil {
+		if err == nil && h.proxyProtocolVersion > 0 {
 			downConn := l4proxyprotocol.GetConn(down)
-			switch h.proxyProtocolVersion {
-			case 1:
-				var h proxyprotocol.HeaderV1
-				h.FromConn(downConn, false)
-				_, err = h.WriteTo(up)
-			case 2:
-				var h proxyprotocol.HeaderV2
-				h.FromConn(downConn, false)
-				_, err = h.WriteTo(up)
+			header := proxyproto.HeaderProxyFromAddrs(h.proxyProtocolVersion, downConn.RemoteAddr(), downConn.LocalAddr())
+
+			// Only write the PROXY protocol header if it's not nil
+			if header != nil {
+				header.Command = proxyproto.PROXY
+				// for packet connection, prepend each message with pp
+				// unix connections always implement this interface while not necessarily in datagram mode
+				// ignore it unless the unix socket is in datagram mode
+				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(p.address.Network) || p.address.Network == "unixgram") {
+					// only v2 supports UDP addresses
+					if header.Version == 2 {
+						la, _ := header.DestinationAddr.(*net.UDPAddr)
+						ra, _ := header.SourceAddr.(*net.UDPAddr)
+						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
+						if la != nil && ra != nil && la.IP.IsUnspecified() {
+							// TODO: extract real local address using golang.org/x/net
+							header.DestinationAddr = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
+						}
+					}
+					up = &packetProxyProtocolConn{
+						Conn:   up,
+						header: header,
+					}
+				} else {
+					_, err = header.WriteTo(up)
+				}
 			}
 		}
 
@@ -257,6 +314,14 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		}
 
 		upConns = append(upConns, up)
+
+		err = p.countConn(1)
+		if err != nil {
+			h.logger.Error("could not count connection",
+				zap.String("peer_address", p.address.String()),
+				zap.Error(err))
+			return upConns, err
+		}
 	}
 
 	return upConns, nil

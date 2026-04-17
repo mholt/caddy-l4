@@ -33,7 +33,6 @@ func init() {
 
 // MatchOpenVPN is able to match OpenVPN connections.
 type MatchOpenVPN struct {
-
 	// Modes contains a list of supported OpenVPN modes to match against incoming client reset messages:
 	//
 	//	- `plain` mode messages have no replay protection, authentication or encryption;
@@ -102,7 +101,6 @@ type MatchOpenVPN struct {
 	// List of the supported digest algorithms:
 	//	- MD5
 	//	- SHA-1
-	//	- RIPEMD-160
 	//	- SHA-224
 	//	- SHA-256
 	//	- SHA-384
@@ -146,7 +144,7 @@ type MatchOpenVPN struct {
 	// may be present in OpenVPN client config files inside `<tls-crypt-v2/>` block or generated with `openvpn
 	// --tls-crypt-v2 [server.key] --genkey tls-crypt-v2-client` command. No comments (starting with '#' or '-')
 	// are allowed.
-	ClientKeys []string `json:"client_keys,omitempty"`
+	ClientKeys []string `json:"client_keys,omitempty"` //nolint:gosec // disable G117
 	// ClientKeyFiles is a list of paths to files containing 2048-bit client key which may be present in OpenVPN
 	// config files after `tls-crypt-v2` directive. These are the same keys as those ClientKeys introduce, but
 	// these fields are complementary. If both are set, a joint list of client keys is created. Any comments in
@@ -419,7 +417,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}
@@ -436,7 +434,7 @@ func (m *MatchOpenVPN) Provision(_ caddy.Context) error {
 					return err
 				}
 
-				if len(ck.StaticKey.KeyBytes) != StaticKeyBytesTotal ||
+				if len(ck.KeyBytes) != StaticKeyBytesTotal ||
 					(m.serverKey != nil && !ck.DecryptAndAuthenticate(nil, m.serverKey)) {
 					return ErrInvalidClientKey
 				}

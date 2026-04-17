@@ -66,7 +66,7 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 		return err
 	}
 	handlers := make(layer4.Handlers, 0)
-	for _, mod := range mods.([]interface{}) {
+	for _, mod := range mods.([]any) {
 		handlers = append(handlers, mod.(layer4.NextHandler))
 	}
 	t.compiledChain = handlers.Compile()

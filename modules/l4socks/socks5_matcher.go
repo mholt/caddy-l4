@@ -2,6 +2,7 @@ package l4socks
 
 import (
 	"io"
+	"slices"
 	"strconv"
 
 	"github.com/caddyserver/caddy/v2"
@@ -61,7 +62,7 @@ func (m *Socks5Matcher) Match(cx *layer4.Connection) (bool, error) {
 
 	// match auth methods
 	for _, requestedMethod := range methods {
-		if !contains(m.AuthMethods, uint16(requestedMethod)) {
+		if !slices.Contains(m.AuthMethods, uint16(requestedMethod)) {
 			return false, nil
 		}
 	}
@@ -116,12 +117,3 @@ var (
 	_ caddy.Provisioner     = (*Socks5Matcher)(nil)
 	_ caddyfile.Unmarshaler = (*Socks5Matcher)(nil)
 )
-
-func contains(values []uint16, search uint16) bool {
-	for _, value := range values {
-		if value == search {
-			return true
-		}
-	}
-	return false
-}

@@ -15,10 +15,21 @@
 package l4tls
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
-	"encoding/json"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
-	"math/big"
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -100,6 +111,10 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	connectionState := tlsConn.ConnectionState()
 	appendConnectionState(cx, &connectionState)
 
+	// add values to the replacer
+	repl := cx.Replacer()
+	addTLSVarsToReplacer(repl, &connectionState)
+
 	// all future reads/writes will now be decrypted/encrypted
 	// (tlsConn, which wraps cx, is wrapped into a new cx so
 	// that future I/O succeeds... if we use the same cx, it'd
@@ -132,7 +147,7 @@ func (t *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		switch optionName {
 		case "connection_policy":
 			cp := &caddytls.ConnectionPolicy{}
-			if err := unmarshalCaddyfileConnectionPolicy(d.NewFromNextSegment(), cp); err != nil {
+			if err := cp.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
 				return err
 			}
 			t.ConnectionPolicies = append(t.ConnectionPolicies, cp)
@@ -149,19 +164,221 @@ func (t *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// addTLSVarsToReplacer is an enhanced copy of caddyhttp.getReqTLSReplacement
+func addTLSVarsToReplacer(repl *caddy.Replacer, cs *tls.ConnectionState) {
+	if repl == nil || cs == nil {
+		return
+	}
+
+	repl.Map(func(key string) (any, bool) {
+		if !strings.HasPrefix(key, tlsReplPrefix) {
+			return nil, false
+		}
+
+		field := strings.ToLower(key[len(tlsReplPrefix):])
+
+		if strings.HasPrefix(field, "client.") {
+			cert := getTLSPeerCert(cs)
+			if cert == nil {
+				return nil, false
+			}
+
+			field = field[len("client."):]
+
+			// subject alternate names (SANs)
+			if strings.HasPrefix(field, "san.") {
+				field = field[len("san."):]
+
+				var fieldName string
+				var fieldValue any
+				switch {
+				case strings.HasPrefix(field, "dns_names"):
+					fieldName = "dns_names"
+					fieldValue = cert.DNSNames
+				case strings.HasPrefix(field, "emails"):
+					fieldName = "emails"
+					fieldValue = cert.EmailAddresses
+				case strings.HasPrefix(field, "ips"):
+					fieldName = "ips"
+					fieldValue = cert.IPAddresses
+				case strings.HasPrefix(field, "uris"):
+					fieldName = "uris"
+					fieldValue = cert.URIs
+				default:
+					return nil, false
+				}
+				field = field[len(fieldName):]
+
+				// if no index was specified, return the whole list
+				if field == "" {
+					return fieldValue, true
+				}
+				if len(field) < 2 || field[0] != '.' {
+					return nil, false
+				}
+				field = field[1:] // trim '.' between field name and index
+
+				// get the numeric index
+				idx, err := strconv.Atoi(field)
+				if err != nil || idx < 0 {
+					return nil, false
+				}
+
+				// access the indexed element and return it
+				switch v := fieldValue.(type) {
+				case []string:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				case []net.IP:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				case []*url.URL:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				}
+			}
+
+			// subject and issuer
+			for _, group := range []struct {
+				prefix string
+				values *pkix.Name
+			}{
+				{prefix: "subject.", values: &cert.Subject},
+				{prefix: "issuer.", values: &cert.Issuer},
+			} {
+				if strings.HasPrefix(field, group.prefix) {
+					field = field[len(group.prefix):]
+
+					var fieldName string
+					var fieldValue []string
+					switch {
+					case field == "common_name":
+						// There can only be one.
+						return group.values.CommonName, true
+					case field == "serial":
+						// There can only be one.
+						return group.values.SerialNumber, true
+					case strings.HasPrefix(field, "organizational_unit"):
+						fieldName = "organizational_unit"
+						fieldValue = group.values.OrganizationalUnit
+					case strings.HasPrefix(field, "organization"):
+						fieldName = "organization"
+						fieldValue = group.values.Organization
+					case strings.HasPrefix(field, "country"):
+						fieldName = "country"
+						fieldValue = group.values.Country
+					case strings.HasPrefix(field, "locality"):
+						fieldName = "locality"
+						fieldValue = group.values.Locality
+					case strings.HasPrefix(field, "province"):
+						fieldName = "province"
+						fieldValue = group.values.Province
+					case strings.HasPrefix(field, "street_address"):
+						fieldName = "street_address"
+						fieldValue = group.values.StreetAddress
+					case strings.HasPrefix(field, "postal_code"):
+						fieldName = "postal_code"
+						fieldValue = group.values.PostalCode
+					default:
+						return nil, false
+					}
+					field = field[len(fieldName):]
+
+					// if no index was specified, return the whole list
+					if field == "" {
+						return fieldValue, true
+					}
+					if len(field) < 2 || field[0] != '.' {
+						return nil, false
+					}
+					field = field[1:] // trim '.' between field name and index
+
+					// get the numeric index
+					idx, err := strconv.Atoi(field)
+					if err != nil || idx < 0 {
+						return nil, false
+					}
+
+					// access the indexed element and return it
+					if idx >= len(fieldValue) {
+						return nil, true
+					}
+					return fieldValue[idx], true
+				}
+			}
+
+			// remaining fields
+			switch field {
+			case "fingerprint":
+				return fmt.Sprintf("%x", sha256.Sum256(cert.Raw)), true
+			case "public_key", "public_key_sha256":
+				if cert.PublicKey == nil {
+					return nil, true
+				}
+				pubKeyBytes, err := marshalPublicKey(cert.PublicKey)
+				if err != nil {
+					return nil, true
+				}
+				if strings.HasSuffix(field, "_sha256") {
+					return fmt.Sprintf("%x", sha256.Sum256(pubKeyBytes)), true
+				}
+				return fmt.Sprintf("%x", pubKeyBytes), true
+			case "issuer":
+				return cert.Issuer, true
+			case "serial":
+				return cert.SerialNumber, true
+			case "subject":
+				return cert.Subject, true
+			case "certificate_pem":
+				block := pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}
+				return pem.EncodeToMemory(&block), true
+			case "certificate_der_base64":
+				return base64.StdEncoding.EncodeToString(cert.Raw), true
+			default:
+				return nil, false
+			}
+		}
+
+		switch field {
+		case "version":
+			return caddytls.ProtocolName(cs.Version), true
+		case "cipher_suite":
+			return tls.CipherSuiteName(cs.CipherSuite), true
+		case "resumed":
+			return cs.DidResume, true
+		case "proto":
+			return cs.NegotiatedProtocol, true
+		case "proto_mutual":
+			// cs.NegotiatedProtocolIsMutual is deprecated - it's always true.
+			return true, true
+		case "server_name":
+			return cs.ServerName, true
+		case "ech":
+			return cs.ECHAccepted, true
+		}
+		return nil, false
+	})
+}
+
 func appendClientHello(cx *layer4.Connection, chi ClientHelloInfo) {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	clientHellos = append(clientHellos, chi)
-	cx.SetVar("tls_client_hellos", clientHellos)
+	cx.SetVar(tlsClientHellosVarName, clientHellos)
 }
 
 // GetClientHelloInfos gets ClientHello information for all the terminated TLS connections.
 func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	return clientHellos
@@ -169,20 +386,46 @@ func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 
 func appendConnectionState(cx *layer4.Connection, cs *tls.ConnectionState) {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	connectionStates = append(connectionStates, cs)
-	cx.SetVar("tls_connection_states", connectionStates)
+	cx.SetVar(layer4.TLSConnectionStatesVarName, connectionStates)
 }
 
 // GetConnectionStates gets the tls.ConnectionState for all the terminated TLS connections.
 func GetConnectionStates(cx *layer4.Connection) []*tls.ConnectionState {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	return connectionStates
+}
+
+// marshalPublicKey returns the byte encoding of pubKey.
+func marshalPublicKey(pubKey any) ([]byte, error) {
+	switch key := pubKey.(type) {
+	case *rsa.PublicKey:
+		return asn1.Marshal(key)
+	case *ecdsa.PublicKey:
+		e, err := key.ECDH()
+		if err != nil {
+			return nil, err
+		}
+		return e.Bytes(), nil
+	case ed25519.PublicKey:
+		return key, nil
+	}
+	return nil, fmt.Errorf("unrecognized public key type: %T", pubKey)
+}
+
+// getTLSPeerCert retrieves the first peer certificate from a TLS session.
+// Returns nil if no peer cert is in use.
+func getTLSPeerCert(cs *tls.ConnectionState) *x509.Certificate {
+	if len(cs.PeerCertificates) == 0 {
+		return nil
+	}
+	return cs.PeerCertificates[0]
 }
 
 // Interface guards
@@ -192,222 +435,7 @@ var (
 	_ layer4.NextHandler    = (*Handler)(nil)
 )
 
-// TODO: move to https://github.com/caddyserver/caddy/tree/master/modules/caddytls/connpolicy.go
-// unmarshalCaddyfileConnectionPolicy sets up the ConnectionPolicy from Caddyfile tokens. Syntax:
-//
-//	connection_policy {
-//		alpn <values...>
-//		cert_selection {
-//			...
-//		}
-//		ciphers <cipher_suites...>
-//		client_auth {
-//			...
-//		}
-//		curves <curves...>
-//		default_sni <server_name>
-//		match {
-//			...
-//		}
-//		protocols <min> [<max>]
-//		# EXPERIMENTAL:
-//		drop
-//		fallback_sni <server_name>
-//		insecure_secrets_log <log_file>
-//	}
-func unmarshalCaddyfileConnectionPolicy(d *caddyfile.Dispenser, cp *caddytls.ConnectionPolicy) error {
-	_, wrapper := d.Next(), "tls "+d.Val()
-
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return d.ArgErr()
-	}
-
-	var (
-		hasCertSelection, hasClientAuth, hasDefaultSNI, hasDrop,
-		hasFallbackSNI, hasInsecureSecretsLog, hasMatch, hasProtocols bool
-	)
-	for nesting := d.Nesting(); d.NextBlock(nesting); {
-		optionName := d.Val()
-		switch optionName {
-		case "alpn":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			cp.ALPN = append(cp.ALPN, d.RemainingArgs()...)
-		case "cert_selection":
-			if hasCertSelection {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			p := &caddytls.CustomCertSelectionPolicy{}
-			if err := unmarshalCaddyfileCertSelection(d.NewFromNextSegment(), p); err != nil {
-				return err
-			}
-			cp.CertSelection, hasCertSelection = p, true
-		case "client_auth":
-			if hasClientAuth {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			ca := &caddytls.ClientAuthentication{}
-			if err := ca.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {
-				return err
-			}
-			cp.ClientAuthentication, hasClientAuth = ca, true
-		case "ciphers":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			cp.CipherSuites = append(cp.CipherSuites, d.RemainingArgs()...)
-		case "curves":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			cp.Curves = append(cp.Curves, d.RemainingArgs()...)
-		case "default_sni":
-			if hasDefaultSNI {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			_, cp.DefaultSNI, hasDefaultSNI = d.NextArg(), d.Val(), true
-		case "drop": // EXPERIMENTAL
-			if hasDrop {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			cp.Drop, hasDrop = true, true
-		case "fallback_sni": // EXPERIMENTAL
-			if hasFallbackSNI {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			_, cp.FallbackSNI, hasFallbackSNI = d.NextArg(), d.Val(), true
-		case "insecure_secrets_log": // EXPERIMENTAL
-			if hasInsecureSecretsLog {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			_, cp.InsecureSecretsLog, hasInsecureSecretsLog = d.NextArg(), d.Val(), true
-		case "match":
-			if hasMatch {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			matcherSet, err := ParseCaddyfileNestedMatcherSet(d)
-			if err != nil {
-				return err
-			}
-			cp.MatchersRaw, hasMatch = matcherSet, true
-		case "protocols":
-			if hasProtocols {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() == 0 || d.CountRemainingArgs() > 2 {
-				return d.ArgErr()
-			}
-			_, cp.ProtocolMin, hasProtocols = d.NextArg(), d.Val(), true
-			if d.NextArg() {
-				cp.ProtocolMax = d.Val()
-			}
-		default:
-			return d.ArgErr()
-		}
-
-		// No nested blocks are supported
-		if d.NextBlock(nesting + 1) {
-			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
-		}
-	}
-
-	return nil
-}
-
-// TODO: move to https://github.com/caddyserver/caddy/tree/master/modules/caddytls/certselection.go
-// unmarshalCaddyfileCertSelection sets up the CustomCertSelectionPolicy from Caddyfile tokens. Syntax:
-//
-//	cert_selection {
-//		all_tags <values...>
-//		any_tag <values...>
-//		public_key_algorithm <dsa|ecdsa|rsa>
-//		serial_number <big_integers...>
-//		subject_organization <values...>
-//	}
-func unmarshalCaddyfileCertSelection(d *caddyfile.Dispenser, p *caddytls.CustomCertSelectionPolicy) error {
-	_, wrapper := d.Next(), "tls connection_policy "+d.Val() // consume wrapper name
-
-	// No same-line options are supported
-	if d.CountRemainingArgs() > 0 {
-		return d.ArgErr()
-	}
-
-	var hasPublicKeyAlgorithm bool
-	serialNumberStrings := make([]string, 0)
-	for nesting := d.Nesting(); d.NextBlock(nesting); {
-		optionName := d.Val()
-		switch optionName {
-		case "all_tags":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			p.AllTags = append(p.AllTags, d.RemainingArgs()...)
-		case "any_tag":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			p.AnyTag = append(p.AnyTag, d.RemainingArgs()...)
-		case "public_key_algorithm":
-			if hasPublicKeyAlgorithm {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
-			}
-			if d.CountRemainingArgs() != 1 {
-				return d.ArgErr()
-			}
-			d.NextArg()
-			if err := p.PublicKeyAlgorithm.UnmarshalJSON([]byte(d.Val())); err != nil {
-				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
-			}
-			hasPublicKeyAlgorithm = true
-		case "serial_number":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			for d.NextArg() {
-				val, bi := d.Val(), struct{ big.Int }{}
-				_, ok := bi.SetString(val, 10)
-				if !ok {
-					return d.Errf("parsing %s option '%s': invalid big.int value %s", wrapper, optionName, val)
-				}
-				serialNumberStrings = append(serialNumberStrings, bi.String())
-			}
-		case "subject_organization":
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			p.SubjectOrganization = append(p.SubjectOrganization, d.RemainingArgs()...)
-		default:
-			return d.ArgErr()
-		}
-
-		// No nested blocks are supported
-		if d.NextBlock(nesting + 1) {
-			return d.Errf("malformed %s option '%s': blocks are not supported", wrapper, optionName)
-		}
-	}
-
-	// caddytls.bigInt struct is not exported. That's why we can't append directly to SerialNumber list above.
-	// TODO: remove this workaround after the code is moved to caddyserver/caddy repo
-	if len(serialNumberStrings) > 0 {
-		serialNumbersRaw, err := json.Marshal(serialNumberStrings)
-		if err != nil {
-			return err
-		}
-		if err = json.Unmarshal(serialNumbersRaw, &p.SerialNumber); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
+// Replacer prefixes and keys; names of context variables
+const (
+	tlsClientHellosVarName = "tls_client_hellos"
+)

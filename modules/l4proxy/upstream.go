@@ -151,7 +151,7 @@ func (u *Upstream) healthy() bool {
 	}
 	if u.healthCheckPolicy != nil && u.healthCheckPolicy.MaxFails > 0 {
 		for _, p := range u.peers {
-			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) {
+			if p.fails.Load() >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
 				return false
 			}
 		}
@@ -198,10 +198,6 @@ func (u *Upstream) totalConns() int {
 //		tls_server_name <name>
 //		tls_timeout <duration>
 //		tls_trust_pool <module>
-//
-//		# DEPRECATED:
-//		tls_trusted_ca_certs <certificates...>
-//		tls_trusted_ca_pool <certificates...>
 //	}
 //	upstream <address:port>
 func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -361,22 +357,6 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
-		case "tls_trusted_ca_certs": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPEMFiles = append(u.TLS.RootCAPEMFiles, d.RemainingArgs()...)
-		case "tls_trusted_ca_pool": // DEPRECATED
-			if d.CountRemainingArgs() == 0 {
-				return d.ArgErr()
-			}
-			if u.TLS == nil {
-				u.TLS = &reverseproxy.TLSConfig{}
-			}
-			u.TLS.RootCAPool = append(u.TLS.RootCAPool, d.RemainingArgs()...)
 		default:
 			return d.ArgErr()
 		}
@@ -401,27 +381,27 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // (even if there is more than 1 instance of a config,
 // that does not duplicate the actual backend).
 type peer struct {
-	numConns  int32
-	unhealthy int32
-	fails     int32
+	numConns  atomic.Int32
+	unhealthy atomic.Int32
+	fails     atomic.Int32
 	address   *caddy.NetworkAddress
 	dialAddr  string
 }
 
 // getNumConns returns the number of active connections with the peer.
 func (p *peer) getNumConns() int {
-	return int(atomic.LoadInt32(&p.numConns))
+	return int(p.numConns.Load())
 }
 
 // healthy returns true if the peer is not unhealthy.
 func (p *peer) healthy() bool {
-	return atomic.LoadInt32(&p.unhealthy) == 0
+	return p.unhealthy.Load() == 0
 }
 
 // countConn mutates the active connection count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countConn(delta int) error {
-	result := atomic.AddInt32(&p.numConns, int32(delta))
+func (p *peer) countConn(delta int32) error {
+	result := p.numConns.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -430,8 +410,8 @@ func (p *peer) countConn(delta int) error {
 
 // countFail mutates the recent failures count by
 // delta. It returns an error if the adjustment fails.
-func (p *peer) countFail(delta int) error {
-	result := atomic.AddInt32(&p.fails, int32(delta))
+func (p *peer) countFail(delta int32) error {
+	result := p.fails.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -445,7 +425,7 @@ func (p *peer) setHealthy(healthy bool) (bool, error) {
 	if healthy {
 		unhealthy, compare = 0, 1
 	}
-	swapped := atomic.CompareAndSwapInt32(&p.unhealthy, compare, unhealthy)
+	swapped := p.unhealthy.CompareAndSwap(compare, unhealthy)
 	return swapped, nil
 }
 

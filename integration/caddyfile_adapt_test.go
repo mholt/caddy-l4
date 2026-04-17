@@ -21,7 +21,7 @@ func TestCaddyfileAdaptToJSON(t *testing.T) {
 		t.Errorf("failed to read caddyfile_adapt dir: %s", err)
 	}
 
-	// prep a regexp to fix strings on windows
+	// prep a regexp to fix strings on Windows
 	winNewlines := regexp.MustCompile(`\r?\n`)
 
 	for _, f := range files {
@@ -41,7 +41,7 @@ func TestCaddyfileAdaptToJSON(t *testing.T) {
 		parts := strings.Split(string(data), "----------")
 		caddyfile, json := strings.TrimSpace(parts[0])+"\n", strings.TrimSpace(parts[1])
 
-		// replace windows newlines in the json with unix newlines
+		// replace windows newlines in the JSON with Unix newlines
 		json = winNewlines.ReplaceAllString(json, "\n")
 
 		// replace os-specific default path for file_server's hide field

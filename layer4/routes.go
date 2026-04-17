@@ -66,7 +66,7 @@ func (r *Route) Provision(ctx caddy.Context) error {
 		return err
 	}
 	var handlers Handlers
-	for _, mod := range mods.([]interface{}) {
+	for _, mod := range mods.([]any) {
 		handler := mod.(NextHandler)
 		handlers = append(handlers, handler)
 	}
@@ -111,23 +111,25 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 
 		var (
 			lastMatchedRouteIdx = -1
-			lastNeedsMoreIdx    = -1
-			routesStatus        = make(map[int]int)
-			matcherNeedMore     bool
+			// it actually records where a matcher may require more data, i.e. the one that really needs more,
+			// the one after a matched route, the one after a not matched route with no previous routes needing more.
+			// -1 means there is no route that requires more data
+			lastNeedsMoreIdx = -1
+			routesStatus     = make(map[int]int)
 		)
 		// this loop should only be done if there are matchers that can't determine the match,
 		// i.e. some of the matchers returned false, ErrConsumedAllPrefetchedBytes. The index which
 		// the loop begins depends upon if there is a matched route.
 	loop:
 		// timeout matching to protect against malicious or very slow clients
-		err := cx.Conn.SetReadDeadline(deadline)
+		err := cx.SetReadDeadline(deadline)
 		if err != nil {
 			return err
 		}
 		for {
 			// only read more because matchers require more (no matcher in the simplest case).
 			// can happen if this routes list is embedded in another
-			if matcherNeedMore {
+			if lastNeedsMoreIdx != -1 {
 				err = cx.prefetch()
 				if err != nil {
 					logFunc := logger.Error
@@ -146,7 +148,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				}
 
 				// If the route is definitely not matched, skip it
-				if s, ok := routesStatus[i]; ok && s == routeNotMatched && i <= lastNeedsMoreIdx {
+				if s, ok := routesStatus[i]; ok && s == routeNotMatched && i < lastNeedsMoreIdx {
 					continue
 				}
 				// now the matcher is after a matched route and current route needs more data to determine if more data is needed.
@@ -155,10 +157,11 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				// A route must match at least one of the matcher sets
 				matched, err := route.matcherSets.AnyMatch(cx)
 				if errors.Is(err, ErrConsumedAllPrefetchedBytes) {
+					oldLastNeedsMoreIdx := lastNeedsMoreIdx
 					lastNeedsMoreIdx = i
 					routesStatus[i] = routeNeedsMore
 					// the first time a matcher requires more data, exit the loop to force a prefetch
-					if !matcherNeedMore {
+					if oldLastNeedsMoreIdx == -1 {
 						break
 					}
 					continue // ignore and try next route
@@ -168,11 +171,16 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					return nil
 				}
 				if matched {
+					// some matchers before the current one still need more data, and this is likely a fallback route
+					// that matches anything
+					if len(route.matcherSets) == 0 && lastNeedsMoreIdx != -1 && i > lastNeedsMoreIdx {
+						continue
+					}
 					routesStatus[i] = routeMatched
 					lastMatchedRouteIdx = i
-					lastNeedsMoreIdx = i
+					lastNeedsMoreIdx = i + 1
 					// remove deadline after we matched
-					err = cx.Conn.SetReadDeadline(time.Time{})
+					err = cx.SetReadDeadline(time.Time{})
 					if err != nil {
 						return err
 					}
@@ -202,6 +210,10 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 						return nil
 					}
 				} else {
+					// update the last index to search for unmatched matchers.
+					if i >= lastNeedsMoreIdx {
+						lastNeedsMoreIdx = i + 1
+					}
 					routesStatus[i] = routeNotMatched
 				}
 			}
@@ -210,20 +222,13 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				// next is called because if the last handler is terminal, it's already returned
 				return next.Handle(cx)
 			}
-			var indetermined int
-			for i, s := range routesStatus {
-				if i > lastMatchedRouteIdx && s == routeNeedsMore {
-					indetermined++
-				}
-			}
 			// some of the matchers can't reach a conclusion
-			if indetermined > 0 {
-				matcherNeedMore = true
+			if lastNeedsMoreIdx != -1 && lastNeedsMoreIdx < len(routes) {
 				goto loop
 			}
 			// fallback route, removing deadline
 			// see: https://github.com/mholt/caddy-l4/issues/274
-			err = cx.Conn.SetReadDeadline(time.Time{})
+			err = cx.SetReadDeadline(time.Time{})
 			if err != nil {
 				return err
 			}

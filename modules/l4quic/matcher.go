@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -43,6 +44,8 @@ func init() {
 	caddy.RegisterModule(&MatchQUIC{})
 }
 
+var isTesting bool
+
 // MatchQUIC is able to match QUIC connections. Its structure
 // is different from the auto-generated documentation. This
 // value should be a map of matcher names to their values.
@@ -62,6 +65,18 @@ func (m *MatchQUIC) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
+// quicPipeWriter checks the length of the passed in buffer before writing
+type quicPipeWriter struct {
+	io.Writer
+}
+
+func (q quicPipeWriter) Write(p []byte) (int, error) {
+	if len(p) < QUICPacketBytesMin || len(p) > QUICPacketBytesMax {
+		return 0, errors.New("invalid length for quic packet")
+	}
+	return q.Writer.Write(p)
+}
+
 // Match returns true if the connection looks like QUIC.
 func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// Check if the protocol is UDP
@@ -70,8 +85,9 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Read one byte
-	buf := make([]byte, 1)
-	n, err := io.ReadAtLeast(cx, buf, 1)
+	n := 1
+	buf := make([]byte, n)
+	_, err := io.ReadAtLeast(cx, buf, n)
 	if err != nil {
 		return false, err
 	}
@@ -101,8 +117,8 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Use a workaround to match ALPNs. This way quic.EarlyListener.Accept() exits on deadline
 	// if it receives a packet having an ALPN other than those present in tls.Config.NextProtos.
-	repl := cx.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
-	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates}
+	repl := cx.Replacer()
+	tlsConf := &tls.Config{Certificates: m.tlsConf.Certificates, MinVersion: tls.VersionTLS13}
 	for _, matcher := range m.matchers {
 		if alpnMatcher, ok := matcher.(*l4tls.MatchALPN); ok {
 			for _, alpnValue := range *alpnMatcher {
@@ -130,32 +146,58 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = qListener.Close() }()
 
 	// Write the buffered bytes into the pipe
-	n, err = clientFPC.WriteTo(buf[:n+1], nil)
+	_, err = clientFPC.WriteTo(buf[:n+1], nil)
 	if err != nil {
 		return false, nil
+	}
+
+	// Write more buffered bytes into the pipe, the writer here ensures all frames are likely quic frames based on their lengths
+	_, err = io.CopyBuffer(quicPipeWriter{clientFPC}, cx, buf)
+	if err != nil && !errors.Is(err, layer4.ErrConsumedAllPrefetchedBytes) {
+		return false, err
+	}
+
+	// return if there are more data to be read, usually there will be frames buffered at the start of a connection.
+	if cx.HasMore() {
+		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
 
 	// Prepare a context with a deadline
 	qContext, qCancel := context.WithDeadline(context.Background(), time.Now().Add(QUICAcceptTimeout))
-	defer qCancel()
+
+	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
+	done := make(chan struct{})
+	go func() {
+		// during testing the connection is not a packet conn
+		if isTesting {
+			close(done)
+			return
+		}
+		_ = cx.WaitForMore(qContext)
+		qCancel()
+		close(done)
+	}()
 
 	// Accept a new quic.EarlyConnection
-	var qConn quic.EarlyConnection
+	var qConn *quic.Conn
 	qConn, err = qListener.Accept(qContext)
+	qCancel()
+	<-done
 	if err != nil {
-		return false, nil
+		// The only type of error here will be context.DeadlineExceeded and context.Canceled
+		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
+	defer func() { _ = qListener.Close() }()
 
 	// Obtain a quic.ConnectionState
 	qState := qConn.ConnectionState()
 
 	// Add values to the replacer
-	repl.Set("l4.quic.tls.server_name", qState.TLS.ServerName)
-	repl.Set("l4.quic.tls.version", qState.TLS.Version)
-	repl.Set("l4.quic.version", qState.Version.String())
+	repl.Set(quicTLSServerNameReplKey, qState.TLS.ServerName)
+	repl.Set(quicTLSVersionReplKey, caddytls.ProtocolName(qState.TLS.Version))
+	repl.Set(quicVersionReplKey, qState.Version.String())
 
 	// Fill a tls.ClientHelloInfo structure
 	chi := &tls.ClientHelloInfo{
@@ -229,12 +271,13 @@ func (m *MatchQUIC) Provision(ctx caddy.Context) error {
 	var cert []byte
 	cert, err = x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return fmt.Errorf("generating a x509 ceriticate: %v", err)
+		return fmt.Errorf("generating a x509 certificate: %v", err)
 	}
 
 	// Initialize a new TLS config
 	m.tlsConf = &tls.Config{
 		Certificates: []tls.Certificate{{Certificate: [][]byte{cert}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	// Initialize a new QUIC config
@@ -304,7 +347,7 @@ func (fpc *fakePacketConn) LocalAddr() net.Addr {
 }
 
 func (fpc *fakePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
-	n, err := fpc.Conn.Read(p)
+	n, err := fpc.Read(p)
 	return n, fpc.RemoteAddr(), err
 }
 
@@ -324,7 +367,7 @@ func (fpc *fakePacketConn) SetWriteBuffer(_ int) error {
 }
 
 func (fpc *fakePacketConn) WriteTo(p []byte, _ net.Addr) (int, error) {
-	return fpc.Conn.Write(p)
+	return fpc.Write(p)
 }
 
 // Interface guards
@@ -338,6 +381,15 @@ var (
 	_ net.PacketConn                         = (*fakePacketConn)(nil)
 	_ interface{ SetReadBuffer(int) error }  = (*fakePacketConn)(nil)
 	_ interface{ SetWriteBuffer(int) error } = (*fakePacketConn)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	quicReplPrefix = layer4.AppReplPrefix + "quic."
+
+	quicTLSServerNameReplKey = quicReplPrefix + "tls.server_name"
+	quicTLSVersionReplKey    = quicReplPrefix + "tls.version"
+	quicVersionReplKey       = quicReplPrefix + "version"
 )
 
 const (
