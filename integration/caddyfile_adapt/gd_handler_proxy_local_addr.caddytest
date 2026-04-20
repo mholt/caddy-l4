@@ -1,0 +1,84 @@
+{
+	layer4 {
+		0.0.0.0:8443 {
+			route {
+				proxy {
+					upstream {
+						dial dual-stack.example.internal:443
+						local_addr 10.0.0.10 2001:db8::10
+					}
+				}
+			}
+		}
+		0.0.0.0:9443 {
+			route {
+				proxy {
+					upstream {
+						dial api.example.com:443
+						resolver_preference ipv4_only
+						local_addr 10.0.0.10
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"dual-stack.example.internal:443"
+											],
+											"local_address": [
+												"10.0.0.10",
+												"2001:db8::10"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"0.0.0.0:9443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"api.example.com:443"
+											],
+											"local_address": [
+												"10.0.0.10"
+											],
+											"resolver_preference": "ipv4_only"
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

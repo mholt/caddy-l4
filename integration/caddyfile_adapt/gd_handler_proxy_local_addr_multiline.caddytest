@@ -1,0 +1,52 @@
+{
+	layer4 {
+		0.0.0.0:9443 {
+			route {
+				proxy {
+					upstream {
+						dial dual.example.com:443
+						local_addr 10.0.0.10
+						local_addr 10.0.0.11 2001:db8::10
+						resolver_preference ipv6_first
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:9443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"dual.example.com:443"
+											],
+											"local_address": [
+												"10.0.0.10",
+												"10.0.0.11",
+												"2001:db8::10"
+											],
+											"resolver_preference": "ipv6_first"
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

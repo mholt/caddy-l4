@@ -1,0 +1,85 @@
+{
+	layer4 {
+		[::]:8443 {
+			route {
+				proxy {
+					upstream {
+						dial example.com:443
+						local_addr [2001:db8::1]:12345
+						resolver_preference ipv6_only
+					}
+				}
+			}
+		}
+		0.0.0.0:9443 {
+			route {
+				proxy {
+					upstream {
+						dial example.com:443
+						local_addr {env.BIND_IP}
+						resolver_preference ipv4_first
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"[::]:8443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"example.com:443"
+											],
+											"local_address": [
+												"[2001:db8::1]:12345"
+											],
+											"resolver_preference": "ipv6_only"
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"0.0.0.0:9443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"example.com:443"
+											],
+											"local_address": [
+												"{env.BIND_IP}"
+											],
+											"resolver_preference": "ipv4_first"
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
