@@ -160,7 +160,8 @@ proxy [<upstreams...>] {
     # multiple upstream options are supported
     upstream [<address:port>] {
         dial <address:port> [<address:port>]
-        local_addr <address> [<address>...]
+        local_addr <address[:port]> [<address[:port]>]
+        resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
         max_connections <int>
         
         tls
@@ -275,6 +276,114 @@ filled at random:
                         tls_insecure_skip_verify
                         tls_renegotiation once
                     }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Controlling the outbound source address and resolver family
+
+`local_address` pins the source address Caddy uses when dialing an upstream, and `resolver_preference`
+restricts or biases which DNS family is used when the upstream is a hostname. Typical use-cases:
+
+- **Dual-stack outbound load-balancing.** Provide an IPv4 and an IPv6 source; Caddy picks the one that
+  matches the peer it is about to dial. This lets you spread outbound traffic across multiple
+  source IPs per family instead of always egressing from the host's primary IP.
+- **IP-whitelisted upstreams.** If a remote endpoint only allows a specific source IP (or only one
+  address family), combine `local_address` with `resolver_preference` to force Caddy to dial from
+  that IP over the expected family.
+
+```caddyfile
+{
+    layer4 {
+        # Dual-stack outbound: bind the correct source per peer family.
+        0.0.0.0:8443 {
+            route {
+                proxy {
+                    upstream {
+                        dial dual-stack.example.internal:443
+                        local_addr 10.0.0.10 2001:db8::10
+                    }
+                }
+            }
+        }
+
+        # Force IPv4-only to an upstream that whitelists only our v4 address,
+        # and pin the source IP so the upstream's ACL matches.
+        0.0.0.0:9443 {
+            route {
+                proxy {
+                    upstream {
+                        dial api.example.com:443
+                        resolver_preference ipv4_only
+                        local_addr 10.0.0.10
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+JSON equivalent of the two proxies above. Note that `local_address` is an **array of strings**
+(even for a single address):
+
+```json
+{
+    "apps": {
+        "layer4": {
+            "servers": {
+                "srv0": {
+                    "listen": [
+                        "0.0.0.0:8443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "dual-stack.example.internal:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10",
+                                                "2001:db8::10"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "srv1": {
+                    "listen": [
+                        "0.0.0.0:9443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "api.example.com:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10"
+                                            ],
+                                            "resolver_preference": "ipv4_only"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
                 }
             }
         }

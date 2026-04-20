@@ -39,14 +39,20 @@ type Upstream struct {
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
-	// Local address(es) to bind to when making the request to upstream. When multiple addresses are provided,
-	// the first one matching the upstream's address family (IPv4/IPv6/Unix) is used, otherwise the OS default is used.
-	// Source ports can be specified for both IPv4 and IPv6, but IPv6 must use brackets when specifying the port,
-	// e.g. [2001:db8::1]:12345.
+	// Local address(es) to bind to when dialing the upstream. Provide only the address (no protocol
+	// prefix); the protocol is inferred from each upstream dial target. When multiple addresses are
+	// provided, the first one matching the upstream's address family (IPv4/IPv6/Unix) is used,
+	// otherwise the OS default is used. Source ports may be specified for both IPv4 and IPv6, but
+	// IPv6 must use brackets when specifying a port, e.g. [2001:db8::1]:12345. Unix source paths
+	// are only valid for Unix upstreams, and IP source addresses are only valid for TCP/UDP
+	// upstreams. Supports placeholders, resolved in two phases: known placeholders are replaced at
+	// provision, remaining ones are replaced per-connection.
 	LocalAddrs []string `json:"local_address,omitempty"`
 
-	// Preference for address family resolution. One of: "ipv4_only", "ipv6_only",
-	// "ipv4_first", "ipv6_first". Default is "ipv4_first".
+	// Preference for address family when resolving upstream hostnames. One of: "ipv4_only",
+	// "ipv6_only", "ipv4_first", "ipv6_first". Default is "ipv4_first". The "_only" modes fail
+	// fast if the requested family is unavailable (e.g. no A records for "ipv4_only", no AAAA
+	// records for "ipv6_only") and will not fall back to the other family.
 	ResolverPreference string `json:"resolver_preference,omitempty"`
 
 	// Set this field to enable TLS to the upstream.
@@ -190,7 +196,7 @@ func (u *Upstream) totalConns() int {
 //
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
-//		local_addr <address> [<address>...]
+//		local_addr <address[:port]> [<address[:port]>]
 //		max_connections <int>
 //
 //		tls
