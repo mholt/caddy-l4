@@ -236,9 +236,16 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		}
 		hostPort := addr.JoinHostPort(0)
 
-		destFam, famErr := resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
-		if famErr != nil {
-			return nil, famErr
+		// Resolve the destination address family only when it will actually be used,
+		// i.e. when the user has configured local_address or resolver_preference.
+		// Otherwise skip it to avoid an extra DNS lookup per dial for hostname upstreams.
+		var destFam int
+		if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
+			var famErr error
+			destFam, famErr = resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+			if famErr != nil {
+				return nil, famErr
+			}
 		}
 		var resolvedLocalAddrs []string
 		if len(upstream.localAddrs) > 0 {

@@ -144,9 +144,16 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	hostPort := addr.JoinHostPort(0)
 	timeout := time.Duration(h.HealthChecks.Active.Timeout)
 
-	destFam, famErr := resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
-	if famErr != nil {
-		return famErr
+	// Resolve the destination address family only when it will actually be used,
+	// i.e. when the user has configured local_address or resolver_preference.
+	// Otherwise skip it to avoid an extra DNS lookup per health check for hostname upstreams.
+	var destFam int
+	if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
+		var famErr error
+		destFam, famErr = resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+		if famErr != nil {
+			return famErr
+		}
 	}
 	localAddrs := buildLocalAddrs(upstream.localAddrs, addr.Network, destFam, h.logger)
 
