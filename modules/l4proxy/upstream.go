@@ -39,10 +39,11 @@ type Upstream struct {
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
-	// Local address to bind to when making the request to upstream. Multiple addresses are supported as a comma-separated list.
-	// The first address matching the upstream’s address family (IPv4/IPv6/Unix) is used, otherwise the OS default is used.
-	// Source ports can be specified for both IPv6 and IPv6, but IPv6 must use brackets when specifying the port. i.e. [2001:db8::1]:12345.
-	LocalAddr string `json:"local_address,omitempty"`
+	// Local address(es) to bind to when making the request to upstream. When multiple addresses are provided,
+	// the first one matching the upstream's address family (IPv4/IPv6/Unix) is used, otherwise the OS default is used.
+	// Source ports can be specified for both IPv4 and IPv6, but IPv6 must use brackets when specifying the port,
+	// e.g. [2001:db8::1]:12345.
+	LocalAddrs []string `json:"local_address,omitempty"`
 
 	// Preference for address family resolution. One of: "ipv4_only", "ipv6_only",
 	// "ipv4_first", "ipv6_first". Default is "ipv4_first".
@@ -58,6 +59,10 @@ type Upstream struct {
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
+
+	// localAddrs holds LocalAddrs after known placeholders are replaced at
+	// provision time. Unknown placeholders remain and are expanded per-connection.
+	localAddrs []string
 }
 
 func (u *Upstream) String() string {
@@ -88,6 +93,12 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 			p = existingPeer.(*peer)
 		}
 		u.peers = append(u.peers, p)
+	}
+
+	// Resolve known placeholders in local_address at provision time; any unknown
+	// placeholders are preserved and expanded per-connection in Handler.dialPeers.
+	for _, la := range u.LocalAddrs {
+		u.localAddrs = append(u.localAddrs, repl.ReplaceKnown(la, ""))
 	}
 
 	// set up TLS client
@@ -179,7 +190,7 @@ func (u *Upstream) totalConns() int {
 //
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
-//		local_addr <address:port>
+//		local_addr <address> [<address>...]
 //		max_connections <int>
 //
 //		tls
@@ -224,11 +235,10 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if hasLocalAddr {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
-			if d.CountRemainingArgs() != 1 {
+			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			d.NextArg()
-			u.LocalAddr, hasLocalAddr = d.Val(), true
+			u.LocalAddrs, hasLocalAddr = append(u.LocalAddrs, d.RemainingArgs()...), true
 		case "max_connections":
 			if hasMaxConnections {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

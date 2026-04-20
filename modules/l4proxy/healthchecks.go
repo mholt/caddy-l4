@@ -145,7 +145,7 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	if famErr != nil {
 		return famErr
 	}
-	localAddrs := buildLocalAddrs(upstream.LocalAddr, addr.Network, destFam, h.logger)
+	localAddrs := buildLocalAddrs(upstream.localAddrs, addr.Network, destFam, h.logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

@@ -88,13 +88,16 @@ Each `upstream` has the following fields:
   No port ranges are currently supported by the handler. At least one dial address must be provided per upstream.
   Multiple addresses are dialled one by one until a connection is successfully established.  
 
-- `local_address` specifies the source address when connecting to the upstream(s). Provide only the address (no
-  protocol prefix); the protocol is inferred from each upstream dial target (TCP by default if none is specified).
-  If a port is included, that exact port is used; if omitted, the OS chooses an ephemeral port (:0). Unix
-  source paths are supported only for Unix upstreams; for TCP/UDP upstreams, a Unix `local_address` is invalid, and
-  for Unix upstreams an IPv4/v6 `local_address` is invalid. Multiple addresses may be provided as a comma-separated
-  list; the first address matching the upstream’s address family (IPv4/IPv6/Unix) is used, otherwise the OS default
-  is used. If you need to specify a port for an IPv6 source, you must use brackets: `[2001:db8::1]:12345`.
+- `local_address` specifies the source address(es) when connecting to the upstream(s). Provide only the address
+  (no protocol prefix); the protocol is inferred from each upstream dial target (TCP by default if none is
+  specified). If a port is included, that exact port is used; if omitted, the OS chooses an ephemeral port (:0).
+  Unix source paths are supported only for Unix upstreams; for TCP/UDP upstreams, a Unix `local_address` is invalid,
+  and for Unix upstreams an IPv4/v6 `local_address` is invalid. In JSON this is an array of strings; in a Caddyfile,
+  multiple addresses are given as space-separated arguments. The first address matching the upstream’s address
+  family (IPv4/IPv6/Unix) is used, otherwise the OS default is used. If you need to specify a port for an IPv6
+  source, you must use brackets: `[2001:db8::1]:12345`. [Placeholders](https://caddyserver.com/docs/conventions#placeholders)
+  are supported and resolved in two phases: known ones are replaced at provision, the rest are replaced at handle
+  (e.g. `{env.BIND_IP}` resolves at provision, while `{l4.conn.local_addr}` resolves per-connection).
 
 - `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
   one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. The “only” modes fail immediately
@@ -123,10 +126,12 @@ Each `upstream` has the following fields:
     | `tls_timeout`                              | `handshake_timeout`                                         |
     | `tls_trust_pool`                           | `ca`                                                        |
 
-Only two fields support [placeholders](https://caddyserver.com/docs/conventions#placeholders).
+Three fields support [placeholders](https://caddyserver.com/docs/conventions#placeholders).
 
 - `dial` (same as arguments after `upstream` and `proxy`) resolves placeholders two times: known once are replaced
   at provision, others are replaced at handle. E.g. `{l4.tls.server_name}:443` enables dynamic TLS SNI based upstreams.
+- `local_address` resolves placeholders two times as well: known ones are replaced at provision, others are replaced
+  per-connection at handle.
 - `proxy_protocol` resolves placeholders at provision.
 
 ### Caddyfile
@@ -155,7 +160,7 @@ proxy [<upstreams...>] {
     # multiple upstream options are supported
     upstream [<address:port>] {
         dial <address:port> [<address:port>]
-        local_addr <network/host[:port]>
+        local_addr <address> [<address>...]
         max_connections <int>
         
         tls

@@ -53,8 +53,9 @@ func TestDialPeersUsesConfiguredLocalPortTCP(t *testing.T) {
 
 	h := &Handler{logger: zap.NewExample()}
 	upstream := &Upstream{
-		LocalAddr: localAddr,
-		peers:     []*peer{{address: parsedUpstream}},
+		LocalAddrs: []string{localAddr},
+		localAddrs: []string{localAddr},
+		peers:      []*peer{{address: parsedUpstream}},
 	}
 
 	downClient, downServer := net.Pipe()
@@ -114,8 +115,9 @@ func TestDialPeersUsesConfiguredLocalPortUDP(t *testing.T) {
 
 	h := &Handler{logger: zap.NewExample()}
 	upstream := &Upstream{
-		LocalAddr: localAddr,
-		peers:     []*peer{{address: parsedUpstream}},
+		LocalAddrs: []string{localAddr},
+		localAddrs: []string{localAddr},
+		peers:      []*peer{{address: parsedUpstream}},
 	}
 
 	downClient, downServer := net.Pipe()
@@ -145,7 +147,7 @@ func TestDialPeersUsesConfiguredLocalPortUDP(t *testing.T) {
 
 // Build-local-address selection tests
 func TestSelectLocalAddrIPv6TCP(t *testing.T) {
-	addrs := buildLocalAddrs("[2001:db8::1]:4040", "tcp6", 6, zap.NewNop())
+	addrs := buildLocalAddrs([]string{"[2001:db8::1]:4040"}, "tcp6", 6, zap.NewNop())
 	if len(addrs) != 1 {
 		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
@@ -163,7 +165,7 @@ func TestSelectLocalAddrIPv6TCP(t *testing.T) {
 }
 
 func TestSelectLocalAddrIPv6UDP(t *testing.T) {
-	addrs := buildLocalAddrs("[2001:db8::2]:5353", "udp6", 6, zap.NewNop())
+	addrs := buildLocalAddrs([]string{"[2001:db8::2]:5353"}, "udp6", 6, zap.NewNop())
 	if len(addrs) != 1 {
 		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
@@ -181,7 +183,7 @@ func TestSelectLocalAddrIPv6UDP(t *testing.T) {
 }
 
 func TestSelectLocalAddrDefaultsToUpstreamFamily(t *testing.T) {
-	addrs := buildLocalAddrs("192.0.2.1:5353", "udp", 0, zap.NewNop())
+	addrs := buildLocalAddrs([]string{"192.0.2.1:5353"}, "udp", 0, zap.NewNop())
 	if len(addrs) != 1 {
 		t.Fatalf("expected 1 addr, got %d", len(addrs))
 	}
@@ -191,16 +193,16 @@ func TestSelectLocalAddrDefaultsToUpstreamFamily(t *testing.T) {
 }
 
 func TestSelectLocalAddrSkipsMismatchedFamilies(t *testing.T) {
-	if addrs := buildLocalAddrs("::1", "tcp4", 4, zap.NewNop()); len(addrs) != 0 {
+	if addrs := buildLocalAddrs([]string{"::1"}, "tcp4", 4, zap.NewNop()); len(addrs) != 0 {
 		t.Fatalf("expected no addr for ipv6 source with tcp4 upstream")
 	}
-	if addrs := buildLocalAddrs("127.0.0.1", "tcp6", 6, zap.NewNop()); len(addrs) != 0 {
+	if addrs := buildLocalAddrs([]string{"127.0.0.1"}, "tcp6", 6, zap.NewNop()); len(addrs) != 0 {
 		t.Fatalf("expected no addr for ipv4 source with tcp6 upstream")
 	}
 }
 
 func TestSelectLocalAddrChoosesMatchingFromList(t *testing.T) {
-	addrs := buildLocalAddrs("127.0.0.1, ::1", "tcp6", 6, zap.NewNop())
+	addrs := buildLocalAddrs([]string{"127.0.0.1", "::1"}, "tcp6", 6, zap.NewNop())
 	if len(addrs) == 0 {
 		t.Fatalf("expected matching addr")
 	}
@@ -208,12 +210,39 @@ func TestSelectLocalAddrChoosesMatchingFromList(t *testing.T) {
 		t.Fatalf("expected ipv6 local addr, got %T %v", addrs[0], addrs[0])
 	}
 
-	addrs = buildLocalAddrs("127.0.0.1, ::1", "tcp4", 4, zap.NewNop())
+	addrs = buildLocalAddrs([]string{"127.0.0.1", "::1"}, "tcp4", 4, zap.NewNop())
 	if len(addrs) == 0 {
 		t.Fatalf("expected matching addr")
 	}
 	if tcpAddr, ok := addrs[0].(*net.TCPAddr); !ok || tcpAddr.IP.To4() == nil {
 		t.Fatalf("expected ipv4 local addr, got %T %v", addrs[0], addrs[0])
+	}
+}
+
+// Known placeholders in local_address should be replaced at provision time,
+// while unknown (runtime) placeholders must be preserved for per-connection expansion.
+func TestProvisionExpandsKnownPlaceholdersInLocalAddr(t *testing.T) {
+	t.Setenv("L4PROXY_TEST_BIND", "192.0.2.77")
+
+	dialAddr := "127.0.0.1:59991"
+	t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+	h := &Handler{logger: zap.NewNop()}
+	u := &Upstream{
+		Dial:       []string{dialAddr},
+		LocalAddrs: []string{"{env.L4PROXY_TEST_BIND}", "{l4.conn.local_addr}"},
+	}
+	if err := u.provision(caddy.Context{}, h); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if got, want := len(u.localAddrs), 2; got != want {
+		t.Fatalf("provisioned localAddrs: got %d entries, want %d", got, want)
+	}
+	if got, want := u.localAddrs[0], "192.0.2.77"; got != want {
+		t.Fatalf("known placeholder should be resolved: got %q, want %q", got, want)
+	}
+	if got, want := u.localAddrs[1], "{l4.conn.local_addr}"; got != want {
+		t.Fatalf("unknown (per-connection) placeholder should be preserved at provision: got %q, want %q", got, want)
 	}
 }
 
@@ -261,7 +290,7 @@ func TestResolveDestFamilyWithPreferences(t *testing.T) {
 }
 
 func TestSelectLocalAddrUnix(t *testing.T) {
-	addrs := buildLocalAddrs("/tmp/l4proxy-src.sock", "unix", 0, zap.NewNop())
+	addrs := buildLocalAddrs([]string{"/tmp/l4proxy-src.sock"}, "unix", 0, zap.NewNop())
 	if len(addrs) != 1 {
 		t.Fatalf("expected 1 unix addr, got %d", len(addrs))
 	}
@@ -269,8 +298,7 @@ func TestSelectLocalAddrUnix(t *testing.T) {
 		t.Fatalf("expected UnixAddr, got %T", addrs[0])
 	}
 
-	// IPs should be ignored for unix upstreams
-	if addrs := buildLocalAddrs("127.0.0.1", "unix", 0, zap.NewNop()); len(addrs) != 0 {
+	if addrs := buildLocalAddrs([]string{"127.0.0.1"}, "unix", 0, zap.NewNop()); len(addrs) != 0 {
 		t.Fatalf("expected no ip addr for unix upstream")
 	}
 }
@@ -310,8 +338,9 @@ func TestActiveHealthCheckUsesLocalAddress(t *testing.T) {
 	}
 
 	upstream := &Upstream{
-		LocalAddr: "127.0.0.1", // defaults to tcp with ephemeral port
-		peers:     []*peer{{address: upAddr}},
+		LocalAddrs: []string{"127.0.0.1"}, // defaults to tcp with ephemeral port
+		localAddrs: []string{"127.0.0.1"},
+		peers:      []*peer{{address: upAddr}},
 	}
 
 	if err := h.doActiveHealthCheck(upstream, upstream.peers[0]); err != nil {

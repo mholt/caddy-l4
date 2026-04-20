@@ -231,7 +231,14 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		if famErr != nil {
 			return nil, famErr
 		}
-		localAddrs := buildLocalAddrs(upstream.LocalAddr, p.address.Network, destFam, h.logger)
+		var resolvedLocalAddrs []string
+		if len(upstream.localAddrs) > 0 {
+			resolvedLocalAddrs = make([]string, 0, len(upstream.localAddrs))
+			for _, la := range upstream.localAddrs {
+				resolvedLocalAddrs = append(resolvedLocalAddrs, repl.ReplaceAll(la, ""))
+			}
+		}
+		localAddrs := buildLocalAddrs(resolvedLocalAddrs, p.address.Network, destFam, h.logger)
 
 		if upstream.TLS == nil {
 			up, err = dialWithLocalAddrs(localAddrs, p.address.Network, hostPort)
@@ -696,9 +703,9 @@ var (
 var lookupIP = net.DefaultResolver.LookupIP
 
 // buildLocalAddrs returns all candidate local addresses matching the upstream network family, in order.
-// If none match or localAddr is empty/invalid, it returns nil (use OS default).
-func buildLocalAddrs(localAddr, upstreamNetwork string, destFamily int, logger *zap.Logger) []net.Addr {
-	if localAddr == "" {
+// If none match or localAddrs is empty/invalid, it returns nil (use OS default).
+func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int, logger *zap.Logger) []net.Addr {
+	if len(localAddrs) == 0 {
 		return nil
 	}
 
@@ -712,7 +719,7 @@ func buildLocalAddrs(localAddr, upstreamNetwork string, destFamily int, logger *
 
 	var result []net.Addr
 
-	for _, candidate := range strings.Split(localAddr, ",") {
+	for _, candidate := range localAddrs {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
 			continue
