@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,17 +290,27 @@ func TestResolveDestFamilyWithPreferences(t *testing.T) {
 	}
 }
 
-func TestSelectLocalAddrUnix(t *testing.T) {
-	addrs := buildLocalAddrs([]string{"/tmp/l4proxy-src.sock"}, "unix", 0, zap.NewNop())
-	if len(addrs) != 1 {
-		t.Fatalf("expected 1 unix addr, got %d", len(addrs))
-	}
-	if _, ok := addrs[0].(*net.UnixAddr); !ok {
-		t.Fatalf("expected UnixAddr, got %T", addrs[0])
-	}
+// local_address is not supported for Unix upstreams; provision must reject any
+// such combination so that the invalid config surfaces early with a clear error.
+func TestProvisionRejectsLocalAddrForUnixUpstream(t *testing.T) {
+	for _, netw := range []string{"unix", "unixpacket", "unixgram"} {
+		t.Run(netw, func(t *testing.T) {
+			dialAddr := netw + "//tmp/l4proxy-provision-test-" + netw + ".sock"
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
 
-	if addrs := buildLocalAddrs([]string{"127.0.0.1"}, "unix", 0, zap.NewNop()); len(addrs) != 0 {
-		t.Fatalf("expected no ip addr for unix upstream")
+			h := &Handler{logger: zap.NewNop()}
+			u := &Upstream{
+				Dial:       []string{dialAddr},
+				LocalAddrs: []string{"/tmp/l4proxy-src.sock"},
+			}
+			err := u.provision(caddy.Context{}, h)
+			if err == nil {
+				t.Fatalf("expected provision to reject local_address for %s upstream", netw)
+			}
+			if !strings.Contains(err.Error(), "local_address is not supported for Unix socket upstreams") {
+				t.Fatalf("unexpected error for %s upstream: %v", netw, err)
+			}
+		})
 	}
 }
 

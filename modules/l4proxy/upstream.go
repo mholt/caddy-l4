@@ -39,14 +39,15 @@ type Upstream struct {
 	// ranges currently (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
-	// Local address(es) to bind to when dialing the upstream. Provide only the address (no protocol
-	// prefix); the protocol is inferred from each upstream dial target. When multiple addresses are
-	// provided, the first one matching the upstream's address family (IPv4/IPv6/Unix) is used,
-	// otherwise the OS default is used. Source ports may be specified for both IPv4 and IPv6, but
-	// IPv6 must use brackets when specifying a port, e.g. [2001:db8::1]:12345. Unix source paths
-	// are only valid for Unix upstreams, and IP source addresses are only valid for TCP/UDP
-	// upstreams. Supports placeholders, resolved in two phases: known placeholders are replaced at
-	// provision, remaining ones are replaced per-connection.
+	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
+	// setting this for a Unix socket upstream (unix, unixpacket, unixgram) is an error at provision
+	// time because source binding has no useful effect for Unix IPC. Provide only the address (no
+	// protocol prefix); the protocol is inferred from each upstream dial target. When multiple
+	// addresses are provided, the first one matching the upstream's address family (IPv4/IPv6) is
+	// used, otherwise the OS default is used. Source ports may be specified for both IPv4 and IPv6,
+	// but IPv6 must use brackets when specifying a port, e.g. [2001:db8::1]:12345. Supports
+	// placeholders, resolved in two phases: known placeholders are replaced at provision, remaining
+	// ones are replaced per-connection.
 	LocalAddrs []string `json:"local_address,omitempty"`
 
 	// Preference for address family when resolving upstream hostnames. One of: "ipv4_only",
@@ -99,6 +100,15 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 			p = existingPeer.(*peer)
 		}
 		u.peers = append(u.peers, p)
+	}
+
+	// Reject local_address for Unix socket upstreams
+	if len(u.LocalAddrs) > 0 {
+		for _, p := range u.peers {
+			if caddy.IsUnixNetwork(p.address.Network) {
+				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
+			}
+		}
 	}
 
 	// Resolve known placeholders in local_address at provision time; any unknown

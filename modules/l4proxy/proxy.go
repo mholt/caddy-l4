@@ -704,6 +704,7 @@ var lookupIP = net.DefaultResolver.LookupIP
 
 // buildLocalAddrs returns all candidate local addresses matching the upstream network family, in order.
 // If none match or localAddrs is empty/invalid, it returns nil (use OS default).
+// Unix socket upstreams are rejected at provision time, so this function only ever sees TCP/UDP.
 func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int, logger *zap.Logger) []net.Addr {
 	if len(localAddrs) == 0 {
 		return nil
@@ -715,7 +716,6 @@ func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int
 	}
 
 	fam := ipFamilyFromNetwork(upstreamNetwork)
-	isUnixUpstream := caddy.IsUnixNetwork(upstreamNetwork)
 
 	var result []net.Addr
 
@@ -739,40 +739,30 @@ func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int
 		}
 
 		ip := net.ParseIP(host)
-		if ip != nil {
-			if isUnixUpstream {
-				continue
-			}
-			// choose by upstream family if specific, otherwise by destination family hint if provided
-			wantFam := fam
-			if wantFam == 0 && destFamily != 0 {
-				wantFam = destFamily
-			}
-			if wantFam == 4 && ip.To4() == nil {
-				continue
-			}
-			if wantFam == 6 && ip.To4() != nil {
-				continue
-			}
+		if ip == nil {
+			continue
+		}
 
-			netw := upstreamNetwork
-			if strings.HasPrefix(upstreamNetwork, "udp") {
-				if addr, err := net.ResolveUDPAddr(netw, net.JoinHostPort(ip.String(), port)); err == nil {
-					result = append(result, addr)
-				}
-				continue
-			}
-			if addr, err := net.ResolveTCPAddr(netw, net.JoinHostPort(ip.String(), port)); err == nil {
+		// choose by upstream family if specific, otherwise by destination family hint if provided
+		wantFam := fam
+		if wantFam == 0 && destFamily != 0 {
+			wantFam = destFamily
+		}
+		if wantFam == 4 && ip.To4() == nil {
+			continue
+		}
+		if wantFam == 6 && ip.To4() != nil {
+			continue
+		}
+
+		if strings.HasPrefix(upstreamNetwork, "udp") {
+			if addr, err := net.ResolveUDPAddr(upstreamNetwork, net.JoinHostPort(ip.String(), port)); err == nil {
 				result = append(result, addr)
 			}
 			continue
 		}
-
-		// Unix path
-		if isUnixUpstream {
-			if addr, err := net.ResolveUnixAddr(upstreamNetwork, host); err == nil {
-				result = append(result, addr)
-			}
+		if addr, err := net.ResolveTCPAddr(upstreamNetwork, net.JoinHostPort(ip.String(), port)); err == nil {
+			result = append(result, addr)
 		}
 	}
 
