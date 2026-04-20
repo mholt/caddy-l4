@@ -15,6 +15,7 @@
 package l4proxy
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -111,7 +112,7 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 			}()
 
 			for _, p := range upstream.peers {
-				err := h.doActiveHealthCheck(p)
+				err := h.doActiveHealthCheck(upstream, p)
 				if err != nil {
 					h.HealthChecks.Active.logger.Error("active health check failed",
 						zap.String("peer", p.address.String()),
@@ -128,7 +129,7 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 // the health check. An error is returned only if the health
 // check fails to occur or if marking the host's health status
 // fails.
-func (h *Handler) doActiveHealthCheck(p *peer) error {
+func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	addr := p.address
 	if addr == nil {
 		return nil
@@ -143,7 +144,41 @@ func (h *Handler) doActiveHealthCheck(p *peer) error {
 	hostPort := addr.JoinHostPort(0)
 	timeout := time.Duration(h.HealthChecks.Active.Timeout)
 
-	conn, err := net.DialTimeout(addr.Network, hostPort, timeout)
+	// Resolve the destination address family only when it will actually be used,
+	// i.e. when the user has configured local_address or resolver_preference.
+	// Otherwise skip it to avoid an extra DNS lookup per health check for hostname upstreams.
+	var destFam int
+	if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
+		var famErr error
+		destFam, famErr = resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+		if famErr != nil {
+			return famErr
+		}
+	}
+	// Narrow the dial network to match the resolved family so resolver_preference
+	// is enforced at Dial time. When destFam == 0 (both new features unset) this
+	// returns addr.Network unchanged, preserving pre-PR health-check behavior.
+	dialNetwork := narrowNetworkForFamily(addr.Network, destFam)
+	localAddrs := buildLocalAddrs(upstream.localAddrs, dialNetwork, destFam, h.logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var conn net.Conn
+	var err error
+	if len(localAddrs) == 0 {
+		var d net.Dialer
+		d.Timeout = timeout
+		conn, err = d.DialContext(ctx, dialNetwork, hostPort)
+	} else {
+		for _, la := range localAddrs {
+			d := &net.Dialer{LocalAddr: la, Timeout: timeout}
+			conn, err = d.DialContext(ctx, dialNetwork, hostPort)
+			if err == nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		h.HealthChecks.Active.logger.Info("host is down",
 			zap.String("address", addr.String()),

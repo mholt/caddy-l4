@@ -12,18 +12,16 @@ This handler is at the core of the package functionality and supports both TCP a
 ## Syntax
 
 The handler has the following optional fields:
+
 - `health_checks` may contain a `l4proxy.HealthChecks` structure which includes `active` (`l4proxy.ActiveHealthChecks`)
   and `passive` (`l4proxy.PassiveHealthChecks`) fields (valid for JSON). In a Caddyfile, multiple options are used to
   fill these structures as described below.
 
-
 - `load_balancing` may contain a `l4proxy.LoadBalancing` structure (valid for JSON). In a Caddyfile, multiple options
   are used to fill this structure as described below.
 
-
 - `proxy_protocol` may specify the version of the Proxy Protocol header to add when connecting to any upstreams,
   either `v1` or `v2`.
-
 
 - `upstreams` may contain a list of `l4proxy.Upstream` structures (valid for JSON). In a Caddyfile, multiple `upstream`
   options or blocks are unmarshalled into a list of such structures.
@@ -64,6 +62,7 @@ load balancing makes sense only if the handler has two or more upstreams.
 
 Load balancing options include `lb_policy`, `lb_try_duration` and `lb_try_interval` which correspond to `selection`,
 `try_duration` and `try_interval` fields of the `l4proxy.LoadBalancing` structure:
+
 - `lb_policy` is a selection policy which is how to choose an available upstream. By default, it is `random`.
   The following alternatives are supported by the handler:
   - `first` is a policy that selects the first available upstream;
@@ -84,14 +83,43 @@ Load balancing options include `lb_policy`, `lb_try_duration` and `lb_try_interv
   can cause the CPU to spin if all upstreams are down and latency is very low.
 
 Each `upstream` has the following fields:
+
 - `dial` contains a list of network addresses to dial. Each address must be exactly 1 socket, e.g. `10.1.2.3:80`.
   No port ranges are currently supported by the handler. At least one dial address must be provided per upstream.
   Multiple addresses are dialled one by one until a connection is successfully established.  
 
+- `local_address` specifies the source address(es) when connecting to the upstream(s). It applies only to
+  TCP and UDP upstreams; it is **not supported for Unix socket upstreams** (`unix`, `unixpacket`, `unixgram`)
+  and will be rejected at provision. For Unix upstreams, source binding has no useful effect for a proxy,
+  because stream Unix sockets identify peers via kernel credentials rather than bound paths. Provide only
+  the address (no protocol prefix); the protocol is inferred from each upstream dial target (TCP by default
+  if none is specified). If a port is included, that exact port is used; if omitted, the OS chooses an
+  ephemeral port (:0). In JSON this is an array of strings; in a Caddyfile, multiple addresses may be given
+  as space-separated arguments on a single `local_addr` line, across multiple `local_addr` lines, or any
+  combination of the two (entries from every `local_addr` line are concatenated, preserving order, the same
+  way `dial` accepts repeated lines). The first address matching the upstream’s address family (IPv4/IPv6)
+  is used, otherwise the OS default is used. If you need to specify a port for an IPv6 source, you must use brackets:
+  `[2001:db8::1]:12345`. [Placeholders](https://caddyserver.com/docs/conventions#placeholders) are supported
+  and resolved in two phases: known ones are replaced at provision, the rest are replaced at handle
+  (e.g. `{env.BIND_IP}` resolves at provision, while `{l4.conn.local_addr}` resolves per-connection).
+
+- `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
+  exactly one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. Any other value, including
+  typos and differing case, is rejected at provision time rather than silently falling back to the default.
+  The "only" modes fail immediately if the requested family is not available (e.g. no A records for `ipv4_only`,
+  no AAAA records for `ipv6_only`), and they do not fall back to the other family. Once the preference has
+  chosen a family, that family is enforced at the Dial level (the proxy dials on `tcp4`/`udp4` or `tcp6`/`udp6`
+  as appropriate), so the outbound connection never silently falls back to the other family even when no
+  matching `local_address` is configured for the chosen family. When combined with `local_address`, the
+  `_only` modes additionally require at least one configured source address of the matching family: for
+  example, `resolver_preference ipv4_only` paired with an IPv6-only `local_address` is rejected at provision
+  time because every configured source would be skipped at dial. The `_first` modes permit cross-family
+  fallback and are therefore never subject to this check; source-family mismatches for `_first` preferences
+  simply fall back to the OS default outbound address for the dialed family, which is the documented
+  `local_address` behavior.
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).
-
 
 - `tls` may contain a `reverseproxy.TLSConfig` structure to enable TLS when connecting to this upstream. Refer to the
   [relevant Caddy documentation](https://caddyserver.com/docs/json/apps/http/servers/routes/handle/reverse_proxy/transport/http/tls/)
@@ -99,7 +127,7 @@ Each `upstream` has the following fields:
   - bare `tls` option may be used to enable TLS when no other `tls_*` options are defined for this upstream.
     It corresponds to an empty `reverseproxy.TLSConfig` structure, and the default TLS configuration applies;
   - other `tls_*` options are matched to `reverseproxy.TLSConfig` structure fields according to the table below:
-    
+
     | Caddyfile option in a proxy upstream block | JSON field of a `reverseproxy.TLSConfig` structure          |
     |--------------------------------------------|-------------------------------------------------------------|
     | `tls_client_auth` with a single argument   | `client_certificate_automate`                               |
@@ -112,15 +140,18 @@ Each `upstream` has the following fields:
     | `tls_timeout`                              | `handshake_timeout`                                         |
     | `tls_trust_pool`                           | `ca`                                                        |
 
+Three fields support [placeholders](https://caddyserver.com/docs/conventions#placeholders).
 
-Only two fields support [placeholders](https://caddyserver.com/docs/conventions#placeholders). 
 - `dial` (same as arguments after `upstream` and `proxy`) resolves placeholders two times: known once are replaced
   at provision, others are replaced at handle. E.g. `{l4.tls.server_name}:443` enables dynamic TLS SNI based upstreams.
+- `local_address` resolves placeholders two times as well: known ones are replaced at provision, others are replaced
+  per-connection at handle.
 - `proxy_protocol` resolves placeholders at provision.
 
 ### Caddyfile
 
 The handler supports the following syntax:
+
 ```caddyfile
 proxy [<upstreams...>] {
     # active health check options
@@ -143,6 +174,8 @@ proxy [<upstreams...>] {
     # multiple upstream options are supported
     upstream [<address:port>] {
         dial <address:port> [<address:port>]
+        local_addr <address[:port]> [<address[:port]>]
+        resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
         max_connections <int>
         
         tls
@@ -160,6 +193,7 @@ proxy [<upstreams...>] {
 ```
 
 The handler provides a number of **shortcuts** to simplify Caddyfile configuration:
+
 ```caddyfile
 # handlers 1, 2 and 3 do the same:
 # 1 - the short syntax for 1 upstream
@@ -219,6 +253,7 @@ proxy 192.168.0.1:8080 {
 
 An example config of the Layer 4 app that runs two proxies running on TCP4 ports 8765 and 9876 with some options
 filled at random:
+
 ```caddyfile
 {
     layer4 {
@@ -262,9 +297,121 @@ filled at random:
 }
 ```
 
+#### Controlling the outbound source address and resolver family
+
+`local_address` pins the source address Caddy uses when dialing an upstream, and `resolver_preference`
+restricts or biases which DNS family is used when the upstream is a hostname. Typical use-cases:
+
+- **Dual-stack outbound load-balancing.** Provide an IPv4 and an IPv6 source; Caddy picks the one that
+  matches the peer it is about to dial. This lets you spread outbound traffic across multiple
+  source IPs per family instead of always egressing from the host's primary IP.
+- **IP-whitelisted upstreams.** If a remote endpoint only allows a specific source IP (or only one
+  address family), combine `local_address` with `resolver_preference` to force Caddy to dial from
+  that IP over the expected family.
+
+```caddyfile
+{
+    layer4 {
+        # Dual-stack outbound: bind the correct source per peer family.
+        0.0.0.0:8443 {
+            route {
+                proxy {
+                    upstream {
+                        dial dual-stack.example.internal:443
+                        # space-separated on one line (shown) is equivalent to:
+                        #   local_addr 10.0.0.10
+                        #   local_addr 2001:db8::10
+                        local_addr 10.0.0.10 2001:db8::10
+                    }
+                }
+            }
+        }
+
+        # Force IPv4-only to an upstream that whitelists only our v4 address,
+        # and pin the source IP so the upstream's ACL matches.
+        0.0.0.0:9443 {
+            route {
+                proxy {
+                    upstream {
+                        dial api.example.com:443
+                        resolver_preference ipv4_only
+                        local_addr 10.0.0.10
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+JSON equivalent of the two proxies above. Note that `local_address` is an **array of strings**
+(even for a single address):
+
+```json
+{
+    "apps": {
+        "layer4": {
+            "servers": {
+                "srv0": {
+                    "listen": [
+                        "0.0.0.0:8443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "dual-stack.example.internal:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10",
+                                                "2001:db8::10"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "srv1": {
+                    "listen": [
+                        "0.0.0.0:9443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "api.example.com:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10"
+                                            ],
+                                            "resolver_preference": "ipv4_only"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
+```
+
 ### JSON
 
 JSON equivalent to the caddyfile config provided above:
+
 ```json
 {
     "apps": {

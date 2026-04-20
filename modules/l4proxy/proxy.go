@@ -16,6 +16,7 @@ package l4proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"net"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -223,6 +225,8 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		var up net.Conn
 		var err error
 
+		// For dynamic dial addresses (with runtime placeholders) the address was
+		// not pre-parsed at provision; resolve it per-connection here.
 		addr := p.address
 		if addr == nil {
 			addr, err = parseAddress(repl.ReplaceAll(p.dialAddr, ""))
@@ -232,8 +236,35 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		}
 		hostPort := addr.JoinHostPort(0)
 
+		// Resolve the destination address family only when it will actually be used,
+		// i.e. when the user has configured local_address or resolver_preference.
+		// Otherwise skip it to avoid an extra DNS lookup per dial for hostname upstreams.
+		var destFam int
+		if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
+			var famErr error
+			destFam, famErr = resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
+			if famErr != nil {
+				return nil, famErr
+			}
+		}
+		// Narrow the dial network to the resolved family so that resolver_preference
+		// is enforced at Dial time rather than left to Go's Happy Eyeballs default
+		// (which prefers IPv6 on dual-stack targets). When destFam == 0 (both new
+		// features unset), dialNetwork is left as addr.Network for full backward
+		// compat. Already-specific networks (tcp4/tcp6/udp4/udp6/unix*) are untouched.
+		dialNetwork := narrowNetworkForFamily(addr.Network, destFam)
+
+		var resolvedLocalAddrs []string
+		if len(upstream.localAddrs) > 0 {
+			resolvedLocalAddrs = make([]string, 0, len(upstream.localAddrs))
+			for _, la := range upstream.localAddrs {
+				resolvedLocalAddrs = append(resolvedLocalAddrs, repl.ReplaceAll(la, ""))
+			}
+		}
+		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
+
 		if upstream.TLS == nil {
-			up, err = net.Dial(addr.Network, hostPort)
+			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -265,7 +296,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tls.Dial(addr.Network, hostPort, tlsCfg)
+			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -698,6 +729,232 @@ var (
 	_ caddyfile.Unmarshaler = (*Handler)(nil)
 	_ layer4.NextHandler    = (*Handler)(nil)
 )
+
+// allow tests to stub DNS resolution
+var lookupIP = net.DefaultResolver.LookupIP
+
+// buildLocalAddrs returns all candidate local addresses matching the upstream network family, in order.
+// If none match or localAddrs is empty/invalid, it returns nil (use OS default).
+// Unix socket upstreams are rejected at provision time, so this function only ever sees TCP/UDP.
+func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int, logger *zap.Logger) []net.Addr {
+	if len(localAddrs) == 0 {
+		return nil
+	}
+
+	log := logger
+	if log == nil {
+		log = zap.NewNop()
+	}
+
+	fam := ipFamilyFromNetwork(upstreamNetwork)
+
+	var result []net.Addr
+
+	for _, candidate := range localAddrs {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+
+		// Reject protocol prefixes; only raw addresses are allowed.
+		if netw, _, _, err := caddy.SplitNetworkAddress(candidate); err == nil && netw != "" {
+			continue
+		}
+
+		host, port := candidate, "0"
+		if h, p, err := net.SplitHostPort(candidate); err == nil {
+			host, port = h, p
+			if port == "" {
+				port = "0"
+			}
+		}
+
+		ip := net.ParseIP(host)
+		if ip == nil {
+			continue
+		}
+
+		// choose by upstream family if specific, otherwise by destination family hint if provided
+		wantFam := fam
+		if wantFam == 0 && destFamily != 0 {
+			wantFam = destFamily
+		}
+		if wantFam == 4 && ip.To4() == nil {
+			continue
+		}
+		if wantFam == 6 && ip.To4() != nil {
+			continue
+		}
+
+		if strings.HasPrefix(upstreamNetwork, "udp") {
+			if addr, err := net.ResolveUDPAddr(upstreamNetwork, net.JoinHostPort(ip.String(), port)); err == nil {
+				result = append(result, addr)
+			}
+			continue
+		}
+		if addr, err := net.ResolveTCPAddr(upstreamNetwork, net.JoinHostPort(ip.String(), port)); err == nil {
+			result = append(result, addr)
+		}
+	}
+
+	if len(result) > 0 {
+		log.Debug("selected local addresses", zap.String("upstream_network", upstreamNetwork), zap.Int("count", len(result)), zap.Int("dest_family", destFamily))
+	}
+
+	return result
+}
+
+func resolveDestFamily(network, hostPort, pref string) (int, error) {
+	if caddy.IsUnixNetwork(network) {
+		return 0, nil
+	}
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return 0, fmt.Errorf("split host/port for %s: %w", hostPort, err)
+	}
+
+	// Try literal first
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.To4() != nil {
+			if pref == "ipv6_only" {
+				return 0, fmt.Errorf("resolver_preference ipv6_only but destination is IPv4 literal (%s)", host)
+			}
+			return 4, nil
+		}
+		if pref == "ipv4_only" {
+			return 0, fmt.Errorf("resolver_preference ipv4_only but destination is IPv6 literal (%s)", host)
+		}
+		return 6, nil
+	}
+
+	// Hint from network if specific
+	if fam := ipFamilyFromNetwork(network); fam != 0 {
+		if pref == "ipv4_only" && fam != 4 {
+			return 0, fmt.Errorf("resolver_preference ipv4_only but upstream network is %s for host %s", network, host)
+		}
+		if pref == "ipv6_only" && fam != 6 {
+			return 0, fmt.Errorf("resolver_preference ipv6_only but upstream network is %s for host %s", network, host)
+		}
+		return fam, nil
+	}
+
+	ips, err := lookupIP(context.Background(), "ip", host)
+	if err != nil || len(ips) == 0 {
+		if err == nil {
+			err = fmt.Errorf("no DNS records for %s", host)
+		}
+		return 0, fmt.Errorf("resolve %s: %w", host, err)
+	}
+	var v4, v6 bool
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			v4 = true
+		} else {
+			v6 = true
+		}
+	}
+	switch pref {
+	case "ipv4_only":
+		if v4 {
+			return 4, nil
+		}
+		return 0, fmt.Errorf("resolver_preference ipv4_only but no A records found for %s", host)
+	case "ipv6_only":
+		if v6 {
+			return 6, nil
+		}
+		return 0, fmt.Errorf("resolver_preference ipv6_only but no AAAA records found for %s", host)
+	case "ipv6_first":
+		if v6 {
+			return 6, nil
+		}
+		if v4 {
+			return 4, nil
+		}
+		return 0, fmt.Errorf("no usable DNS records for %s", host)
+	case "ipv4_first", "":
+		if v4 {
+			return 4, nil
+		}
+		if v6 {
+			return 6, nil
+		}
+		return 0, fmt.Errorf("no usable DNS records for %s", host)
+	default:
+		// Unreachable: Upstream.provision validates ResolverPreference against the known set.
+		return 0, fmt.Errorf("resolver_preference: unknown value %q (should have been rejected at provision)", pref)
+	}
+}
+
+func ipFamilyFromNetwork(netw string) int {
+	switch netw {
+	case "tcp4", "udp4":
+		return 4
+	case "tcp6", "udp6":
+		return 6
+	default:
+		return 0
+	}
+}
+
+// narrowNetworkForFamily returns a family-specific variant of netw (tcp4/tcp6/udp4/udp6)
+// when destFam is 4 or 6 and netw is a generic "tcp" or "udp". If destFam is 0 or netw
+// is already family-specific or non-IP (unix*), netw is returned unchanged. This lets
+// the caller enforce an address-family preference at the Dial syscall level, ensuring
+// Go's resolver only considers the preferred family rather than falling back to its
+// Happy Eyeballs default. Safe for backward compatibility: callers that don't compute
+// destFam (i.e. both new features unset) pass destFam == 0 and get netw unchanged.
+func narrowNetworkForFamily(netw string, destFam int) string {
+	if destFam != 4 && destFam != 6 {
+		return netw
+	}
+	suffix := "4"
+	if destFam == 6 {
+		suffix = "6"
+	}
+	switch netw {
+	case "tcp":
+		return "tcp" + suffix
+	case "udp":
+		return "udp" + suffix
+	default:
+		return netw
+	}
+}
+
+func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, error) {
+	if len(localAddrs) == 0 {
+		return net.Dial(network, addr)
+	}
+
+	var lastErr error
+	for _, la := range localAddrs {
+		d := &net.Dialer{LocalAddr: la}
+		conn, err := d.Dial(network, addr)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	if len(localAddrs) == 0 {
+		return tls.Dial(network, addr, cfg)
+	}
+
+	var lastErr error
+	for _, la := range localAddrs {
+		d := &net.Dialer{LocalAddr: la}
+		conn, err := tls.DialWithDialer(d, network, addr, cfg)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
 
 // Used to properly shutdown half-closed connections (see PR #73).
 // Implemented by net.TCPConn, net.UnixConn, tls.Conn, qtls.Conn.

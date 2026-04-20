@@ -17,6 +17,7 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -55,6 +56,29 @@ type Upstream struct {
 	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
+	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
+	// setting this for a Unix socket upstream (unix, unixpacket, unixgram) is an error at provision
+	// time because source binding has no useful effect for Unix IPC. Provide only the address (no
+	// protocol prefix); the protocol is inferred from each upstream dial target. When multiple
+	// addresses are provided, the first one matching the upstream's address family (IPv4/IPv6) is
+	// used, otherwise the OS default is used. Source ports may be specified for both IPv4 and IPv6,
+	// but IPv6 must use brackets when specifying a port, e.g. [2001:db8::1]:12345. Supports
+	// placeholders, resolved in two phases: known placeholders are replaced at provision, remaining
+	// ones are replaced per-connection.
+	LocalAddrs []string `json:"local_address,omitempty"`
+
+	// Preference for address family when resolving upstream hostnames. Must be one of:
+	// "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first", or empty (equivalent to "ipv4_first").
+	// Any other value is rejected at provision time. The "_only" modes fail fast if the requested
+	// family is unavailable (e.g. no A records for "ipv4_only", no AAAA records for "ipv6_only")
+	// and will not fall back to the other family. The resolved family is also enforced at the
+	// Dial syscall level (tcp4/tcp6/udp4/udp6) so the outbound connection is bound to the chosen
+	// family even when no matching local_address is configured. Additionally, the "_only" modes
+	// combined with a LocalAddrs set that contains no matching-family entries are rejected at
+	// provision, since every source would be silently skipped at dial. "_first" modes allow
+	// cross-family fallback and are not subject to that compatibility check.
+	ResolverPreference string `json:"resolver_preference,omitempty"`
+
 	// Set this field to enable TLS to the upstream.
 	TLS *reverseproxy.TLSConfig `json:"tls,omitempty"`
 
@@ -65,6 +89,10 @@ type Upstream struct {
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
+
+	// localAddrs holds LocalAddrs after known placeholders are replaced at
+	// provision time. Unknown placeholders remain and are expanded per-connection.
+	localAddrs []string
 }
 
 func (u *Upstream) String() string {
@@ -72,6 +100,14 @@ func (u *Upstream) String() string {
 }
 
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
+	// Validate resolver_preference early: must be one of the known values or empty (default).
+	switch u.ResolverPreference {
+	case "", "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first":
+		// valid
+	default:
+		return fmt.Errorf("resolver_preference: unknown value %q; must be one of: ipv4_only, ipv6_only, ipv4_first, ipv6_first", u.ResolverPreference)
+	}
+
 	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
 		// Replace runtime placeholders.
@@ -97,6 +133,68 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 			p = existingPeer.(*peer)
 		}
 		u.peers = append(u.peers, p)
+	}
+
+	// Reject local_address for Unix socket upstreams. Peers whose addresses contain
+	// runtime placeholders aren't parsed until dial time (p.address == nil) and are
+	// skipped here; in practice such dynamic dial strings aren't Unix sockets.
+	if len(u.LocalAddrs) > 0 {
+		for _, p := range u.peers {
+			if p.address != nil && caddy.IsUnixNetwork(p.address.Network) {
+				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
+			}
+		}
+	}
+
+	// Resolve known placeholders in local_address at provision time; any unknown
+	// placeholders are preserved and expanded per-connection in Handler.dialPeers.
+	for _, la := range u.LocalAddrs {
+		u.localAddrs = append(u.localAddrs, repl.ReplaceKnown(la, ""))
+	}
+
+	// Reject obviously-incompatible combinations of local_address + resolver_preference.
+	// The "_only" preferences force a specific address family at dial, so if none of
+	// the configured local_address entries match that family, every source would be
+	// silently skipped and the OS default would take over - almost certainly not what
+	// the user intended. Fail fast instead. Entries containing runtime placeholders
+	// (e.g. {l4.vars.src}) are exempt because their family isn't known until
+	// per-connection expansion. The "_first" preferences allow cross-family fallback
+	// by design and are therefore NOT subject to this check.
+	if len(u.localAddrs) > 0 &&
+		(u.ResolverPreference == "ipv4_only" || u.ResolverPreference == "ipv6_only") {
+		wantFam, wantStr := 4, "IPv4"
+		if u.ResolverPreference == "ipv6_only" {
+			wantFam, wantStr = 6, "IPv6"
+		}
+		var hasMatch, hasUnresolved bool
+		for _, la := range u.localAddrs {
+			la = strings.TrimSpace(la)
+			if la == "" {
+				continue
+			}
+			if strings.Contains(la, "{") {
+				hasUnresolved = true
+				continue
+			}
+			host := la
+			if h, _, err := net.SplitHostPort(la); err == nil {
+				host = h
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				continue
+			}
+			isV4 := ip.To4() != nil
+			if (wantFam == 4 && isV4) || (wantFam == 6 && !isV4) {
+				hasMatch = true
+				break
+			}
+		}
+		if !hasMatch && !hasUnresolved {
+			return fmt.Errorf(
+				"resolver_preference %q requires at least one %s local_address, but all configured sources are the wrong family",
+				u.ResolverPreference, wantStr)
+		}
 	}
 
 	// set up TLS client
@@ -188,6 +286,8 @@ func (u *Upstream) totalConns() int {
 //
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
+//		local_addr <address[:port]> [<address[:port]>]
+//		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //
 //		tls
@@ -212,6 +312,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
+		hasResolverPreference                   bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -221,6 +322,27 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
+		case "resolver_preference":
+			if hasResolverPreference {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			u.ResolverPreference, hasResolverPreference = d.Val(), true
+			switch u.ResolverPreference {
+			case "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first":
+				// valid
+			default:
+				return d.Errf("malformed %s option '%s': unrecognized value '%s'",
+					wrapper, optionName, u.ResolverPreference)
+			}
+		case "local_addr":
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			u.LocalAddrs = append(u.LocalAddrs, d.RemainingArgs()...)
 		case "max_connections":
 			if hasMaxConnections {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
