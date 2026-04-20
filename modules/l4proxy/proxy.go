@@ -220,18 +220,17 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 	upConns := make([]net.Conn, 0, 10)
 
 	for _, p := range upstream.peers {
-		hostPort := repl.ReplaceAll(p.dialAddr, "")
-		addr := p.address
-
 		var up net.Conn
 		var err error
 
+		addr := p.address
 		if addr == nil {
-			addr, err = parseAddress(hostPort)
+			addr, err = parseAddress(repl.ReplaceAll(p.dialAddr, ""))
 			if err != nil {
 				return nil, err
 			}
 		}
+		hostPort := addr.JoinHostPort(0)
 
 		if upstream.TLS == nil {
 			up, err = net.Dial(addr.Network, hostPort)
