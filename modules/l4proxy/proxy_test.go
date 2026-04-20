@@ -290,6 +290,59 @@ func TestResolveDestFamilyWithPreferences(t *testing.T) {
 	}
 }
 
+// resolver_preference must be one of a fixed set of values; provision must reject
+// anything else (including typos like "ipv46_only") rather than silently falling
+// back to ipv4_first.
+func TestProvisionRejectsInvalidResolverPreference(t *testing.T) {
+	cases := []struct {
+		name string
+		pref string
+	}{
+		{"typo", "ipv46_only"},
+		{"garbage", "not-a-preference"},
+		{"mixed_case", "IPv4_Only"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dialAddr := "127.0.0.1:59992"
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+			h := &Handler{logger: zap.NewNop()}
+			u := &Upstream{
+				Dial:               []string{dialAddr},
+				ResolverPreference: tc.pref,
+			}
+			err := u.provision(caddy.Context{}, h)
+			if err == nil {
+				t.Fatalf("expected provision to reject resolver_preference=%q", tc.pref)
+			}
+			if !strings.Contains(err.Error(), "resolver_preference") {
+				t.Fatalf("unexpected error for %q: %v", tc.pref, err)
+			}
+		})
+	}
+}
+
+// Valid resolver_preference values (including empty string) must provision cleanly.
+func TestProvisionAcceptsValidResolverPreference(t *testing.T) {
+	valid := []string{"", "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first"}
+	for i, pref := range valid {
+		t.Run(pref, func(t *testing.T) {
+			dialAddr := fmt.Sprintf("127.0.0.1:5999%d", 3+i)
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+			h := &Handler{logger: zap.NewNop()}
+			u := &Upstream{
+				Dial:               []string{dialAddr},
+				ResolverPreference: pref,
+			}
+			if err := u.provision(caddy.Context{}, h); err != nil {
+				t.Fatalf("provision rejected valid resolver_preference %q: %v", pref, err)
+			}
+		})
+	}
+}
+
 // local_address is not supported for Unix upstreams; provision must reject any
 // such combination so that the invalid config surfaces early with a clear error.
 func TestProvisionRejectsLocalAddrForUnixUpstream(t *testing.T) {

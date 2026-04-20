@@ -94,17 +94,20 @@ Each `upstream` has the following fields:
   because stream Unix sockets identify peers via kernel credentials rather than bound paths. Provide only
   the address (no protocol prefix); the protocol is inferred from each upstream dial target (TCP by default
   if none is specified). If a port is included, that exact port is used; if omitted, the OS chooses an
-  ephemeral port (:0). In JSON this is an array of strings; in a Caddyfile, multiple addresses are given
-  as space-separated arguments. The first address matching the upstream’s address family (IPv4/IPv6) is used,
-  otherwise the OS default is used. If you need to specify a port for an IPv6 source, you must use brackets:
+  ephemeral port (:0). In JSON this is an array of strings; in a Caddyfile, multiple addresses may be given
+  as space-separated arguments on a single `local_addr` line, across multiple `local_addr` lines, or any
+  combination of the two (entries from every `local_addr` line are concatenated, preserving order, the same
+  way `dial` accepts repeated lines). The first address matching the upstream’s address family (IPv4/IPv6)
+  is used, otherwise the OS default is used. If you need to specify a port for an IPv6 source, you must use brackets:
   `[2001:db8::1]:12345`. [Placeholders](https://caddyserver.com/docs/conventions#placeholders) are supported
   and resolved in two phases: known ones are replaced at provision, the rest are replaced at handle
   (e.g. `{env.BIND_IP}` resolves at provision, while `{l4.conn.local_addr}` resolves per-connection).
 
 - `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
-  one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. The “only” modes fail immediately
-  if the requested family is not available (e.g. no A records for `ipv4_only`, no AAAA records for `ipv6_only`), and
-  they do not fall back to the other family.
+  exactly one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. Any other value, including
+  typos and differing case, is rejected at provision time rather than silently falling back to the default.
+  The "only" modes fail immediately if the requested family is not available (e.g. no A records for `ipv4_only`,
+  no AAAA records for `ipv6_only`), and they do not fall back to the other family.
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).
@@ -306,6 +309,9 @@ restricts or biases which DNS family is used when the upstream is a hostname. Ty
                 proxy {
                     upstream {
                         dial dual-stack.example.internal:443
+                        # space-separated on one line (shown) is equivalent to:
+                        #   local_addr 10.0.0.10
+                        #   local_addr 2001:db8::10
                         local_addr 10.0.0.10 2001:db8::10
                     }
                 }

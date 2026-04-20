@@ -850,13 +850,8 @@ func resolveDestFamily(network, hostPort, pref string) (int, error) {
 		}
 		return 0, fmt.Errorf("no usable DNS records for %s", host)
 	default:
-		if v4 {
-			return 4, nil
-		}
-		if v6 {
-			return 6, nil
-		}
-		return 0, fmt.Errorf("no usable DNS records for %s", host)
+		// Unreachable: Upstream.provision validates ResolverPreference against the known set.
+		return 0, fmt.Errorf("resolver_preference: unknown value %q (should have been rejected at provision)", pref)
 	}
 }
 

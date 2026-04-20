@@ -50,10 +50,11 @@ type Upstream struct {
 	// ones are replaced per-connection.
 	LocalAddrs []string `json:"local_address,omitempty"`
 
-	// Preference for address family when resolving upstream hostnames. One of: "ipv4_only",
-	// "ipv6_only", "ipv4_first", "ipv6_first". Default is "ipv4_first". The "_only" modes fail
-	// fast if the requested family is unavailable (e.g. no A records for "ipv4_only", no AAAA
-	// records for "ipv6_only") and will not fall back to the other family.
+	// Preference for address family when resolving upstream hostnames. Must be one of:
+	// "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first", or empty (equivalent to "ipv4_first").
+	// Any other value is rejected at provision time. The "_only" modes fail fast if the requested
+	// family is unavailable (e.g. no A records for "ipv4_only", no AAAA records for "ipv6_only")
+	// and will not fall back to the other family.
 	ResolverPreference string `json:"resolver_preference,omitempty"`
 
 	// Set this field to enable TLS to the upstream.
@@ -77,6 +78,14 @@ func (u *Upstream) String() string {
 }
 
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
+	// Validate resolver_preference early: must be one of the known values or empty (default).
+	switch u.ResolverPreference {
+	case "", "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first":
+		// valid
+	default:
+		return fmt.Errorf("resolver_preference: unknown value %q; must be one of: ipv4_only, ipv6_only, ipv4_first, ipv6_first", u.ResolverPreference)
+	}
+
 	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
 		// replace runtime placeholders
@@ -207,6 +216,7 @@ func (u *Upstream) totalConns() int {
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
 //		local_addr <address[:port]> [<address[:port]>]
+//		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //
 //		tls
@@ -231,7 +241,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
-		hasLocalAddr                            bool
+		hasResolverPreference                   bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -242,19 +252,26 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
 		case "resolver_preference":
+			if hasResolverPreference {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
 			if d.CountRemainingArgs() != 1 {
 				return d.ArgErr()
 			}
 			d.NextArg()
-			u.ResolverPreference = d.Val()
-		case "local_addr":
-			if hasLocalAddr {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			u.ResolverPreference, hasResolverPreference = d.Val(), true
+			switch u.ResolverPreference {
+			case "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first":
+				// valid
+			default:
+				return d.Errf("malformed %s option '%s': unrecognized value '%s'",
+					wrapper, optionName, u.ResolverPreference)
 			}
+		case "local_addr":
 			if d.CountRemainingArgs() == 0 {
 				return d.ArgErr()
 			}
-			u.LocalAddrs, hasLocalAddr = append(u.LocalAddrs, d.RemainingArgs()...), true
+			u.LocalAddrs = append(u.LocalAddrs, d.RemainingArgs()...)
 		case "max_connections":
 			if hasMaxConnections {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
