@@ -205,10 +205,8 @@ func (l *listener) Accept() (net.Conn, error) {
 }
 
 func (l *listener) pipeConnection(conn *Connection) error {
-	// can't use l4tls.GetConnectionStates because of import cycle
-	// TODO export tls_connection_states as a special constant
 	var connectionStates []*tls.ConnectionState
-	if val := conn.GetVar("tls_connection_states"); val != nil {
+	if val := conn.GetVar(TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	if len(connectionStates) > 0 {

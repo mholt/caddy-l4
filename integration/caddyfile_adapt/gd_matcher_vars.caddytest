@@ -1,0 +1,139 @@
+{
+	layer4 {
+		tcp/:4443 {
+			route {
+				tls
+				subroute {
+					@chacha vars {l4.tls.cipher_suite} TLS_CHACHA20_POLY1305_SHA256
+					route @chacha {
+						proxy {
+							upstream tcp/chacha.backend.local:443 {
+								tls_insecure_skip_verify
+							}
+						}
+					}
+
+					route {
+						proxy {
+							upstream tcp/fallback.backend.local:443 {
+								tls_insecure_skip_verify
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+*.example.com {
+	respond "OK" 200
+}
+----------
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"host": [
+										"*.example.com"
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"body": "OK",
+													"handler": "static_response",
+													"status_code": 200
+												}
+											]
+										}
+									]
+								}
+							],
+							"terminal": true
+						}
+					]
+				}
+			}
+		},
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"tcp/:4443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"tcp/chacha.backend.local:443"
+															],
+															"tls": {
+																"insecure_skip_verify": true
+															}
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"vars": {
+														"{l4.tls.cipher_suite}": [
+															"TLS_CHACHA20_POLY1305_SHA256"
+														]
+													}
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"tcp/fallback.backend.local:443"
+															],
+															"tls": {
+																"insecure_skip_verify": true
+															}
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

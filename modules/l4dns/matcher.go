@@ -15,7 +15,6 @@
 package l4dns
 
 import (
-	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -138,6 +137,7 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 	// Apply the allow and deny rules to the question section of the DNS request message
 	hasNoAllow, hasNoDeny := len(m.Allow) == 0, len(m.Deny) == 0
 	if !hasNoAllow || !hasNoDeny {
+		repl := cx.Replacer()
 		for _, q := range msg.Question {
 			// Filter out DNS request messages with invalid question classes
 			classValue, classFound := dns.ClassToString[q.Qclass]
@@ -151,14 +151,14 @@ func (m *MatchDNS) Match(cx *layer4.Connection) (bool, error) {
 				return false, nil
 			}
 
-			denied := m.Deny.Match(cx.Context, classValue, typeValue, q.Name)
+			denied := m.Deny.Match(repl, classValue, typeValue, q.Name)
 			// If only deny rules are provided, filter out DNS request messages with denied question sections.
 			// In other words, allow all unless explicitly denied.
 			if hasNoAllow && !hasNoDeny && denied {
 				return false, nil
 			}
 
-			allowed := m.Allow.Match(cx.Context, classValue, typeValue, q.Name)
+			allowed := m.Allow.Match(repl, classValue, typeValue, q.Name)
 			// If only allow rules are provided, filter out DNS request messages with not allowed question sections.
 			// In other words, deny all unless explicitly allowed.
 			if hasNoDeny && !hasNoAllow && !allowed {
@@ -296,9 +296,9 @@ func (m *MatchDNS) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // MatchDNSRules may contain a number of MatchDNSRule instances. An empty MatchDNSRules instance won't match anything.
 type MatchDNSRules []*MatchDNSRule
 
-func (rs *MatchDNSRules) Match(cx context.Context, qClass string, qType string, qName string) bool {
+func (rs *MatchDNSRules) Match(repl *caddy.Replacer, qClass string, qType string, qName string) bool {
 	for _, r := range *rs {
-		if r.Match(cx, qClass, qType, qName) {
+		if r.Match(repl, qClass, qType, qName) {
 			return true
 		}
 	}
@@ -342,9 +342,7 @@ type MatchDNSRule struct {
 	typeRegexp  *regexp.Regexp
 }
 
-func (r *MatchDNSRule) Match(cx context.Context, qClass string, qType string, qName string) bool {
-	repl := cx.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
-
+func (r *MatchDNSRule) Match(repl *caddy.Replacer, qClass string, qType string, qName string) bool {
 	// Validate the question class
 	classFilter := repl.ReplaceAll(r.Class, "")
 	if (len(classFilter) > 0 && qClass != classFilter) ||
@@ -396,17 +394,21 @@ var (
 	_ caddy.Provisioner = (*MatchDNSRule)(nil)
 )
 
+// Replacer prefixes and keys; names of context variables
+const (
+	dnsMessagesVarName = "dns_messages"
+)
+
 const (
 	dnsHeaderBytes uint16 = 12 // read this many bytes to parse a DNS message header (equals dns.headerSize)
-	dnsMessagesKey        = "dns_messages"
 	dnsSpecialAny         = "*"
 )
 
 func appendMessage(cx *layer4.Connection, msg *dns.Msg) {
 	var messages []*dns.Msg
-	if val := cx.GetVar(dnsMessagesKey); val != nil {
+	if val := cx.GetVar(dnsMessagesVarName); val != nil {
 		messages = val.([]*dns.Msg)
 	}
 	messages = append(messages, msg)
-	cx.SetVar(dnsMessagesKey, messages)
+	cx.SetVar(dnsMessagesVarName, messages)
 }

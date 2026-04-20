@@ -15,8 +15,21 @@
 package l4tls
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -98,6 +111,10 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	connectionState := tlsConn.ConnectionState()
 	appendConnectionState(cx, &connectionState)
 
+	// add values to the replacer
+	repl := cx.Replacer()
+	addTLSVarsToReplacer(repl, &connectionState)
+
 	// all future reads/writes will now be decrypted/encrypted
 	// (tlsConn, which wraps cx, is wrapped into a new cx so
 	// that future I/O succeeds... if we use the same cx, it'd
@@ -147,19 +164,221 @@ func (t *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// addTLSVarsToReplacer is an enhanced copy of caddyhttp.getReqTLSReplacement
+func addTLSVarsToReplacer(repl *caddy.Replacer, cs *tls.ConnectionState) {
+	if repl == nil || cs == nil {
+		return
+	}
+
+	repl.Map(func(key string) (any, bool) {
+		if !strings.HasPrefix(key, tlsReplPrefix) {
+			return nil, false
+		}
+
+		field := strings.ToLower(key[len(tlsReplPrefix):])
+
+		if strings.HasPrefix(field, "client.") {
+			cert := getTLSPeerCert(cs)
+			if cert == nil {
+				return nil, false
+			}
+
+			field = field[len("client."):]
+
+			// subject alternate names (SANs)
+			if strings.HasPrefix(field, "san.") {
+				field = field[len("san."):]
+
+				var fieldName string
+				var fieldValue any
+				switch {
+				case strings.HasPrefix(field, "dns_names"):
+					fieldName = "dns_names"
+					fieldValue = cert.DNSNames
+				case strings.HasPrefix(field, "emails"):
+					fieldName = "emails"
+					fieldValue = cert.EmailAddresses
+				case strings.HasPrefix(field, "ips"):
+					fieldName = "ips"
+					fieldValue = cert.IPAddresses
+				case strings.HasPrefix(field, "uris"):
+					fieldName = "uris"
+					fieldValue = cert.URIs
+				default:
+					return nil, false
+				}
+				field = field[len(fieldName):]
+
+				// if no index was specified, return the whole list
+				if field == "" {
+					return fieldValue, true
+				}
+				if len(field) < 2 || field[0] != '.' {
+					return nil, false
+				}
+				field = field[1:] // trim '.' between field name and index
+
+				// get the numeric index
+				idx, err := strconv.Atoi(field)
+				if err != nil || idx < 0 {
+					return nil, false
+				}
+
+				// access the indexed element and return it
+				switch v := fieldValue.(type) {
+				case []string:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				case []net.IP:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				case []*url.URL:
+					if idx >= len(v) {
+						return nil, true
+					}
+					return v[idx], true
+				}
+			}
+
+			// subject and issuer
+			for _, group := range []struct {
+				prefix string
+				values *pkix.Name
+			}{
+				{prefix: "subject.", values: &cert.Subject},
+				{prefix: "issuer.", values: &cert.Issuer},
+			} {
+				if strings.HasPrefix(field, group.prefix) {
+					field = field[len(group.prefix):]
+
+					var fieldName string
+					var fieldValue []string
+					switch {
+					case field == "common_name":
+						// There can only be one.
+						return group.values.CommonName, true
+					case field == "serial":
+						// There can only be one.
+						return group.values.SerialNumber, true
+					case strings.HasPrefix(field, "organizational_unit"):
+						fieldName = "organizational_unit"
+						fieldValue = group.values.OrganizationalUnit
+					case strings.HasPrefix(field, "organization"):
+						fieldName = "organization"
+						fieldValue = group.values.Organization
+					case strings.HasPrefix(field, "country"):
+						fieldName = "country"
+						fieldValue = group.values.Country
+					case strings.HasPrefix(field, "locality"):
+						fieldName = "locality"
+						fieldValue = group.values.Locality
+					case strings.HasPrefix(field, "province"):
+						fieldName = "province"
+						fieldValue = group.values.Province
+					case strings.HasPrefix(field, "street_address"):
+						fieldName = "street_address"
+						fieldValue = group.values.StreetAddress
+					case strings.HasPrefix(field, "postal_code"):
+						fieldName = "postal_code"
+						fieldValue = group.values.PostalCode
+					default:
+						return nil, false
+					}
+					field = field[len(fieldName):]
+
+					// if no index was specified, return the whole list
+					if field == "" {
+						return fieldValue, true
+					}
+					if len(field) < 2 || field[0] != '.' {
+						return nil, false
+					}
+					field = field[1:] // trim '.' between field name and index
+
+					// get the numeric index
+					idx, err := strconv.Atoi(field)
+					if err != nil || idx < 0 {
+						return nil, false
+					}
+
+					// access the indexed element and return it
+					if idx >= len(fieldValue) {
+						return nil, true
+					}
+					return fieldValue[idx], true
+				}
+			}
+
+			// remaining fields
+			switch field {
+			case "fingerprint":
+				return fmt.Sprintf("%x", sha256.Sum256(cert.Raw)), true
+			case "public_key", "public_key_sha256":
+				if cert.PublicKey == nil {
+					return nil, true
+				}
+				pubKeyBytes, err := marshalPublicKey(cert.PublicKey)
+				if err != nil {
+					return nil, true
+				}
+				if strings.HasSuffix(field, "_sha256") {
+					return fmt.Sprintf("%x", sha256.Sum256(pubKeyBytes)), true
+				}
+				return fmt.Sprintf("%x", pubKeyBytes), true
+			case "issuer":
+				return cert.Issuer, true
+			case "serial":
+				return cert.SerialNumber, true
+			case "subject":
+				return cert.Subject, true
+			case "certificate_pem":
+				block := pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}
+				return pem.EncodeToMemory(&block), true
+			case "certificate_der_base64":
+				return base64.StdEncoding.EncodeToString(cert.Raw), true
+			default:
+				return nil, false
+			}
+		}
+
+		switch field {
+		case "version":
+			return caddytls.ProtocolName(cs.Version), true
+		case "cipher_suite":
+			return tls.CipherSuiteName(cs.CipherSuite), true
+		case "resumed":
+			return cs.DidResume, true
+		case "proto":
+			return cs.NegotiatedProtocol, true
+		case "proto_mutual":
+			// cs.NegotiatedProtocolIsMutual is deprecated - it's always true.
+			return true, true
+		case "server_name":
+			return cs.ServerName, true
+		case "ech":
+			return cs.ECHAccepted, true
+		}
+		return nil, false
+	})
+}
+
 func appendClientHello(cx *layer4.Connection, chi ClientHelloInfo) {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	clientHellos = append(clientHellos, chi)
-	cx.SetVar("tls_client_hellos", clientHellos)
+	cx.SetVar(tlsClientHellosVarName, clientHellos)
 }
 
 // GetClientHelloInfos gets ClientHello information for all the terminated TLS connections.
 func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 	var clientHellos []ClientHelloInfo
-	if val := cx.GetVar("tls_client_hellos"); val != nil {
+	if val := cx.GetVar(tlsClientHellosVarName); val != nil {
 		clientHellos = val.([]ClientHelloInfo)
 	}
 	return clientHellos
@@ -167,20 +386,46 @@ func GetClientHelloInfos(cx *layer4.Connection) []ClientHelloInfo {
 
 func appendConnectionState(cx *layer4.Connection, cs *tls.ConnectionState) {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	connectionStates = append(connectionStates, cs)
-	cx.SetVar("tls_connection_states", connectionStates)
+	cx.SetVar(layer4.TLSConnectionStatesVarName, connectionStates)
 }
 
 // GetConnectionStates gets the tls.ConnectionState for all the terminated TLS connections.
 func GetConnectionStates(cx *layer4.Connection) []*tls.ConnectionState {
 	var connectionStates []*tls.ConnectionState
-	if val := cx.GetVar("tls_connection_states"); val != nil {
+	if val := cx.GetVar(layer4.TLSConnectionStatesVarName); val != nil {
 		connectionStates = val.([]*tls.ConnectionState)
 	}
 	return connectionStates
+}
+
+// marshalPublicKey returns the byte encoding of pubKey.
+func marshalPublicKey(pubKey any) ([]byte, error) {
+	switch key := pubKey.(type) {
+	case *rsa.PublicKey:
+		return asn1.Marshal(key)
+	case *ecdsa.PublicKey:
+		e, err := key.ECDH()
+		if err != nil {
+			return nil, err
+		}
+		return e.Bytes(), nil
+	case ed25519.PublicKey:
+		return key, nil
+	}
+	return nil, fmt.Errorf("unrecognized public key type: %T", pubKey)
+}
+
+// getTLSPeerCert retrieves the first peer certificate from a TLS session.
+// Returns nil if no peer cert is in use.
+func getTLSPeerCert(cs *tls.ConnectionState) *x509.Certificate {
+	if len(cs.PeerCertificates) == 0 {
+		return nil
+	}
+	return cs.PeerCertificates[0]
 }
 
 // Interface guards
@@ -188,4 +433,9 @@ var (
 	_ caddy.Provisioner     = (*Handler)(nil)
 	_ caddyfile.Unmarshaler = (*Handler)(nil)
 	_ layer4.NextHandler    = (*Handler)(nil)
+)
+
+// Replacer prefixes and keys; names of context variables
+const (
+	tlsClientHellosVarName = "tls_client_hellos"
 )

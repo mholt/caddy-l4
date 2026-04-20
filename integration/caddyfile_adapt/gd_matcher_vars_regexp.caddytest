@@ -1,0 +1,140 @@
+{
+	layer4 {
+		tcp/:4443 {
+			route {
+				tls
+				subroute {
+					@aes_gcm vars_regexp aes_gcm {l4.tls.cipher_suite} ^TLS_([_A-Z]?)AES_(?<key>\d+)_GCM_SHA(?<hash>\d+)$
+					route @aes_gcm {
+						proxy {
+							upstream tcp/aes{l4.regexp.aes_gcm.key}gcm{l4.regexp.aes_gcm.hash}.backend.local:443 {
+								tls_insecure_skip_verify
+							}
+						}
+					}
+
+					route {
+						proxy {
+							upstream tcp/fallback.backend.local:443 {
+								tls_insecure_skip_verify
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+*.example.com {
+	respond "OK" 200
+}
+----------
+{
+	"apps": {
+		"http": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"host": [
+										"*.example.com"
+									]
+								}
+							],
+							"handle": [
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"body": "OK",
+													"handler": "static_response",
+													"status_code": 200
+												}
+											]
+										}
+									]
+								}
+							],
+							"terminal": true
+						}
+					]
+				}
+			}
+		},
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"tcp/:4443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "subroute",
+									"routes": [
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"tcp/aes{l4.regexp.aes_gcm.key}gcm{l4.regexp.aes_gcm.hash}.backend.local:443"
+															],
+															"tls": {
+																"insecure_skip_verify": true
+															}
+														}
+													]
+												}
+											],
+											"match": [
+												{
+													"vars_regexp": {
+														"{l4.tls.cipher_suite}": {
+															"name": "aes_gcm",
+															"pattern": "^TLS_([_A-Z]?)AES_(?\u003ckey\u003e\\d+)_GCM_SHA(?\u003chash\u003e\\d+)$"
+														}
+													}
+												}
+											]
+										},
+										{
+											"handle": [
+												{
+													"handler": "proxy",
+													"upstreams": [
+														{
+															"dial": [
+																"tcp/fallback.backend.local:443"
+															],
+															"tls": {
+																"insecure_skip_verify": true
+															}
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

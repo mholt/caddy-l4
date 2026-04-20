@@ -56,7 +56,7 @@ func TestDialPeersUsesConfiguredLocalPortTCP(t *testing.T) {
 	upstream := &Upstream{
 		LocalAddrs: []string{localAddr},
 		localAddrs: []string{localAddr},
-		peers:      []*peer{{address: parsedUpstream}},
+		peers:      []*peer{{address: &parsedUpstream}},
 	}
 
 	downClient, downServer := net.Pipe()
@@ -118,7 +118,7 @@ func TestDialPeersUsesConfiguredLocalPortUDP(t *testing.T) {
 	upstream := &Upstream{
 		LocalAddrs: []string{localAddr},
 		localAddrs: []string{localAddr},
-		peers:      []*peer{{address: parsedUpstream}},
+		peers:      []*peer{{address: &parsedUpstream}},
 	}
 
 	downClient, downServer := net.Pipe()
@@ -404,7 +404,7 @@ func TestActiveHealthCheckUsesLocalAddress(t *testing.T) {
 	upstream := &Upstream{
 		LocalAddrs: []string{"127.0.0.1"}, // defaults to tcp with ephemeral port
 		localAddrs: []string{"127.0.0.1"},
-		peers:      []*peer{{address: upAddr}},
+		peers:      []*peer{{address: &upAddr}},
 	}
 
 	if err := h.doActiveHealthCheck(upstream, upstream.peers[0]); err != nil {

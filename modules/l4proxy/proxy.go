@@ -32,7 +32,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/mastercactapus/proxyprotocol"
+	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
@@ -153,7 +153,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 // Handle handles the downstream connection.
 func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
-	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl := down.Replacer()
 
 	start := time.Now()
 
@@ -222,12 +222,21 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 	upConns := make([]net.Conn, 0, 10)
 
 	for _, p := range upstream.peers {
-		hostPort := repl.ReplaceAll(p.address.JoinHostPort(0), "")
-
 		var up net.Conn
 		var err error
 
-		destFam, famErr := resolveDestFamily(p.address.Network, hostPort, upstream.ResolverPreference)
+		// For dynamic dial addresses (with runtime placeholders) the address was
+		// not pre-parsed at provision; resolve it per-connection here.
+		addr := p.address
+		if addr == nil {
+			addr, err = parseAddress(repl.ReplaceAll(p.dialAddr, ""))
+			if err != nil {
+				return nil, err
+			}
+		}
+		hostPort := addr.JoinHostPort(0)
+
+		destFam, famErr := resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
 		if famErr != nil {
 			return nil, famErr
 		}
@@ -238,22 +247,42 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				resolvedLocalAddrs = append(resolvedLocalAddrs, repl.ReplaceAll(la, ""))
 			}
 		}
-		localAddrs := buildLocalAddrs(resolvedLocalAddrs, p.address.Network, destFam, h.logger)
+		localAddrs := buildLocalAddrs(resolvedLocalAddrs, addr.Network, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(localAddrs, p.address.Network, hostPort)
+			up, err = dialWithLocalAddrs(localAddrs, addr.Network, hostPort)
 		} else {
-			// the prepared config could be nil if user enabled but did not customize TLS,
-			// in which case we adopt the downstream client's TLS ClientHello for ours;
-			// i.e. by default, make the client's TLS config as transparent as possible
+			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
 			if tlsCfg == nil {
 				tlsCfg = new(tls.Config)
-				if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
-					hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			// In any case we adopt the downstream client's TLS ClientHello for the upstream;
+			// i.e. by default, make the client's TLS config as transparent as possible,
+			// except for the server name which is automatically set to the upstream hostname
+			// unless the user explicitly configured it to have a different value
+			if hellos := l4tls.GetClientHelloInfos(down); len(hellos) > 0 {
+				hellos[0].FillTLSClientConfig(tlsCfg)
+			}
+			// If there is a downstream TLS connection and a non-empty negotiated protocol,
+			// the upstream TLS config should have it as the only supported protocol
+			// TODO: Make the upstream application-layer protocol customizable
+			if connStates := l4tls.GetConnectionStates(down); len(connStates) > 0 {
+				nextProto := connStates[0].NegotiatedProtocol
+				if len(nextProto) > 0 {
+					tlsCfg.NextProtos = []string{nextProto}
 				}
 			}
-			up, err = tlsDialWithLocalAddrs(localAddrs, p.address.Network, hostPort, tlsCfg)
+			// Expand any placeholders in the upstream server name before dialing it;
+			// since the same upstream TLS config is reused for subsequent connections,
+			// we have to clone it if any placeholders in ServerName are expanded
+			valServerName := repl.ReplaceAll(tlsCfg.ServerName, "")
+			if valServerName != tlsCfg.ServerName {
+				newTLSCfg := tlsCfg.Clone()
+				newTLSCfg.ServerName = valServerName
+				tlsCfg = newTLSCfg
+			}
+			up, err = tlsDialWithLocalAddrs(localAddrs, addr.Network, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -261,37 +290,25 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			zap.Error(err))
 
 		// Send the PROXY protocol header.
-		if err == nil {
+		if err == nil && h.proxyProtocolVersion > 0 {
 			downConn := l4proxyprotocol.GetConn(down)
-			var header io.WriterTo
-			switch h.proxyProtocolVersion {
-			case 1:
-				var h proxyprotocol.HeaderV1
-				h.FromConn(downConn, false)
-				header = h
-			case 2:
-				var h proxyprotocol.HeaderV2
-				h.FromConn(downConn, false)
-				header = h
-			}
+			header := proxyproto.HeaderProxyFromAddrs(h.proxyProtocolVersion, downConn.RemoteAddr(), downConn.LocalAddr())
 
 			// Only write the PROXY protocol header if it's not nil
 			if header != nil {
+				header.Command = proxyproto.PROXY
 				// for packet connection, prepend each message with pp
 				// unix connections always implement this interface while not necessarily in datagram mode
 				// ignore it unless the unix socket is in datagram mode
 				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(p.address.Network) || p.address.Network == "unixgram") {
 					// only v2 supports UDP addresses
-					if v2, ok := header.(proxyprotocol.HeaderV2); ok {
-						la, _ := v2.Dest.(*net.UDPAddr)
-						ra, _ := v2.Src.(*net.UDPAddr)
+					if header.Version == 2 {
+						la, _ := header.DestinationAddr.(*net.UDPAddr)
+						ra, _ := header.SourceAddr.(*net.UDPAddr)
 						// for UDP, local address maybe net.IPv6zero or net.IPv4zero if listener address is not specified
 						if la != nil && ra != nil && la.IP.IsUnspecified() {
 							// TODO: extract real local address using golang.org/x/net
-							la = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
-							v2.Dest = la
-							// header is not updated automatically, a value not a pointer
-							header = v2
+							header.DestinationAddr = &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: la.Port, Zone: la.Zone}
 						}
 					}
 					up = &packetProxyProtocolConn{
@@ -418,7 +435,7 @@ func (h *Handler) countFailure(p *peer) {
 	err := p.countFail(1)
 	if err != nil {
 		h.HealthChecks.Passive.logger.Error("could not count failure",
-			zap.String("peer_address", p.address.String()),
+			zap.String("peer_address", p.dialAddr),
 			zap.Error(err))
 		return
 	}
@@ -434,7 +451,7 @@ func (h *Handler) countFailure(p *peer) {
 		err := p.countFail(-1)
 		if err != nil {
 			h.HealthChecks.Passive.logger.Error("could not forget failure",
-				zap.String("peer_address", p.address.String()),
+				zap.String("peer_address", p.dialAddr),
 				zap.Error(err))
 		}
 	}(failDuration)

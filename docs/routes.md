@@ -10,7 +10,8 @@ and corresponding actions.
 ## Purpose
 
 Routes allow Caddy-L4 to selectively process traffic and apply different behaviors depending on the connection
-properties. They form an integral part of [servers](/docs/servers.md), [listener wrappers](/docs/listener_wrappers.md) and [subroutes](/docs/handlers/subroute.md).
+properties. They form an integral part of [servers](/docs/servers.md), [listener wrappers](/docs/servers.md),
+[packet connection wrappers](/docs/servers.md) and [subroutes](/docs/handlers/subroute.md).
 A route consists of:
 - [**Matchers**](/docs/matchers.md) – Criteria to filter connections (e.g., by IP, TLS SNI).
 - [**Handlers**](/docs/handlers.md) – Actions to take on matched traffic (e.g., echo, proxy).

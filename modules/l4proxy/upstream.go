@@ -30,13 +30,29 @@ import (
 	"github.com/mholt/caddy-l4/layer4"
 )
 
+// parseAddress parses and validates the dial address.
+// For addresses containing any runtime placeholders,
+// this function should be called on each request
+// after placeholders have been completely replaced.
+func parseAddress(addr string) (*caddy.NetworkAddress, error) {
+	address, err := caddy.ParseNetworkAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	if address.PortRangeSize() != 1 {
+		return nil, fmt.Errorf("%s: port ranges are currently not supported", addr)
+	}
+	return &address, nil
+}
+
 // UpstreamPool is a collection of upstreams.
 type UpstreamPool []*Upstream
 
 // Upstream represents a proxy upstream.
 type Upstream struct {
-	// The network addresses to dial. Supports placeholders, but not port
-	// ranges currently (each address must be exactly 1 socket).
+	// The network addresses to dial. It supports placeholders in both
+	// the host part, i.e. before `:`, and the port part, i.e. after `:`.
+	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
 	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
@@ -88,22 +104,24 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 
 	repl := caddy.NewReplacer()
 	for _, dialAddr := range u.Dial {
-		// replace runtime placeholders
+		// Replace runtime placeholders.
 		// Note: ReplaceKnown is used here instead of ReplaceAll to let unknown placeholders be replaced later
 		// in Handler.dialPeers. E.g. {l4.tls.server_name}:443 will allow for dynamic TLS SNI based upstreams.
 		replDialAddr := repl.ReplaceKnown(dialAddr, "")
 
-		// parse and validate address
-		addr, err := caddy.ParseNetworkAddress(replDialAddr)
-		if err != nil {
-			return err
-		}
-		if addr.PortRangeSize() != 1 {
-			return fmt.Errorf("%s: port ranges not currently supported", replDialAddr)
+		// Create or load peer info
+		p := &peer{dialAddr: replDialAddr}
+		// Parse and validate the dial address if the upstream isn't dynamic.
+		// If the upstream address contains placeholders, skip parsing here,
+		// then do it after replacing all placeholders in Handler.dialPeers.
+		if !strings.Contains(p.dialAddr, "{") || !strings.Contains(p.dialAddr, "}") {
+			address, err := parseAddress(p.dialAddr)
+			if err != nil {
+				return err
+			}
+			p.address = address
 		}
 
-		// create or load peer info
-		p := &peer{address: addr}
 		existingPeer, loaded := peers.LoadOrStore(dialAddr, p) // peers are deleted in Handler.Cleanup
 		if loaded {
 			p = existingPeer.(*peer)
@@ -111,10 +129,12 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		u.peers = append(u.peers, p)
 	}
 
-	// Reject local_address for Unix socket upstreams
+	// Reject local_address for Unix socket upstreams. Peers whose addresses contain
+	// runtime placeholders aren't parsed until dial time (p.address == nil) and are
+	// skipped here; in practice such dynamic dial strings aren't Unix sockets.
 	if len(u.LocalAddrs) > 0 {
 		for _, p := range u.peers {
-			if caddy.IsUnixNetwork(p.address.Network) {
+			if p.address != nil && caddy.IsUnixNetwork(p.address.Network) {
 				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
 			}
 		}
@@ -179,7 +199,7 @@ func (u *Upstream) healthy() bool {
 	}
 	if u.healthCheckPolicy != nil && u.healthCheckPolicy.MaxFails > 0 {
 		for _, p := range u.peers {
-			if atomic.LoadInt32(&p.fails) >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
+			if p.fails.Load() >= int32(u.healthCheckPolicy.MaxFails) { //nolint:gosec // disable G115
 				return false
 			}
 		}
@@ -433,26 +453,27 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // (even if there is more than 1 instance of a config,
 // that does not duplicate the actual backend).
 type peer struct {
-	numConns  int32
-	unhealthy int32
-	fails     int32
-	address   caddy.NetworkAddress
+	numConns  atomic.Int32
+	unhealthy atomic.Int32
+	fails     atomic.Int32
+	address   *caddy.NetworkAddress
+	dialAddr  string
 }
 
 // getNumConns returns the number of active connections with the peer.
 func (p *peer) getNumConns() int {
-	return int(atomic.LoadInt32(&p.numConns))
+	return int(p.numConns.Load())
 }
 
 // healthy returns true if the peer is not unhealthy.
 func (p *peer) healthy() bool {
-	return atomic.LoadInt32(&p.unhealthy) == 0
+	return p.unhealthy.Load() == 0
 }
 
 // countConn mutates the active connection count by
 // delta. It returns an error if the adjustment fails.
 func (p *peer) countConn(delta int32) error {
-	result := atomic.AddInt32(&p.numConns, delta)
+	result := p.numConns.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -462,7 +483,7 @@ func (p *peer) countConn(delta int32) error {
 // countFail mutates the recent failures count by
 // delta. It returns an error if the adjustment fails.
 func (p *peer) countFail(delta int32) error {
-	result := atomic.AddInt32(&p.fails, delta)
+	result := p.fails.Add(delta)
 	if result < 0 {
 		return fmt.Errorf("count below 0: %d", result)
 	}
@@ -476,7 +497,7 @@ func (p *peer) setHealthy(healthy bool) (bool, error) {
 	if healthy {
 		unhealthy, compare = 0, 1
 	}
-	swapped := atomic.CompareAndSwapInt32(&p.unhealthy, compare, unhealthy)
+	swapped := p.unhealthy.CompareAndSwap(compare, unhealthy)
 	return swapped, nil
 }
 

@@ -63,7 +63,7 @@ func (m *MatchRDP) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection looks like RDP.
 func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	// Replace placeholders in filters
-	repl := cx.Context.Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+	repl := cx.Replacer()
 	cookieHash := repl.ReplaceAll(m.CookieHash, "")
 	cookieHash = cookieHash[:min(RDPCookieHashBytesMax, uint16(len(cookieHash)))] //nolint:gosec // disable G115
 	customInfo := repl.ReplaceAll(m.CustomInfo, "")
@@ -156,7 +156,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		hash := c[hashBytesStart : hashBytesStart+hashBytesTotal]
 
 		// Add hash to the replacer
-		repl.Set("l4.rdp.cookie_hash", hash)
+		repl.Set(rdpCookieHashReplKey, hash)
 
 		// Full match
 		if len(cookieHash) > 0 && cookieHash != hash {
@@ -256,8 +256,8 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		}
 
 		// Add IP and port to the replacer
-		repl.Set("l4.rdp.cookie_ip", ipVal.String())
-		repl.Set("l4.rdp.cookie_port", strconv.Itoa(int(portVal)))
+		repl.Set(rdpCookieIPReplKey, ipVal.String())
+		repl.Set(rdpCookiePortReplKey, strconv.Itoa(int(portVal)))
 
 		if len(m.cookieIPs) > 0 {
 			var found bool
@@ -307,7 +307,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 		info := c[RDPCustomInfoBytesStart : RDPCustomInfoBytesStart+infoBytesTotal]
 
 		// Add info to the replacer
-		repl.Set("l4.rdp.custom_info", info)
+		repl.Set(rdpCustomInfoReplKey, info)
 
 		// Full match
 		if len(customInfo) > 0 && customInfo != info {
@@ -403,7 +403,7 @@ func (m *MatchRDP) Match(cx *layer4.Connection) (bool, error) {
 	}
 
 	// Add base64 of identity bytes to the replacer
-	repl.Set("l4.rdp.correlation_id", base64.StdEncoding.EncodeToString(i.Identity[:]))
+	repl.Set(rdpCorrelationIDReplKey, base64.StdEncoding.EncodeToString(i.Identity[:]))
 
 	// Validate RDPCorrInfo (3/3)
 	// NOTE: any byte of RDPCorrInfo.Reserved must be equal 0x00
@@ -723,6 +723,17 @@ var (
 	_ layer4.ConnMatcher    = (*MatchRDP)(nil)
 )
 
+// Replacer prefixes and keys; names of context variables
+const (
+	RDPReplPrefix = layer4.AppReplPrefix + "rdp."
+
+	rdpCookieHashReplKey    = RDPReplPrefix + "cookie_hash"
+	rdpCookieIPReplKey      = RDPReplPrefix + "cookie_ip"
+	rdpCookiePortReplKey    = RDPReplPrefix + "cookie_port"
+	rdpCustomInfoReplKey    = RDPReplPrefix + "custom_info"
+	rdpCorrelationIDReplKey = RDPReplPrefix + "correlation_id"
+)
+
 // Constants specific to RDP Connection Request. Packet structure is described in the comments below.
 const (
 	ASCIIByteCR uint8 = 0x0D
@@ -782,7 +793,7 @@ const (
 		2 + // 2 bytes for CR LF
 		0
 	RDPTokenOptionalCookieBytesStart uint16 = 0
-	RDPTokenOptionalCookiePrefix            = "Cookie: msts="
+	RDPTokenOptionalCookiePrefix            = "Cookie: msts=" //nolint:gosec // disable G101
 	RDPTokenOptionalCookieReserved          = "0000"
 	RDPTokenOptionalCookieSeparator  uint8  = 0x2E
 

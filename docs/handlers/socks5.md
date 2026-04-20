@@ -7,7 +7,7 @@ title: SOCKS5 Handler
 ## Summary
 
 The SOCKS5 handler implements a [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928) server.
-It uses [things-go/go-socks5](github.com/things-go/go-socks5) under the hood.
+It uses [things-go/go-socks5](https://github.com/things-go/go-socks5) under the hood.
 
 ## Syntax
 

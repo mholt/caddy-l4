@@ -60,7 +60,7 @@ the similarly named fields of the `l4proxy.PassiveHealthChecks` structure:
 field equal to an empty structure in a JSON configuration or include any load balancing option into a Caddyfile. Note:
 load balancing makes sense only if the handler has two or more upstreams.
 
-Load balacing options include `lb_policy`, `lb_try_duration` and `lb_try_interval` which correspond to `selection`,
+Load balancing options include `lb_policy`, `lb_try_duration` and `lb_try_interval` which correspond to `selection`,
 `try_duration` and `try_interval` fields of the `l4proxy.LoadBalancing` structure:
 
 - `lb_policy` is a selection policy which is how to choose an available upstream. By default, it is `random`.

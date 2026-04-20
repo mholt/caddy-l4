@@ -36,6 +36,7 @@ func assertNoError(t *testing.T, err error) {
 }
 
 func Test_MatchQUIC_Match(t *testing.T) {
+	isTesting = true
 	type test struct {
 		matcher     *MatchQUIC
 		data        []byte
