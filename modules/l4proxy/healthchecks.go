@@ -155,7 +155,11 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 			return famErr
 		}
 	}
-	localAddrs := buildLocalAddrs(upstream.localAddrs, addr.Network, destFam, h.logger)
+	// Narrow the dial network to match the resolved family so resolver_preference
+	// is enforced at Dial time. When destFam == 0 (both new features unset) this
+	// returns addr.Network unchanged, preserving pre-PR health-check behavior.
+	dialNetwork := narrowNetworkForFamily(addr.Network, destFam)
+	localAddrs := buildLocalAddrs(upstream.localAddrs, dialNetwork, destFam, h.logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -165,11 +169,11 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	if len(localAddrs) == 0 {
 		var d net.Dialer
 		d.Timeout = timeout
-		conn, err = d.DialContext(ctx, addr.Network, hostPort)
+		conn, err = d.DialContext(ctx, dialNetwork, hostPort)
 	} else {
 		for _, la := range localAddrs {
 			d := &net.Dialer{LocalAddr: la, Timeout: timeout}
-			conn, err = d.DialContext(ctx, addr.Network, hostPort)
+			conn, err = d.DialContext(ctx, dialNetwork, hostPort)
 			if err == nil {
 				break
 			}

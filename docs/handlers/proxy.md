@@ -107,7 +107,16 @@ Each `upstream` has the following fields:
   exactly one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. Any other value, including
   typos and differing case, is rejected at provision time rather than silently falling back to the default.
   The "only" modes fail immediately if the requested family is not available (e.g. no A records for `ipv4_only`,
-  no AAAA records for `ipv6_only`), and they do not fall back to the other family.
+  no AAAA records for `ipv6_only`), and they do not fall back to the other family. Once the preference has
+  chosen a family, that family is enforced at the Dial level (the proxy dials on `tcp4`/`udp4` or `tcp6`/`udp6`
+  as appropriate), so the outbound connection never silently falls back to the other family even when no
+  matching `local_address` is configured for the chosen family. When combined with `local_address`, the
+  `_only` modes additionally require at least one configured source address of the matching family: for
+  example, `resolver_preference ipv4_only` paired with an IPv6-only `local_address` is rejected at provision
+  time because every configured source would be skipped at dial. The `_first` modes permit cross-family
+  fallback and are therefore never subject to this check; source-family mismatches for `_first` preferences
+  simply fall back to the OS default outbound address for the dialed family, which is the documented
+  `local_address` behavior.
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).

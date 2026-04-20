@@ -343,6 +343,82 @@ func TestProvisionAcceptsValidResolverPreference(t *testing.T) {
 	}
 }
 
+// An "_only" resolver_preference paired with a local_address whose family can
+// never match must be rejected at provision, otherwise every source would be
+// silently skipped and the OS default would silently override the user's intent.
+// Only the two contradictory combinations are invalid; mixed-family sources and
+// "_first" preferences (which allow cross-family fallback) must continue to pass.
+func TestProvisionRejectsIncompatibleLocalAddrAndResolverPreference(t *testing.T) {
+	cases := []struct {
+		name       string
+		localAddrs []string
+		preference string
+	}{
+		{"v4_src_with_ipv6_only", []string{"10.0.0.5"}, "ipv6_only"},
+		{"v6_src_with_ipv4_only", []string{"2001:db8::5"}, "ipv4_only"},
+		{"v4_src_with_port_with_ipv6_only", []string{"10.0.0.5:5555"}, "ipv6_only"},
+		{"v6_src_bracketed_with_ipv4_only", []string{"[2001:db8::5]:5555"}, "ipv4_only"},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dialAddr := fmt.Sprintf("127.0.0.1:6100%d", i)
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+			h := &Handler{logger: zap.NewNop()}
+			u := &Upstream{
+				Dial:               []string{dialAddr},
+				LocalAddrs:         tc.localAddrs,
+				ResolverPreference: tc.preference,
+			}
+			err := u.provision(caddy.Context{}, h)
+			if err == nil {
+				t.Fatalf("expected provision to reject local_address=%v with resolver_preference=%q",
+					tc.localAddrs, tc.preference)
+			}
+			if !strings.Contains(err.Error(), "resolver_preference") {
+				t.Fatalf("unexpected error for %v + %q: %v", tc.localAddrs, tc.preference, err)
+			}
+		})
+	}
+}
+
+// Compatible combinations must provision cleanly: either the preference is not
+// "_only", or at least one local_address matches the "_only" family, or an
+// unresolved runtime placeholder prevents provision-time validation.
+func TestProvisionAcceptsCompatibleLocalAddrAndResolverPreference(t *testing.T) {
+	cases := []struct {
+		name       string
+		localAddrs []string
+		preference string
+	}{
+		{"v4_only_with_v4_src", []string{"10.0.0.5"}, "ipv4_only"},
+		{"v6_only_with_v6_src", []string{"2001:db8::5"}, "ipv6_only"},
+		{"v4_only_with_mixed_sources", []string{"2001:db8::5", "10.0.0.5"}, "ipv4_only"},
+		{"v6_only_with_mixed_sources", []string{"10.0.0.5", "2001:db8::5"}, "ipv6_only"},
+		{"ipv4_first_with_v6_src", []string{"2001:db8::5"}, "ipv4_first"},
+		{"ipv6_first_with_v4_src", []string{"10.0.0.5"}, "ipv6_first"},
+		{"no_preference_with_v6_src", []string{"2001:db8::5"}, ""},
+		{"ipv4_only_with_placeholder", []string{"{l4.vars.src}"}, "ipv4_only"},
+		{"ipv6_only_with_placeholder", []string{"{l4.vars.src}"}, "ipv6_only"},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dialAddr := fmt.Sprintf("127.0.0.1:6200%d", i)
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+			h := &Handler{logger: zap.NewNop()}
+			u := &Upstream{
+				Dial:               []string{dialAddr},
+				LocalAddrs:         tc.localAddrs,
+				ResolverPreference: tc.preference,
+			}
+			if err := u.provision(caddy.Context{}, h); err != nil {
+				t.Fatalf("provision rejected compatible config %v + %q: %v", tc.localAddrs, tc.preference, err)
+			}
+		})
+	}
+}
+
 // local_address is not supported for Unix upstreams; provision must reject any
 // such combination so that the invalid config surfaces early with a clear error.
 func TestProvisionRejectsLocalAddrForUnixUpstream(t *testing.T) {

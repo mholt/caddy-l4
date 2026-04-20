@@ -247,6 +247,13 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				return nil, famErr
 			}
 		}
+		// Narrow the dial network to the resolved family so that resolver_preference
+		// is enforced at Dial time rather than left to Go's Happy Eyeballs default
+		// (which prefers IPv6 on dual-stack targets). When destFam == 0 (both new
+		// features unset), dialNetwork is left as addr.Network for full backward
+		// compat. Already-specific networks (tcp4/tcp6/udp4/udp6/unix*) are untouched.
+		dialNetwork := narrowNetworkForFamily(addr.Network, destFam)
+
 		var resolvedLocalAddrs []string
 		if len(upstream.localAddrs) > 0 {
 			resolvedLocalAddrs = make([]string, 0, len(upstream.localAddrs))
@@ -254,10 +261,10 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				resolvedLocalAddrs = append(resolvedLocalAddrs, repl.ReplaceAll(la, ""))
 			}
 		}
-		localAddrs := buildLocalAddrs(resolvedLocalAddrs, addr.Network, destFam, h.logger)
+		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(localAddrs, addr.Network, hostPort)
+			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -289,7 +296,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tlsDialWithLocalAddrs(localAddrs, addr.Network, hostPort, tlsCfg)
+			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -887,6 +894,31 @@ func ipFamilyFromNetwork(netw string) int {
 		return 6
 	default:
 		return 0
+	}
+}
+
+// narrowNetworkForFamily returns a family-specific variant of netw (tcp4/tcp6/udp4/udp6)
+// when destFam is 4 or 6 and netw is a generic "tcp" or "udp". If destFam is 0 or netw
+// is already family-specific or non-IP (unix*), netw is returned unchanged. This lets
+// the caller enforce an address-family preference at the Dial syscall level, ensuring
+// Go's resolver only considers the preferred family rather than falling back to its
+// Happy Eyeballs default. Safe for backward compatibility: callers that don't compute
+// destFam (i.e. both new features unset) pass destFam == 0 and get netw unchanged.
+func narrowNetworkForFamily(netw string, destFam int) string {
+	if destFam != 4 && destFam != 6 {
+		return netw
+	}
+	suffix := "4"
+	if destFam == 6 {
+		suffix = "6"
+	}
+	switch netw {
+	case "tcp":
+		return "tcp" + suffix
+	case "udp":
+		return "udp" + suffix
+	default:
+		return netw
 	}
 }
 

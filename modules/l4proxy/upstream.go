@@ -17,6 +17,7 @@ package l4proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -70,7 +71,12 @@ type Upstream struct {
 	// "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first", or empty (equivalent to "ipv4_first").
 	// Any other value is rejected at provision time. The "_only" modes fail fast if the requested
 	// family is unavailable (e.g. no A records for "ipv4_only", no AAAA records for "ipv6_only")
-	// and will not fall back to the other family.
+	// and will not fall back to the other family. The resolved family is also enforced at the
+	// Dial syscall level (tcp4/tcp6/udp4/udp6) so the outbound connection is bound to the chosen
+	// family even when no matching local_address is configured. Additionally, the "_only" modes
+	// combined with a LocalAddrs set that contains no matching-family entries are rejected at
+	// provision, since every source would be silently skipped at dial. "_first" modes allow
+	// cross-family fallback and are not subject to that compatibility check.
 	ResolverPreference string `json:"resolver_preference,omitempty"`
 
 	// Set this field to enable TLS to the upstream.
@@ -144,6 +150,51 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 	// placeholders are preserved and expanded per-connection in Handler.dialPeers.
 	for _, la := range u.LocalAddrs {
 		u.localAddrs = append(u.localAddrs, repl.ReplaceKnown(la, ""))
+	}
+
+	// Reject obviously-incompatible combinations of local_address + resolver_preference.
+	// The "_only" preferences force a specific address family at dial, so if none of
+	// the configured local_address entries match that family, every source would be
+	// silently skipped and the OS default would take over - almost certainly not what
+	// the user intended. Fail fast instead. Entries containing runtime placeholders
+	// (e.g. {l4.vars.src}) are exempt because their family isn't known until
+	// per-connection expansion. The "_first" preferences allow cross-family fallback
+	// by design and are therefore NOT subject to this check.
+	if len(u.localAddrs) > 0 &&
+		(u.ResolverPreference == "ipv4_only" || u.ResolverPreference == "ipv6_only") {
+		wantFam, wantStr := 4, "IPv4"
+		if u.ResolverPreference == "ipv6_only" {
+			wantFam, wantStr = 6, "IPv6"
+		}
+		var hasMatch, hasUnresolved bool
+		for _, la := range u.localAddrs {
+			la = strings.TrimSpace(la)
+			if la == "" {
+				continue
+			}
+			if strings.Contains(la, "{") {
+				hasUnresolved = true
+				continue
+			}
+			host := la
+			if h, _, err := net.SplitHostPort(la); err == nil {
+				host = h
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				continue
+			}
+			isV4 := ip.To4() != nil
+			if (wantFam == 4 && isV4) || (wantFam == 6 && !isV4) {
+				hasMatch = true
+				break
+			}
+		}
+		if !hasMatch && !hasUnresolved {
+			return fmt.Errorf(
+				"resolver_preference %q requires at least one %s local_address, but all configured sources are the wrong family",
+				u.ResolverPreference, wantStr)
+		}
 	}
 
 	// set up TLS client
