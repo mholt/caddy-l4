@@ -21,6 +21,25 @@
 	}
 }
 ----------
+[l4] :12345 {
+	# regexp reads only 4 bytes by default
+	@r1 regexp \d+
+	route @r1 {
+		proxy r1.machine.local:10001
+	}
+	@r2 regexp \xFF\xEE\xDD\xCC\xBB\xAA 6
+	route @r2 {
+		proxy r2.machine.local:10001
+	}
+	@r3 regexp ^(b|c|r)at(.*)\x00\x00$ 10
+	route @r3 {
+		proxy r3.machine.local:10001
+	}
+	route {
+		echo
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

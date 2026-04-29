@@ -30,6 +30,34 @@
 	respond "OK" 200
 }
 ----------
+[l4] tcp/:4443 {
+	route {
+		tls
+		subroute {
+			@aes_gcm vars_regexp aes_gcm {l4.tls.cipher_suite} ^TLS_([_A-Z]?)AES_(?<key>\d+)_GCM_SHA(?<hash>\d+)$
+			route @aes_gcm {
+				proxy {
+					upstream tcp/aes{l4.regexp.aes_gcm.key}gcm{l4.regexp.aes_gcm.hash}.backend.local:443 {
+						tls_insecure_skip_verify
+					}
+				}
+			}
+
+			route {
+				proxy {
+					upstream tcp/fallback.backend.local:443 {
+						tls_insecure_skip_verify
+					}
+				}
+			}
+		}
+	}
+}
+
+*.example.com {
+	respond "OK" 200
+}
+----------
 {
 	"apps": {
 		"http": {

@@ -30,6 +30,34 @@
 	respond "OK" 200
 }
 ----------
+[l4] tcp/:4443 {
+	route {
+		tls
+		subroute {
+			@chacha vars {l4.tls.cipher_suite} TLS_CHACHA20_POLY1305_SHA256
+			route @chacha {
+				proxy {
+					upstream tcp/chacha.backend.local:443 {
+						tls_insecure_skip_verify
+					}
+				}
+			}
+
+			route {
+				proxy {
+					upstream tcp/fallback.backend.local:443 {
+						tls_insecure_skip_verify
+					}
+				}
+			}
+		}
+	}
+}
+
+*.example.com {
+	respond "OK" 200
+}
+----------
 {
 	"apps": {
 		"http": {

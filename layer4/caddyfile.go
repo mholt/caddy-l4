@@ -15,7 +15,7 @@ import (
 
 func init() {
 	httpcaddyfile.RegisterGlobalOption("layer4", parseLayer4)
-	blocktypes.RegisterChildBlockType("l4.server", "global", setup)
+	blocktypes.RegisterChildBlockType("l4", "global", setup)
 }
 
 // parseLayer4 sets up the App from Caddyfile tokens. Syntax:
@@ -77,7 +77,7 @@ func parseLayer4(d *caddyfile.Dispenser, existingVal any) (any, error) {
 
 // setup sets up the Layer4 App from xcaddyfile blocks. Syntax:
 //
-//	[l4.server] <addresses...> {
+//	[l4] <addresses...> {
 //		...
 //	}
 func setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, options map[string]any) ([]caddyconfig.Warning, error) {
@@ -86,14 +86,13 @@ func setup(builder *configbuilder.Builder, blocks []caddyfile.ServerBlock, optio
 	// see if the app exists already
 	app, exists := configbuilder.GetTypedApp[App](builder, "layer4")
 	if !exists {
+		app = &App{Servers: make(map[string]*Server)}
 		if err := builder.CreateApp("layer4", app); err != nil {
 			return warnings, fmt.Errorf("creating layer4 app: %w", err)
 		}
-		app, exists = configbuilder.GetTypedApp[App](builder, "layer4")
-		if !exists {
-			// we should never get here unless we are like, racing?
-			return warnings, fmt.Errorf("fatal bug/logic error creating layer4 app")
-		}
+	}
+	if app.Servers == nil {
+		app.Servers = make(map[string]*Server)
 	}
 
 	i := len(app.Servers)
