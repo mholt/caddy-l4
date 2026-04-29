@@ -2,8 +2,9 @@ module github.com/mholt/caddy-l4
 
 go 1.25.0
 
-//replace github.com/caddyserver/caddy/v2 => github.com/elee1766/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320
-replace github.com/caddyserver/caddy/v2 => ../../caddyserver/caddy
+replace github.com/caddyserver/caddy/v2 => github.com/elee1766/caddy/v2 v2.8.5-0.20260429022717-53bdf8ec0eca
+
+//replace github.com/caddyserver/caddy/v2 => ../../caddyserver/caddy
 
 require (
 	github.com/caddyserver/caddy/v2 v2.8.5-0.20251107052339-08b6e279c320
