@@ -39,6 +39,43 @@
 	}
 }
 ----------
+[l4] 0.0.0.0:8765 {
+	route {
+		proxy {
+			health_interval 1s
+			health_port 8080
+			health_timeout 2s
+			fail_duration 5s
+			max_fails 10
+			unhealthy_connection_count 5
+			lb_policy round_robin
+			lb_try_duration 5s
+			lb_try_interval 15s
+			proxy_protocol v2
+			upstream 10.0.0.1:8080
+			upstream 10.0.0.2:8080 10.0.0.2:8888
+		}
+	}
+}
+[l4] 0.0.0.0:9876 {
+	route {
+		proxy {
+			lb_policy random_choose 2
+			upstream {
+				dial 10.0.0.3:443 10.0.0.33:443
+				max_connections 2
+				tls
+			}
+			upstream {
+				dial 10.0.0.4:443 10.0.0.44:443
+				max_connections 4
+				tls_insecure_skip_verify
+				tls_renegotiation once
+			}
+		}
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

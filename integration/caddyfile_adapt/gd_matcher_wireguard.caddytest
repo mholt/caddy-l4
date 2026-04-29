@@ -16,6 +16,20 @@
 	}
 }
 ----------
+[l4] udp/:51820 {
+	@wg0 wireguard
+	route @wg0 {
+		proxy udp/wg.machine.local:51820
+	}
+	@wgX wireguard 4285988864
+	route @wgX {
+		proxy udp/wg.machine.local:51821
+	}
+	route {
+		echo
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

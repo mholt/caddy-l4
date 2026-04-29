@@ -12,6 +12,16 @@
 	}
 }
 ----------
+[l4] :443 {
+	@a postgres
+	route @a {
+		proxy postgres.machine.local:443
+	}
+	route {
+		proxy fallback.machine.local:443
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

@@ -38,6 +38,42 @@
 	}
 }
 ----------
+[l4] tcp/:8053 {
+	@a dns {
+		allow_regexp ^(|[-0-9a-z]+\\.)example\\.com\\.$
+		default_deny
+	}
+	route @a {
+		proxy tcp/one.one.one.one:53
+	}
+	@b tls
+	route @b {
+		tls
+		subroute {
+			@c dns {
+				allow example.com. NS
+				deny * * IN
+				prefer_allow
+			}
+			route @c {
+				proxy tcp/one.one.one.one:53
+			}
+			@d http
+			route @d {
+				proxy localhost:80
+			}
+		}
+	}
+}
+[l4] udp/:53 {
+	@d dns {
+		deny_regexp * ^(MX|NS)$
+	}
+	route @d {
+		proxy udp/one.one.one.one:53
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {
