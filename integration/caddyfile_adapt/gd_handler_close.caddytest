@@ -1,0 +1,32 @@
+{
+	layer4 {
+		0.0.0.0:8888 {
+			route {
+				close
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8888"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "close"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

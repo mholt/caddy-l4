@@ -93,7 +93,7 @@ func cleanupIPFile(t *testing.T, tempDir string) {
 }
 
 func wait() {
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 }
 
 func appendToFile(t *testing.T, filename string, ip string) {

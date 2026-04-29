@@ -149,7 +149,7 @@ func validateStartupMessageFormat(data []byte) bool {
 	return false
 }
 
-func (m *MatchPostgres) Provision(ctx caddy.Context) error {
+func (m *MatchPostgres) Provision(_ caddy.Context) error {
 	return nil
 }
 

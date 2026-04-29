@@ -13,6 +13,8 @@
 			route {
 				proxy_protocol {
 					allow 10.0.0.0/8 192.168.0.0/16
+					deny 172.16.0.0/16
+					fallback_policy reject
 					timeout 3s
 				}
 				proxy 192.168.0.1:8080
@@ -65,6 +67,10 @@
 										"10.0.0.0/8",
 										"192.168.0.0/16"
 									],
+									"deny": [
+										"172.16.0.0/16"
+									],
+									"fallback_policy": "REJECT",
 									"handler": "proxy_protocol",
 									"timeout": 3000000000
 								},
