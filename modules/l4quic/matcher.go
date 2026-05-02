@@ -186,7 +186,25 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qCancel()
 	<-done
 	if err != nil {
-		// The only type of error here will be context.DeadlineExceeded and context.Canceled
+		// Distinguish the two qContext exit paths:
+		//
+		//   - DeadlineExceeded: QUICAcceptTimeout fired without new bytes
+		//     since the last prefetch. The handshake didn't progress; no
+		//     more wire data is on the way. Returning ErrConsumedAllPrefetchedBytes
+		//     here would block the route loop in cx.prefetch() against the
+		//     outer matchingTimeout (typically 3s), then drop the connection
+		//     instead of letting another route match. Mark the route
+		//     NotMatched so layer4 falls through to the next route — useful
+		//     for setups with a non-QUIC catch-all UDP route after the QUIC
+		//     matchers (e.g. a default UDP proxy to a relay).
+		//
+		//   - Canceled (qCancel from the WaitForMore goroutine): new bytes
+		//     arrived but Accept hadn't yet completed the handshake. Return
+		//     ErrConsumedAllPrefetchedBytes so layer4 prefetches the new
+		//     bytes and re-runs matchers — the handshake may still complete.
+		if errors.Is(qContext.Err(), context.DeadlineExceeded) {
+			return false, nil
+		}
 		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
 	defer func() { _ = qListener.Close() }()
