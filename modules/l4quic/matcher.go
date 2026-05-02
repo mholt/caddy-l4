@@ -35,6 +35,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 	"github.com/quic-go/quic-go"
+	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4tls"
@@ -180,14 +181,28 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
 	done := make(chan struct{})
 	go func() {
+		// close(done) lives in a deferred recovery so a future refactor
+		// that breaks the cx.isPacketConn invariant (or any other panic
+		// inside WaitForMore) cannot leave Match() blocked forever at
+		// the <-done wait below. Logs the panic + remote addr so
+		// operators can attribute the symptom.
+		defer func() {
+			if r := recover(); r != nil {
+				cx.Logger.Error("panic in quic matcher WaitForMore goroutine",
+					zap.String("network", cx.LocalAddr().Network()),
+					zap.String("local", cx.LocalAddr().String()),
+					zap.String("remote", cx.RemoteAddr().String()),
+					zap.Any("panic", r),
+				)
+			}
+			close(done)
+		}()
 		// during testing the connection is not a packet conn
 		if isTesting {
-			close(done)
 			return
 		}
 		_ = cx.WaitForMore(qContext)
 		qCancel()
-		close(done)
 	}()
 
 	// Accept a new quic.EarlyConnection
