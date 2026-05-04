@@ -12,6 +12,16 @@
 	}
 }
 ----------
+[l4] :80 {
+	@a xmpp
+	route @a {
+		proxy localhost:5222
+	}
+	route {
+		proxy localhost:8080
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

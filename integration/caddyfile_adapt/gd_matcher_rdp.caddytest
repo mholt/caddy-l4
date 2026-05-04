@@ -26,6 +26,30 @@
 	}
 }
 ----------
+[l4] :443 {
+	@ch_jacob rdp {
+		cookie_hash jacob
+	}
+	@ci_jacob rdp {
+		custom_info_regexp ^(.*)jacob$
+	}
+	route @ch_jacob @ci_jacob {
+		proxy jacob.machine.local:3389
+	}
+	@ch_sarah rdp {
+		cookie_hash sarah
+	}
+	@ci_sarah rdp {
+		custom_info_regexp ^(.*)sarah$
+	}
+	route @ch_sarah @ci_sarah {
+		proxy sarah.machine.local:3389
+	}
+	route {
+		proxy fallback.machine.local:443
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

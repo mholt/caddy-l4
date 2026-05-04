@@ -36,10 +36,17 @@ func TestCaddyfileAdaptToJSON(t *testing.T) {
 			t.Errorf("failed to read %s dir: %s", filename, err)
 		}
 
-		// split the Caddyfile (first) and JSON (second) parts
-		// (append newline to Caddyfile to match formatter expectations)
+		// split into sections separated by "----------"
+		// the last section is always the expected JSON output
+		// all preceding sections are Caddyfile variants that must produce the same JSON
 		parts := strings.Split(string(data), "----------")
-		caddyfile, json := strings.TrimSpace(parts[0])+"\n", strings.TrimSpace(parts[1])
+		if len(parts) < 2 {
+			t.Errorf("file %s must have at least one Caddyfile and one JSON section separated by '----------'", filename)
+			continue
+		}
+
+		// last part is the expected JSON
+		json := strings.TrimSpace(parts[len(parts)-1])
 
 		// replace windows newlines in the JSON with Unix newlines
 		json = winNewlines.ReplaceAllString(json, "\n")
@@ -48,10 +55,23 @@ func TestCaddyfileAdaptToJSON(t *testing.T) {
 		replacePath, _ := jsonMod.Marshal(fmt.Sprint(".", string(filepath.Separator), "Caddyfile"))
 		json = strings.ReplaceAll(json, `"./Caddyfile"`, string(replacePath))
 
-		// run the test
-		ok := caddytest.CompareAdapt(t, filename, caddyfile, "caddyfile", json)
-		if !ok {
-			t.Errorf("failed to adapt %s", filename)
+		// all preceding parts are Caddyfile variants
+		caddyfiles := parts[:len(parts)-1]
+
+		for i, caddyfilePart := range caddyfiles {
+			// append newline to Caddyfile to match formatter expectations
+			caddyfile := strings.TrimSpace(caddyfilePart) + "\n"
+
+			label := filename
+			if len(caddyfiles) > 1 {
+				label = fmt.Sprintf("%s[%d]", filename, i)
+			}
+
+			// run the test
+			ok := caddytest.CompareAdapt(t, label, caddyfile, "caddyfile", json)
+			if !ok {
+				t.Errorf("failed to adapt %s", label)
+			}
 		}
 	}
 }

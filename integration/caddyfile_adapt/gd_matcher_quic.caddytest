@@ -16,6 +16,20 @@
 	}
 }
 ----------
+[l4] udp/:8843 {
+	@q1 quic sni one.com two.com
+	route @q1 {
+		proxy udp/{l4.quic.tls.server_name}:443
+	}
+	@q2 quic {
+		alpn custom
+		sni example.com
+	}
+	route @q2 {
+		proxy udp/localhost:6543
+	}
+}
+----------
 {
 	"apps": {
 		"layer4": {

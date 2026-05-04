@@ -35,6 +35,39 @@
 	respond "OK" 200
 }
 ----------
+[l4] tcp/:4443 {
+	route {
+		tls
+		vars {
+			backend {l4.tls.server_name}
+		}
+		subroute {
+			@local vars_regexp test backend ^(caddy|local)\.(?<domain>[-a-z0-9]+\.com)$
+			route @local {
+				proxy {
+					upstream tcp/localhost:443 {
+						tls_insecure_skip_verify
+						tls_server_name local.{l4.regexp.test.domain}
+					}
+				}
+			}
+
+			route {
+				proxy {
+					upstream tcp/fallback.local:443 {
+						tls_insecure_skip_verify
+						tls_server_name {l4.vars.backend}
+					}
+				}
+			}
+		}
+	}
+}
+
+*.domain-1.com *.domain-2.com {
+	respond "OK" 200
+}
+----------
 {
 	"apps": {
 		"http": {
