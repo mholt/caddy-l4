@@ -132,8 +132,6 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Create a new fakePacketConn pipe
 	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRand(), TS: time.Now()}, nil)
-	defer func() { _ = serverFPC.Close() }()
-	defer func() { _ = clientFPC.Close() }()
 
 	// Create a new quic.Transport
 	qTransport := quic.Transport{
@@ -144,8 +142,20 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	var qListener *quic.EarlyListener
 	qListener, err = qTransport.ListenEarly(tlsConf, m.quicConf)
 	if err != nil {
+		_ = serverFPC.Close()
+		_ = clientFPC.Close()
 		return false, err
 	}
+	// Single combined cleanup so qListener.Close() always runs (closes the
+	// upstream-leaked listener on Accept-error paths) and the fakePacketConn
+	// pipes close BEFORE the listener — closing the listener triggers the
+	// QUIC server's connection-close goroutine to write a CLOSE frame, which
+	// would otherwise deadlock on an unread pipe in the Accept-timeout case.
+	defer func() {
+		_ = serverFPC.Close()
+		_ = clientFPC.Close()
+		_ = qListener.Close()
+	}()
 
 	// Write the buffered bytes into the pipe
 	_, err = clientFPC.WriteTo(buf[:n+1], nil)
@@ -189,7 +199,6 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 		// The only type of error here will be context.DeadlineExceeded and context.Canceled
 		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
-	defer func() { _ = qListener.Close() }()
 
 	// Obtain a quic.ConnectionState
 	qState := qConn.ConnectionState()
