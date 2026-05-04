@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -196,8 +197,8 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 					})
 					// compile the route handler stack with lastHandler being called last
 					handler := wrapHandler(forwardNextHandler{})(lastHandler)
-					for i := len(route.middleware) - 1; i >= 0; i-- {
-						handler = route.middleware[i](handler)
+					for _, v := range slices.Backward(route.middleware) {
+						handler = v(handler)
 					}
 					err = handler.Handle(cx)
 					if err != nil {
