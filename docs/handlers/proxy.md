@@ -144,8 +144,10 @@ Three fields support [placeholders](https://caddyserver.com/docs/conventions#pla
 
 - `dial` (same as arguments after `upstream` and `proxy`) resolves placeholders two times: known once are replaced
   at provision, others are replaced at handle. E.g. `{l4.tls.server_name}:443` enables dynamic TLS SNI based upstreams.
+
 - `local_address` resolves placeholders two times as well: known ones are replaced at provision, others are replaced
   per-connection at handle.
+
 - `proxy_protocol` resolves placeholders at provision.
 
 ### Caddyfile
@@ -296,18 +298,6 @@ filled at random:
     }
 }
 ```
-
-#### Controlling the outbound source address and resolver family
-
-`local_address` pins the source address Caddy uses when dialing an upstream, and `resolver_preference`
-restricts or biases which DNS family is used when the upstream is a hostname. Typical use-cases:
-
-- **Dual-stack outbound load-balancing.** Provide an IPv4 and an IPv6 source; Caddy picks the one that
-  matches the peer it is about to dial. This lets you spread outbound traffic across multiple
-  source IPs per family instead of always egressing from the host's primary IP.
-- **IP-whitelisted upstreams.** If a remote endpoint only allows a specific source IP (or only one
-  address family), combine `local_address` with `resolver_preference` to force Caddy to dial from
-  that IP over the expected family.
 
 ```caddyfile
 {
@@ -510,3 +500,16 @@ JSON equivalent to the caddyfile config provided above:
     }
 }
 ```
+
+#### Controlling the outbound source address and resolver family
+
+`local_address` pins the source address Caddy uses when dialing an upstream, and `resolver_preference`
+restricts or biases which DNS family is used when the upstream is a hostname. Typical use-cases:
+
+- **Dual-stack outbound load-balancing.** Provide an IPv4 and an IPv6 source; Caddy picks the one that
+  matches the peer it is about to dial. This lets you spread outbound traffic across multiple
+  source IPs per family instead of always egressing from the host's primary IP.
+
+- **IP-whitelisted upstreams.** If a remote endpoint only allows a specific source IP (or only one
+  address family), combine `local_address` with `resolver_preference` to force Caddy to dial from
+  that IP over the expected family.
