@@ -211,22 +211,26 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qCancel()
 	<-done
 	if err != nil {
-		// Distinguish the two qContext exit paths:
-		//
-		//   - DeadlineExceeded: QUICAcceptTimeout fired without new bytes
-		//     since the last prefetch. The handshake didn't progress; no
-		//     more wire data is on the way. Returning ErrConsumedAllPrefetchedBytes
-		//     here would block the route loop in cx.prefetch() against the
-		//     outer matchingTimeout (typically 3s), then drop the connection
-		//     instead of letting another route match. Mark the route
-		//     NotMatched so layer4 falls through to the next route — useful
-		//     for setups with a non-QUIC catch-all UDP route after the QUIC
-		//     matchers (e.g. a default UDP proxy to a relay).
-		//
-		//   - Canceled (qCancel from the WaitForMore goroutine): new bytes
-		//     arrived but Accept hadn't yet completed the handshake. Return
-		//     ErrConsumedAllPrefetchedBytes so layer4 prefetches the new
-		//     bytes and re-runs matchers — the handshake may still complete.
+		// Log unexpected error classes at WARN; expected timeout/cancel
+		// races at DEBUG. Field order follows vnxme's review: network,
+		// local, remote, then the diagnostic value.
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			cx.Logger.Warn("quic matcher: unexpected Accept() error",
+				zap.String("network", cx.LocalAddr().Network()),
+				zap.String("local", cx.LocalAddr().String()),
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Error(err))
+		} else {
+			cx.Logger.Debug("quic matcher: Accept() timeout or cancel",
+				zap.String("network", cx.LocalAddr().Network()),
+				zap.String("local", cx.LocalAddr().String()),
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Error(err))
+		}
+		// Discriminate qContext exit (from #413 / merged): DeadlineExceeded
+		// returns (false, nil) so layer4 marks NotMatched and falls through;
+		// Canceled (WaitForMore fired) returns ErrConsumedAllPrefetchedBytes
+		// so the next prefetch round can complete the handshake.
 		if errors.Is(qContext.Err(), context.DeadlineExceeded) {
 			return false, nil
 		}
