@@ -14,6 +14,8 @@
 
 package layer4
 
+import "slices"
+
 // Handlers is a list of connection handlers.
 type Handlers []NextHandler
 
@@ -25,8 +27,8 @@ func (h Handlers) Compile() Handler {
 		midware = append(midware, wrapHandler(midhandler))
 	}
 	var next Handler = nopHandler{}
-	for i := len(midware) - 1; i >= 0; i-- {
-		next = midware[i](next)
+	for _, v := range slices.Backward(midware) {
+		next = v(next)
 	}
 	return next
 }

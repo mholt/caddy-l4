@@ -35,6 +35,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
 	"github.com/quic-go/quic-go"
+	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4tls"
@@ -132,8 +133,6 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 
 	// Create a new fakePacketConn pipe
 	serverFPC, clientFPC := newFakePacketConnPipe(&fakePipeAddr{ID: newRand(), TS: time.Now()}, nil)
-	defer func() { _ = serverFPC.Close() }()
-	defer func() { _ = clientFPC.Close() }()
 
 	// Create a new quic.Transport
 	qTransport := quic.Transport{
@@ -144,8 +143,20 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	var qListener *quic.EarlyListener
 	qListener, err = qTransport.ListenEarly(tlsConf, m.quicConf)
 	if err != nil {
+		_ = serverFPC.Close()
+		_ = clientFPC.Close()
 		return false, err
 	}
+	// Single combined cleanup so qListener.Close() always runs (closes the
+	// upstream-leaked listener on Accept-error paths) and the fakePacketConn
+	// pipes close BEFORE the listener — closing the listener triggers the
+	// QUIC server's connection-close goroutine to write a CLOSE frame, which
+	// would otherwise deadlock on an unread pipe in the Accept-timeout case.
+	defer func() {
+		_ = serverFPC.Close()
+		_ = clientFPC.Close()
+		_ = qListener.Close()
+	}()
 
 	// Write the buffered bytes into the pipe
 	_, err = clientFPC.WriteTo(buf[:n+1], nil)
@@ -170,14 +181,28 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	// spawn a new go routine to monitor new data. It's possible the available data is enough to determine the quic connection and the context is wrongly canceled.
 	done := make(chan struct{})
 	go func() {
+		// close(done) lives in a deferred recovery so a future refactor
+		// that breaks the cx.isPacketConn invariant (or any other panic
+		// inside WaitForMore) cannot leave Match() blocked forever at
+		// the <-done wait below. Logs the panic + remote addr so
+		// operators can attribute the symptom.
+		defer func() {
+			if r := recover(); r != nil {
+				cx.Logger.Error("panic in quic matcher WaitForMore goroutine",
+					zap.String("network", cx.LocalAddr().Network()),
+					zap.String("local", cx.LocalAddr().String()),
+					zap.String("remote", cx.RemoteAddr().String()),
+					zap.Any("panic", r),
+				)
+			}
+			close(done)
+		}()
 		// during testing the connection is not a packet conn
 		if isTesting {
-			close(done)
 			return
 		}
 		_ = cx.WaitForMore(qContext)
 		qCancel()
-		close(done)
 	}()
 
 	// Accept a new quic.EarlyConnection
@@ -186,10 +211,31 @@ func (m *MatchQUIC) Match(cx *layer4.Connection) (bool, error) {
 	qCancel()
 	<-done
 	if err != nil {
-		// The only type of error here will be context.DeadlineExceeded and context.Canceled
+		// Log unexpected error classes at WARN; expected timeout/cancel
+		// races at DEBUG. Field order follows vnxme's review: network,
+		// local, remote, then the diagnostic value.
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			cx.Logger.Warn("quic matcher: unexpected Accept() error",
+				zap.String("network", cx.LocalAddr().Network()),
+				zap.String("local", cx.LocalAddr().String()),
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Error(err))
+		} else {
+			cx.Logger.Debug("quic matcher: Accept() timeout or cancel",
+				zap.String("network", cx.LocalAddr().Network()),
+				zap.String("local", cx.LocalAddr().String()),
+				zap.String("remote", cx.RemoteAddr().String()),
+				zap.Error(err))
+		}
+		// Discriminate qContext exit (from #413 / merged): DeadlineExceeded
+		// returns (false, nil) so layer4 marks NotMatched and falls through;
+		// Canceled (WaitForMore fired) returns ErrConsumedAllPrefetchedBytes
+		// so the next prefetch round can complete the handshake.
+		if errors.Is(qContext.Err(), context.DeadlineExceeded) {
+			return false, nil
+		}
 		return false, layer4.ErrConsumedAllPrefetchedBytes
 	}
-	defer func() { _ = qListener.Close() }()
 
 	// Obtain a quic.ConnectionState
 	qState := qConn.ConnectionState()
