@@ -299,105 +299,6 @@ filled at random:
 }
 ```
 
-```caddyfile
-{
-    layer4 {
-        # Dual-stack outbound: bind the correct source per peer family.
-        0.0.0.0:8443 {
-            route {
-                proxy {
-                    upstream {
-                        dial dual-stack.example.internal:443
-                        # space-separated on one line (shown) is equivalent to:
-                        #   local_addr 10.0.0.10
-                        #   local_addr 2001:db8::10
-                        local_addr 10.0.0.10 2001:db8::10
-                    }
-                }
-            }
-        }
-
-        # Force IPv4-only to an upstream that whitelists only our v4 address,
-        # and pin the source IP so the upstream's ACL matches.
-        0.0.0.0:9443 {
-            route {
-                proxy {
-                    upstream {
-                        dial api.example.com:443
-                        resolver_preference ipv4_only
-                        local_addr 10.0.0.10
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-JSON equivalent of the two proxies above. Note that `local_address` is an **array of strings**
-(even for a single address):
-
-```json
-{
-    "apps": {
-        "layer4": {
-            "servers": {
-                "srv0": {
-                    "listen": [
-                        "0.0.0.0:8443"
-                    ],
-                    "routes": [
-                        {
-                            "handle": [
-                                {
-                                    "handler": "proxy",
-                                    "upstreams": [
-                                        {
-                                            "dial": [
-                                                "dual-stack.example.internal:443"
-                                            ],
-                                            "local_address": [
-                                                "10.0.0.10",
-                                                "2001:db8::10"
-                                            ]
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    ]
-                },
-                "srv1": {
-                    "listen": [
-                        "0.0.0.0:9443"
-                    ],
-                    "routes": [
-                        {
-                            "handle": [
-                                {
-                                    "handler": "proxy",
-                                    "upstreams": [
-                                        {
-                                            "dial": [
-                                                "api.example.com:443"
-                                            ],
-                                            "local_address": [
-                                                "10.0.0.10"
-                                            ],
-                                            "resolver_preference": "ipv4_only"
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        }
-    }
-}
-```
-
 ### JSON
 
 JSON equivalent to the caddyfile config provided above:
@@ -513,3 +414,104 @@ restricts or biases which DNS family is used when the upstream is a hostname. Ty
 - **IP-whitelisted upstreams.** If a remote endpoint only allows a specific source IP (or only one
   address family), combine `local_address` with `resolver_preference` to force Caddy to dial from
   that IP over the expected family.
+
+Here's an example Caddyfile:
+
+```caddyfile
+{
+    layer4 {
+        # Dual-stack outbound: bind the correct source per peer family.
+        0.0.0.0:8443 {
+            route {
+                proxy {
+                    upstream {
+                        dial dual-stack.example.internal:443
+                        # space-separated on one line (shown) is equivalent to:
+                        #   local_addr 10.0.0.10
+                        #   local_addr 2001:db8::10
+                        local_addr 10.0.0.10 2001:db8::10
+                    }
+                }
+            }
+        }
+
+        # Force IPv4-only to an upstream that whitelists only our v4 address,
+        # and pin the source IP so the upstream's ACL matches.
+        0.0.0.0:9443 {
+            route {
+                proxy {
+                    upstream {
+                        dial api.example.com:443
+                        resolver_preference ipv4_only
+                        local_addr 10.0.0.10
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+JSON equivalent of the two proxies above. Note that `local_address` is an **array of strings**
+(even for a single address):
+
+```json
+{
+    "apps": {
+        "layer4": {
+            "servers": {
+                "srv0": {
+                    "listen": [
+                        "0.0.0.0:8443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "dual-stack.example.internal:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10",
+                                                "2001:db8::10"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+                "srv1": {
+                    "listen": [
+                        "0.0.0.0:9443"
+                    ],
+                    "routes": [
+                        {
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "api.example.com:443"
+                                            ],
+                                            "local_address": [
+                                                "10.0.0.10"
+                                            ],
+                                            "resolver_preference": "ipv4_only"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
+```
