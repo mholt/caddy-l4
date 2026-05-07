@@ -60,9 +60,10 @@ described below.
 - Options of *string* type containing IPs or CIDRs (e.g. `remote_ip` matcher),
   regular expressions (e.g. `cookie_hash_regexp` of `rdp` matcher, but not `vars_regexp` patterns), or
   special values (e.g. `commands` and `credentials` of `socks5` handler) support runtime placeholders,
-  but they are evaluated **once at provision** due to the existing optimizations. A special case is `dial`
-  in `upstream` of `proxy` handler: it is evaluated 2 times: at handler provision for all known placeholders
-  (e.g. `{env.*}`) and at dial for all remaining placeholders (e.g. `{l4.*}`).
+  but they are evaluated **once at provision** due to the existing optimizations. A special case is
+  `dial` and `local_address` in `upstream` of `proxy` handler: they are evaluated 2 times: at handler
+  provision for all known placeholders (e.g. `{env.*}`) and at dial / per-connection for all remaining
+  placeholders (e.g. `{l4.*}`).
 - Other options of *string* type (e.g. `alpn` of `tls` matcher) generally support runtime placeholders,
   and they are evaluated **each time at match or handle**. However, there are some exceptions, e.g. `tls_*` options
   inside `upstream` of `proxy` handler, and all options inside `connection_policy` of `tls` handler, that don't support
