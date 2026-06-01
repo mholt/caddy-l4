@@ -16,9 +16,12 @@ package l4proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"runtime/debug"
 	"time"
 
@@ -29,8 +32,10 @@ import (
 // HealthChecks configures active and passive health checks.
 type HealthChecks struct {
 	// Active health checks run in the background on a timer. To
-	// minimally enable active health checks, set either path or
-	// port (or both).
+	// minimally enable active health checks, set the interval; the
+	// default probe is a raw TCP dial. Set uri to probe over HTTP
+	// instead (matching expect_status), which lets the proxy follow
+	// an application-level signal such as a primary-election endpoint.
 	Active *ActiveHealthChecks `json:"active,omitempty"`
 
 	// Passive health checks monitor proxied connections for errors or timeouts.
@@ -46,6 +51,25 @@ type ActiveHealthChecks struct {
 	// The port to use (if different from the upstream's dial
 	// address) for health checks.
 	Port int `json:"port,omitempty"`
+
+	// URI is the request path for an HTTP health check, e.g. "/primary".
+	// When set, each check performs an HTTP GET against the upstream (on
+	// Port if configured, otherwise the dial port) and the upstream is
+	// considered healthy only if the response status matches ExpectStatus.
+	// When empty, the check is a raw TCP dial (the default behavior).
+	URI string `json:"uri,omitempty"`
+
+	// ExpectStatus is the HTTP status code considered healthy for an HTTP
+	// health check (default 200). A value below 100 is treated as a status
+	// class, so e.g. 2 matches any 2xx response.
+	ExpectStatus int `json:"expect_status,omitempty"`
+
+	// HTTPS performs the HTTP health check over TLS.
+	HTTPS bool `json:"https,omitempty"`
+
+	// TLSSkipVerify disables TLS certificate verification for an HTTPS
+	// health check (useful with self-signed certificates).
+	TLSSkipVerify bool `json:"tls_skip_verify,omitempty"`
 
 	// How frequently to perform active health checks (default 30s).
 	Interval caddy.Duration `json:"interval,omitempty"`
@@ -166,6 +190,14 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	hostPort := addr.JoinHostPort(0)
 	timeout := time.Duration(h.HealthChecks.Active.Timeout)
 
+	// HTTP health check: GET the URI and match the response status. This lets
+	// the proxy follow an application-level signal (e.g. Patroni's /primary,
+	// which returns 200 only on the elected leader) instead of merely checking
+	// that a TCP port accepts connections.
+	if h.HealthChecks.Active.URI != "" {
+		return h.doActiveHTTPHealthCheck(p, hostPort, timeout)
+	}
+
 	// Resolve the destination address family only when it will actually be used,
 	// i.e. when the user has configured local_address or resolver_preference.
 	// Otherwise skip it to avoid an extra DNS lookup per health check for hostname upstreams.
@@ -237,4 +269,82 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 	h.metrics.setUpstreamHealthy(p.dialAddr, true)
 
 	return nil
+}
+
+// doActiveHTTPHealthCheck performs an HTTP GET against the peer at hostPort and
+// marks it healthy only if the response status matches the configured
+// ExpectStatus (default 200). It is used when ActiveHealthChecks.URI is set.
+func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time.Duration) error {
+	scheme := "http"
+	if h.HealthChecks.Active.HTTPS {
+		scheme = "https"
+	}
+	u := scheme + "://" + hostPort + h.HealthChecks.Active.URI
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return fmt.Errorf("building health check request: %v", err)
+	}
+
+	client := &http.Client{Timeout: timeout}
+	if h.HealthChecks.Active.HTTPS && h.HealthChecks.Active.TLSSkipVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // explicitly opted in
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		h.HealthChecks.Active.logger.Info("host is down",
+			zap.String("address", u),
+			zap.Duration("timeout", timeout),
+			zap.Error(err))
+		_, err2 := p.setHealthy(false)
+		if err2 != nil {
+			return fmt.Errorf("marking unhealthy: %v (original error: %v)", err2, err)
+		}
+		return nil
+	}
+	// Drain a bounded amount of the body and close it so the connection can be
+	// reused by keep-alive.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	_ = resp.Body.Close()
+
+	expect := h.HealthChecks.Active.ExpectStatus
+	if expect == 0 {
+		expect = http.StatusOK
+	}
+	if !statusCodeMatches(resp.StatusCode, expect) {
+		h.HealthChecks.Active.logger.Info("host is down",
+			zap.String("address", u),
+			zap.Int("status", resp.StatusCode),
+			zap.Int("expect_status", expect))
+		_, err2 := p.setHealthy(false)
+		if err2 != nil {
+			return fmt.Errorf("marking unhealthy: %v", err2)
+		}
+		return nil
+	}
+
+	swapped, err := p.setHealthy(true)
+	if swapped {
+		h.HealthChecks.Active.logger.Info("host is up", zap.String("address", u))
+	}
+	if err != nil {
+		return fmt.Errorf("marking healthy: %v", err)
+	}
+	return nil
+}
+
+// statusCodeMatches reports whether status satisfies expect. If expect is below
+// 100 it is treated as a status class (e.g. 2 matches any 2xx response);
+// otherwise it must match exactly.
+func statusCodeMatches(status, expect int) bool {
+	if expect < 100 {
+		return status/100 == expect
+	}
+	return status == expect
 }
