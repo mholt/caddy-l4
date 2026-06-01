@@ -37,6 +37,14 @@ type HealthChecks struct {
 	// To minimally enable passive health checks, specify at least an empty
 	// config object.
 	Passive *PassiveHealthChecks `json:"passive,omitempty"`
+
+	// CloseConnectionsOnUnhealthy, when true, force-closes a peer's currently
+	// open proxied connections the moment an active health check marks it
+	// unhealthy, instead of letting them run until they close on their own.
+	// This is useful for failover, where clients should be moved off a backend
+	// as soon as it goes down (e.g. a demoted database primary). Default false,
+	// preserving the existing behavior.
+	CloseConnectionsOnUnhealthy bool `json:"close_connections_on_unhealthy,omitempty"`
 }
 
 // ActiveHealthChecks holds configuration related to active health
@@ -200,6 +208,9 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 			}
 			if swapped {
 				h.HealthChecks.Active.logger.Info("host is down", zap.String("address", addr.String()))
+			}
+			if swapped && h.HealthChecks.CloseConnectionsOnUnhealthy {
+				p.closeOpenConns()
 			}
 		}
 		h.metrics.setUpstreamHealthy(p.dialAddr, false)

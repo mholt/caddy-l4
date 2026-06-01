@@ -193,10 +193,25 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	upstreamLabel := upstream.String()
 	h.metrics.connectionOpened(upstreamLabel)
 
+	// if enabled, track these connections on their peers so they can be
+	// force-closed when a peer is marked unhealthy. upConns[i] corresponds to
+	// upstream.peers[i] (dialPeers dials one connection per peer, in order).
+	closeOnUnhealthy := h.HealthChecks != nil && h.HealthChecks.CloseConnectionsOnUnhealthy
+	if closeOnUnhealthy {
+		for i, conn := range upConns {
+			if i < len(upstream.peers) {
+				upstream.peers[i].trackConn(conn)
+			}
+		}
+	}
+
 	// make sure upstream connections all get closed, and record the close
 	defer func() {
-		for _, conn := range upConns {
+		for i, conn := range upConns {
 			_ = conn.Close()
+			if closeOnUnhealthy && i < len(upstream.peers) {
+				upstream.peers[i].untrackConn(conn)
+			}
 		}
 		h.metrics.connectionClosed(upstreamLabel)
 	}()
@@ -504,6 +519,7 @@ func (h *Handler) Cleanup() error {
 //		fail_duration <duration>
 //		max_fails <int>
 //		unhealthy_connection_count <int>
+//		close_connections_on_unhealthy
 //
 //		# load balancing options
 //		lb_policy <name> [<args...>]
@@ -680,6 +696,14 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Passive = &PassiveHealthChecks{}
 			}
 			h.HealthChecks.Passive.UnhealthyConnectionCount, hasUnhealthyConnCount = int(val), true
+		case "close_connections_on_unhealthy":
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{}
+			}
+			h.HealthChecks.CloseConnectionsOnUnhealthy = true
 		case "lb_policy":
 			if hasLBPolicy {
 				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)
