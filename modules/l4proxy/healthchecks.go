@@ -22,7 +22,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -71,6 +73,15 @@ type ActiveHealthChecks struct {
 	// health check (useful with self-signed certificates).
 	TLSSkipVerify bool `json:"tls_skip_verify,omitempty"`
 
+	// Headers are extra request headers to set on HTTP health check requests.
+	// A "Host" entry sets the request's Host header. Only used when URI is set.
+	Headers http.Header `json:"headers,omitempty"`
+
+	// ExpectBody is a regular expression that the response body must match for
+	// the upstream to be considered healthy, in addition to ExpectStatus. Only
+	// used when URI is set; empty means the body is not inspected.
+	ExpectBody string `json:"expect_body,omitempty"`
+
 	// How frequently to perform active health checks (default 30s).
 	Interval caddy.Duration `json:"interval,omitempty"`
 
@@ -100,7 +111,20 @@ type ActiveHealthChecks struct {
 	// required to mark an unhealthy upstream healthy again (default 1).
 	Rise int `json:"rise,omitempty"`
 
-	logger *zap.Logger
+	logger         *zap.Logger
+	expectBodyRe   *regexp.Regexp
+	expectBodyOnce sync.Once
+	expectBodyErr  error
+}
+
+// bodyRegexp lazily compiles ExpectBody once and caches the result.
+func (a *ActiveHealthChecks) bodyRegexp() (*regexp.Regexp, error) {
+	a.expectBodyOnce.Do(func() {
+		if a.ExpectBody != "" {
+			a.expectBodyRe, a.expectBodyErr = regexp.Compile(a.ExpectBody)
+		}
+	})
+	return a.expectBodyRe, a.expectBodyErr
 }
 
 // PassiveHealthChecks holds configuration related to passive
@@ -288,6 +312,14 @@ func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time
 	if err != nil {
 		return fmt.Errorf("building health check request: %v", err)
 	}
+	for k, vals := range h.HealthChecks.Active.Headers {
+		for _, v := range vals {
+			req.Header.Add(k, v)
+		}
+	}
+	if host := h.HealthChecks.Active.Headers.Get("Host"); host != "" {
+		req.Host = host
+	}
 
 	client := &http.Client{Timeout: timeout}
 	if h.HealthChecks.Active.HTTPS && h.HealthChecks.Active.TLSSkipVerify {
@@ -307,9 +339,14 @@ func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time
 		_, _ = p.setHealthy(false)
 		return nil
 	}
-	// Drain a bounded amount of the body and close it so the connection can be
-	// reused by keep-alive.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	// Read the body when we need to match it; otherwise drain a bounded amount
+	// so the connection can be reused by keep-alive. Then close it.
+	var body []byte
+	if h.HealthChecks.Active.ExpectBody != "" {
+		body, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // up to 1 MiB
+	} else {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	}
 	_ = resp.Body.Close()
 
 	expect := h.HealthChecks.Active.ExpectStatus
@@ -323,6 +360,20 @@ func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time
 			zap.Int("expect_status", expect))
 		_, _ = p.setHealthy(false)
 		return nil
+	}
+
+	if h.HealthChecks.Active.ExpectBody != "" {
+		re, err := h.HealthChecks.Active.bodyRegexp()
+		if err != nil {
+			return fmt.Errorf("compiling expect_body regexp: %v", err)
+		}
+		if re != nil && !re.Match(body) {
+			h.HealthChecks.Active.logger.Info("host is down",
+				zap.String("address", u),
+				zap.String("reason", "response body did not match expect_body"))
+			_, _ = p.setHealthy(false)
+			return nil
+		}
 	}
 
 	if swapped, _ := p.setHealthy(true); swapped {

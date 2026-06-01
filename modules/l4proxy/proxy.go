@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -519,6 +520,8 @@ func (h *Handler) Cleanup() error {
 //		health_status <code|class>
 //		health_https
 //		health_tls_skip_verify
+//		health_header <name> <value>
+//		health_expect_body <regexp>
 //
 //		# passive health check options
 //		fail_duration <duration>
@@ -549,7 +552,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	var (
 		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
 		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
-		hasHealthURI, hasHealthStatus                       bool // active HTTP health check options
+		hasHealthURI, hasHealthStatus, hasHealthExpectBody  bool // active HTTP health check options
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol                                    bool
@@ -699,6 +702,37 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Active = &ActiveHealthChecks{}
 			}
 			h.HealthChecks.Active.TLSSkipVerify = true
+		case "health_header":
+			if d.CountRemainingArgs() != 2 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			headerName := d.Val()
+			d.NextArg()
+			headerValue := d.Val()
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			if h.HealthChecks.Active.Headers == nil {
+				h.HealthChecks.Active.Headers = make(http.Header)
+			}
+			h.HealthChecks.Active.Headers.Add(headerName, headerValue)
+		case "health_expect_body":
+			if hasHealthExpectBody {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.ExpectBody, hasHealthExpectBody = d.Val(), true
 		case "fail_duration":
 			if hasFailDuration {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
