@@ -15,9 +15,11 @@
 package l4postgres
 
 import (
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -84,6 +86,40 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	}
 
 	return next.Handle(cx)
+}
+
+// StartTLSClient performs the PostgreSQL SSLRequest negotiation as a client on
+// conn: it sends the SSLRequest, reads the server's reply, and on 'S' completes
+// a TLS handshake using cfg, returning the encrypted connection. On 'N' (the
+// server declines TLS) or any other reply it returns an error.
+//
+// Use this to re-originate TLS to a Postgres upstream that expects
+// sslmode != disable, i.e. the outbound counterpart of the inbound termination
+// done by Handler + the `tls` handler.
+func StartTLSClient(conn net.Conn, cfg *tls.Config) (net.Conn, error) {
+	req := make([]byte, minMessageLen)
+	binary.BigEndian.PutUint32(req[:lenFieldSize], minMessageLen)
+	binary.BigEndian.PutUint32(req[lenFieldSize:], sslRequestCode)
+	if _, err := conn.Write(req); err != nil {
+		return nil, fmt.Errorf("sending SSLRequest: %v", err)
+	}
+
+	var reply [1]byte
+	if _, err := io.ReadFull(conn, reply[:]); err != nil {
+		return nil, fmt.Errorf("reading SSLRequest reply: %v", err)
+	}
+	switch reply[0] {
+	case 'S':
+		tlsConn := tls.Client(conn, cfg)
+		if err := tlsConn.Handshake(); err != nil {
+			return nil, fmt.Errorf("TLS handshake with upstream: %v", err)
+		}
+		return tlsConn, nil
+	case 'N':
+		return nil, fmt.Errorf("upstream declined SSL (replied 'N')")
+	default:
+		return nil, fmt.Errorf("unexpected SSLRequest reply %q", reply[0])
+	}
 }
 
 // UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
