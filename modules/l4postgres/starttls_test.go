@@ -15,17 +15,21 @@
 package l4postgres
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/big"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 
 	"go.uber.org/zap"
 
@@ -207,5 +211,102 @@ func TestStartTLSRejectsNonSSLRequest(t *testing.T) {
 	}))
 	if err == nil {
 		t.Fatal("expected an error for a non-SSLRequest message")
+	}
+}
+
+// dummyAddr satisfies net.Addr for the fake connection.
+type dummyAddr struct{}
+
+func (dummyAddr) Network() string { return "test" }
+func (dummyAddr) String() string  { return "test" }
+
+// fakeConn is a net.Conn whose Read serves prepared bytes and whose Read/Write
+// can be made to fail, for exercising error branches deterministically.
+type fakeConn struct {
+	r        *bytes.Reader
+	readErr  error
+	writeErr error
+}
+
+func (c *fakeConn) Read(p []byte) (int, error) {
+	if c.readErr != nil {
+		return 0, c.readErr
+	}
+	return c.r.Read(p)
+}
+
+func (c *fakeConn) Write(p []byte) (int, error) {
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+	return len(p), nil
+}
+
+func (c *fakeConn) Close() error                     { return nil }
+func (c *fakeConn) LocalAddr() net.Addr              { return dummyAddr{} }
+func (c *fakeConn) RemoteAddr() net.Addr             { return dummyAddr{} }
+func (c *fakeConn) SetDeadline(time.Time) error      { return nil }
+func (c *fakeConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *fakeConn) SetWriteDeadline(time.Time) error { return nil }
+
+func wrapFake(c net.Conn) *layer4.Connection {
+	return layer4.WrapConnection(c, []byte{}, zap.NewNop())
+}
+
+func TestStartTLSHandlerReadError(t *testing.T) {
+	cx := wrapFake(&fakeConn{readErr: errors.New("boom")})
+	err := (&Handler{}).Handle(cx, layer4.HandlerFunc(func(*layer4.Connection) error { return nil }))
+	if err == nil {
+		t.Fatal("expected an error when the SSLRequest cannot be read")
+	}
+}
+
+func TestStartTLSHandlerWriteError(t *testing.T) {
+	cx := wrapFake(&fakeConn{r: bytes.NewReader(sslRequest()), writeErr: errors.New("boom")})
+	err := (&Handler{}).Handle(cx, layer4.HandlerFunc(func(*layer4.Connection) error {
+		t.Error("next must not be called when replying 'S' fails")
+		return nil
+	}))
+	if err == nil {
+		t.Fatal("expected an error when the 'S' reply cannot be written")
+	}
+}
+
+func TestStartTLSClientWriteError(t *testing.T) {
+	if _, err := StartTLSClient(&fakeConn{writeErr: errors.New("boom")}, &tls.Config{}); err == nil {
+		t.Fatal("expected an error when SSLRequest cannot be sent")
+	}
+}
+
+func TestStartTLSClientReplyReadError(t *testing.T) {
+	// write succeeds, but there is no reply to read
+	if _, err := StartTLSClient(&fakeConn{r: bytes.NewReader(nil)}, &tls.Config{}); err == nil {
+		t.Fatal("expected an error when the reply cannot be read")
+	}
+}
+
+func TestStartTLSClientUnexpectedReply(t *testing.T) {
+	if _, err := StartTLSClient(&fakeConn{r: bytes.NewReader([]byte{'X'})}, &tls.Config{}); err == nil {
+		t.Fatal("expected an error for an unexpected reply byte")
+	}
+}
+
+func TestStartTLSClientHandshakeError(t *testing.T) {
+	// 'S' then non-TLS garbage so the client handshake fails
+	conn := &fakeConn{r: bytes.NewReader([]byte{'S', 0xff, 0xff, 0xff, 0xff, 0xff})}
+	if _, err := StartTLSClient(conn, &tls.Config{InsecureSkipVerify: true}); err == nil { //nolint:gosec // test
+		t.Fatal("expected a TLS handshake error")
+	}
+}
+
+func TestStartTLSHandlerUnmarshalCaddyfile(t *testing.T) {
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_starttls")); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_starttls extra")); err == nil {
+		t.Fatal("expected an error for an unexpected argument")
+	}
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_starttls {\n\tfoo\n}")); err == nil {
+		t.Fatal("expected an error for an unsupported block")
 	}
 }
