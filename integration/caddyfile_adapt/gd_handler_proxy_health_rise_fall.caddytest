@@ -1,0 +1,50 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy upstream.local:5432 {
+					health_interval 2s
+					health_fall 3
+					health_rise 2
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"fall": 3,
+											"interval": 2000000000,
+											"rise": 2
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:5432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

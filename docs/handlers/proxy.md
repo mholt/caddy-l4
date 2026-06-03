@@ -38,7 +38,13 @@ Active health check options include `health_interval`, `health_port` and `health
 - `health_port` is the port to use (if different from the upstream's dial address) for active health checks;
 
 - `health_timeout` sets how long to wait for a connection to be established with a peer (one of the dial addresses)
-  before considering it unhealthy (by default, it equals `5s`).
+  before considering it unhealthy (by default, it equals `5s`);
+
+- `health_fall` is the number of consecutive failed active health checks required to mark an upstream unhealthy
+  (by default, `1`). Raising it smooths over transient blips (HAProxy-style hysteresis);
+
+- `health_rise` is the number of consecutive successful active health checks required to mark an unhealthy upstream
+  healthy again (by default, `1`).
 
 **Passive health checks** monitor proxied connections for errors or timeouts. To minimally enable passive health checks,
 set `passive` field equal to an empty structure inside `health_checks` in a JSON configuration or include any passive
