@@ -15,12 +15,35 @@
 package l4proxy
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"go.uber.org/zap"
 )
+
+// erroringSource is an UpstreamSource whose GetUpstreams always fails.
+type erroringSource struct{}
+
+func (erroringSource) GetUpstreams(*caddy.Replacer) (UpstreamPool, error) {
+	return nil, errors.New("discovery failed")
+}
+
+// TestActiveHealthCheckDynamicSourceError exercises the path where the dynamic
+// upstream source returns an error during a health-check pass: it must be
+// logged and swallowed (no panic).
+func TestActiveHealthCheckDynamicSourceError(t *testing.T) {
+	h := &Handler{
+		dynamicUpstreams: erroringSource{},
+		HealthChecks: &HealthChecks{Active: &ActiveHealthChecks{
+			Timeout: caddy.Duration(200 * time.Millisecond),
+			logger:  zap.NewNop(),
+		}},
+	}
+	// Must not panic; the error from the source is logged and ignored.
+	h.doActiveHealthCheckForAllHosts()
+}
 
 // TestActiveHealthCheckMarksDynamicUpstream verifies that the active health
 // checker also checks dynamically-discovered upstreams: a discovered peer that

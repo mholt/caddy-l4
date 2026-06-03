@@ -44,8 +44,9 @@ The handler has the following optional fields:
   - `a` resolves A/AAAA records for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
     `grace_period`, `dial_network`.
 
-  When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. Note: active health checks run on
-  statically-configured upstreams only.
+  When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. Active health checks run on the
+  dynamically-discovered upstreams too (re-resolved each interval), so a discovered cluster can be health-gated — for
+  example to route only to the node whose HTTP health check passes.
 
 **Active health checks** occur independently in a background goroutine. They run in the background on a timer.
 To minimally enable active health checks, set `active` field equal to an empty structure inside `health_checks` in
