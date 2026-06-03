@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -231,5 +232,99 @@ func TestUnmarshalCaddyfileDynamicA(t *testing.T) {
 	}
 	if m["name"] != "db.local" || m["port"] != "5432" {
 		t.Errorf("parsed fields wrong: %v", m)
+	}
+}
+
+func TestSRVGracePeriodServesStale(t *testing.T) {
+	failing := false
+	su := &SRVUpstreams{
+		Name:        "srv-grace-cov.test",
+		Refresh:     caddy.Duration(time.Nanosecond),
+		GracePeriod: caddy.Duration(time.Hour),
+		logger:      zap.NewNop(),
+		lookupSRV: func(context.Context, string, string, string) (string, []*net.SRV, error) {
+			if failing {
+				return "", nil, errors.New("dns boom")
+			}
+			return "", []*net.SRV{{Target: "a.example.", Port: 1}}, nil
+		},
+	}
+	repl := caddy.NewReplacer()
+	if _, err := su.GetUpstreams(repl); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	failing = true // entry is already stale (refresh 1ns); next lookup fails
+	pool, err := su.GetUpstreams(repl)
+	if err != nil {
+		t.Fatalf("grace period should suppress the error: %v", err)
+	}
+	if len(pool) != 1 {
+		t.Errorf("expected the stale cached pool to be served, got %d", len(pool))
+	}
+}
+
+func TestAGracePeriodServesStale(t *testing.T) {
+	failing := false
+	au := &AUpstreams{
+		Name:        "a-grace-cov.test",
+		Port:        "5432",
+		Refresh:     caddy.Duration(time.Nanosecond),
+		GracePeriod: caddy.Duration(time.Hour),
+		logger:      zap.NewNop(),
+		lookupHost: func(context.Context, string) ([]string, error) {
+			if failing {
+				return nil, errors.New("dns boom")
+			}
+			return []string{"10.0.0.1"}, nil
+		},
+	}
+	repl := caddy.NewReplacer()
+	if _, err := au.GetUpstreams(repl); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	failing = true
+	pool, err := au.GetUpstreams(repl)
+	if err != nil {
+		t.Fatalf("grace period should suppress the error: %v", err)
+	}
+	if len(pool) != 1 {
+		t.Errorf("expected the stale cached pool to be served, got %d", len(pool))
+	}
+}
+
+func TestNewDynamicUpstreamInvalid(t *testing.T) {
+	// a non-numeric port makes ParseNetworkAddress fail
+	if _, err := newDynamicUpstream("host:notaport"); err == nil {
+		t.Fatal("expected an error for an invalid dial address")
+	}
+}
+
+func TestSRVCacheBound(t *testing.T) {
+	for i := 0; i < 101; i++ {
+		su := srvWith(fmt.Sprintf("srv-bound-%d.test", i), []*net.SRV{{Target: "a.example.", Port: 1}}, nil, nil)
+		if _, err := su.GetUpstreams(caddy.NewReplacer()); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+	srvCacheMu.RLock()
+	n := len(srvCache)
+	srvCacheMu.RUnlock()
+	if n > 100 {
+		t.Errorf("srv cache not bounded: %d entries", n)
+	}
+}
+
+func TestACacheBound(t *testing.T) {
+	for i := 0; i < 101; i++ {
+		au := aWith(fmt.Sprintf("a-bound-%d.test", i), "5432", []string{"10.0.0.1"}, nil, nil)
+		if _, err := au.GetUpstreams(caddy.NewReplacer()); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+	aCacheMu.RLock()
+	n := len(aCache)
+	aCacheMu.RUnlock()
+	if n > 100 {
+		t.Errorf("a cache not bounded: %d entries", n)
 	}
 }

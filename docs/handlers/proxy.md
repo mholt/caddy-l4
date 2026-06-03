@@ -36,6 +36,17 @@ The handler has the following optional fields:
 - `upstreams` may contain a list of `l4proxy.Upstream` structures (valid for JSON). In a Caddyfile, multiple `upstream`
   options or blocks are unmarshalled into a list of such structures.
 
+- `dynamic_upstreams` may contain an upstream-source module that discovers the upstreams at runtime instead of listing
+  them statically, so the backend set need not be restated in config when DNS already publishes it. In a Caddyfile it
+  is `dynamic <source> { ... }`. Two DNS sources are provided:
+  - `srv` resolves SRV records. Options: `service`, `proto`, `name` (or just `name` for the full domain), `refresh`
+    (default `1m`), `grace_period` (serve stale results for this long on lookup failure), `dial_network`.
+  - `a` resolves A/AAAA records for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
+    `grace_period`, `dial_network`.
+
+  When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. Note: active health checks run on
+  statically-configured upstreams only.
+
 **Active health checks** occur independently in a background goroutine. They run in the background on a timer.
 To minimally enable active health checks, set `active` field equal to an empty structure inside `health_checks` in
 a JSON configuration or include any active health check option into a Caddyfile.
