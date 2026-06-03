@@ -302,10 +302,9 @@ func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time
 			zap.String("address", u),
 			zap.Duration("timeout", timeout),
 			zap.Error(err))
-		_, err2 := p.setHealthy(false)
-		if err2 != nil {
-			return fmt.Errorf("marking unhealthy: %v (original error: %v)", err2, err)
-		}
+		// setHealthy never returns an error (it only reports whether the state
+		// changed), so the result is intentionally ignored here.
+		_, _ = p.setHealthy(false)
 		return nil
 	}
 	// Drain a bounded amount of the body and close it so the connection can be
@@ -322,19 +321,12 @@ func (h *Handler) doActiveHTTPHealthCheck(p *peer, hostPort string, timeout time
 			zap.String("address", u),
 			zap.Int("status", resp.StatusCode),
 			zap.Int("expect_status", expect))
-		_, err2 := p.setHealthy(false)
-		if err2 != nil {
-			return fmt.Errorf("marking unhealthy: %v", err2)
-		}
+		_, _ = p.setHealthy(false)
 		return nil
 	}
 
-	swapped, err := p.setHealthy(true)
-	if swapped {
+	if swapped, _ := p.setHealthy(true); swapped {
 		h.HealthChecks.Active.logger.Info("host is up", zap.String("address", u))
-	}
-	if err != nil {
-		return fmt.Errorf("marking healthy: %v", err)
 	}
 	return nil
 }

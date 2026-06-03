@@ -1,0 +1,54 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy upstream.local:5432 {
+					health_port 8008
+					health_uri /primary
+					health_status 2xx
+					health_https
+					health_tls_skip_verify
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"expect_status": 2,
+											"https": true,
+											"port": 8008,
+											"tls_skip_verify": true,
+											"uri": "/primary"
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:5432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
