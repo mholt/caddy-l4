@@ -1,0 +1,58 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy upstream.local:5432 {
+					health_uri /primary
+					health_header X-Probe weft
+					health_header Host db.internal
+					health_expect_body running
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"expect_body": "running",
+											"headers": {
+												"Host": [
+													"db.internal"
+												],
+												"X-Probe": [
+													"weft"
+												]
+											},
+											"uri": "/primary"
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:5432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

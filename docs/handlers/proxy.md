@@ -70,7 +70,13 @@ the `uri`, `expect_status`, `https` and `tls_skip_verify` fields of the `l4proxy
 - `health_https` performs the HTTP health check over TLS;
 
 - `health_tls_skip_verify` disables TLS certificate verification for an `health_https` check (useful with self-signed
-  certificates).
+  certificates);
+
+- `health_header <name> <value>` (repeatable) sets an extra request header on the HTTP health check; a `Host` entry
+  sets the request's `Host`. It corresponds to the `headers` field of `l4proxy.ActiveHealthChecks`;
+
+- `health_expect_body <regexp>` requires the response body to match the given regular expression for the upstream to
+  be considered healthy (in addition to `health_status`). It corresponds to the `expect_body` field.
 
 **Passive health checks** monitor proxied connections for errors or timeouts. To minimally enable passive health checks,
 set `passive` field equal to an empty structure inside `health_checks` in a JSON configuration or include any passive
