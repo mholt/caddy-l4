@@ -1,0 +1,59 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy {
+					lb_policy weighted_round_robin
+					upstream 10.0.0.1:5432 {
+						weight 3
+					}
+					upstream 10.0.0.2:5432 {
+						weight 1
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"load_balancing": {
+										"selection": {
+											"policy": "weighted_round_robin"
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.0.1:5432"
+											],
+											"weight": 3
+										},
+										{
+											"dial": [
+												"10.0.0.2:5432"
+											],
+											"weight": 1
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
