@@ -45,6 +45,8 @@ Matchers are categorized into different types based on their function:
 |                  | [**http**](/docs/matchers/http.md)                     | Starting with HTTP requests                                                                                                |
 |                  | [**openvpn**](/docs/matchers/openvpn.md)               | Looking like [OpenVPN](https://openvpn.net/community-resources/openvpn-protocol/)                                          |
 |                  | [**postgres**](/docs/matchers/postgres.md)             | Looking like [Postgres Wire Protocol](https://www.postgresql.org/docs/current/protocol.html)                               |
+|                  | [**postgres_client**](/docs/matchers/postgres_client.md) | Postgres connections with a matching `application_name`                                                                  |
+|                  | [**postgres_ssl**](/docs/matchers/postgres_ssl.md)     | Postgres connections that do (or do not) request SSL                                                                       |
 |                  | [**proxy_protocol**](/docs/matchers/proxy_protocol.md) | Starting with [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt)                        |
 |                  | [**quic**](/docs/matchers/quic.md)                     | Looking like [QUIC](https://quic.xargs.org/)                                                                               |
 |                  | [**rdp**](/docs/matchers/rdp.md)                       | Looking like [RDP](https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-RDPBCGR/%5BMS-RDPBCGR%5D.pdf) |

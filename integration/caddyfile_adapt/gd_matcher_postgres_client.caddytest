@@ -1,0 +1,50 @@
+{
+	layer4 {
+		:443 {
+			@a postgres_client psql TablePlus
+			route @a {
+				proxy postgres.machine.local:443
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"postgres_client": {
+										"client": [
+											"psql",
+											"TablePlus"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"postgres.machine.local:443"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

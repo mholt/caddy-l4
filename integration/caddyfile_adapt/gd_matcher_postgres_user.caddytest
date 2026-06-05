@@ -1,0 +1,58 @@
+{
+	layer4 {
+		:443 {
+			@a postgres {
+				user alice planets_db stars_db
+				user * public_db
+			}
+			route @a {
+				proxy postgres.machine.local:443
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"postgres": {
+										"user": {
+											"*": [
+												"public_db"
+											],
+											"alice": [
+												"planets_db",
+												"stars_db"
+											]
+										}
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"postgres.machine.local:443"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,70 @@
+{
+	layer4 {
+		:443 {
+			@a postgres_ssl
+			route @a {
+				proxy secure.machine.local:443
+			}
+			@b postgres_ssl disabled
+			route @b {
+				proxy plaintext.machine.local:443
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"postgres_ssl": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"secure.machine.local:443"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"match": [
+								{
+									"postgres_ssl": {
+										"disabled": true
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"plaintext.machine.local:443"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
