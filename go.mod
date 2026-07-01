@@ -6,12 +6,12 @@ require (
 	github.com/caddyserver/caddy/v2 v2.11.3
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/miekg/dns v1.1.72
-	github.com/pires/go-proxyproto v0.12.0
-	github.com/quic-go/quic-go v0.59.1
+	github.com/pires/go-proxyproto v0.13.0
+	github.com/quic-go/quic-go v0.60.0
 	github.com/things-go/go-socks5 v0.1.1
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.52.0
-	golang.org/x/net v0.54.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/net v0.55.0
 	golang.org/x/time v0.15.0
 )
 
@@ -156,13 +156,13 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20260213171211-a408498e5541 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 	google.golang.org/api v0.271.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
