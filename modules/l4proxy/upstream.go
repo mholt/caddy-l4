@@ -87,6 +87,10 @@ type Upstream struct {
 	// have before being marked as unhealthy (if > 0).
 	MaxConnections int `json:"max_connections,omitempty"`
 
+	// Weight is this upstream's relative weight for weighted load-balancing
+	// policies (e.g. weighted_round_robin). A value <= 0 is treated as 1.
+	Weight int `json:"weight,omitempty"`
+
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
@@ -290,6 +294,7 @@ func (u *Upstream) totalConns() int {
 //		local_addr <address[:port]> [<address[:port]>]
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
+//		weight <int>
 //
 //		tls
 //		tls_client_auth <automate_name> | <cert_file> <key_file>
@@ -313,7 +318,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
-		hasResolverPreference                   bool
+		hasResolverPreference, hasWeight        bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -357,6 +362,19 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
 			}
 			u.MaxConnections, hasMaxConnections = int(val), true
+		case "weight":
+			if hasWeight {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			u.Weight, hasWeight = int(val), true
 		case "tls":
 			if hasTLS {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

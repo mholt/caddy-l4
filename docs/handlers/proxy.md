@@ -78,7 +78,9 @@ Load balancing options include `lb_policy`, `lb_try_duration` and `lb_try_interv
   - `random_choose` is a policy that selects two or more available hosts at random, then chooses the one with
     the least load (Caddyfile syntax is `random_choose [<int>]` with the argument setting the count of available
     hosts to be chosen at random before considering their load);
-  - `round_robin` is a policy that selects an upstream based on round-robin ordering.
+  - `round_robin` is a policy that selects an upstream based on round-robin ordering;
+  - `weighted_round_robin` is a policy that selects upstreams in smooth weighted round-robin order, proportional to
+    each upstream's `weight` (see the `weight` field below; an unset or non-positive weight is treated as `1`).
 
 - `lb_try_duration` defines how long to try selecting available upstreams for each connection if the next available
   host is down. By default, this retry is disabled. Clients will wait for up to this long while the load balancer
@@ -126,6 +128,9 @@ Each `upstream` has the following fields:
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).
+
+- `weight` may contain an integer giving this upstream's relative weight for the `weighted_round_robin` load-balancing
+  policy. A value less than or equal to `0` is treated as `1`. It is ignored by the other policies.
 
 - `tls` may contain a `reverseproxy.TLSConfig` structure to enable TLS when connecting to this upstream. Refer to the
   [relevant Caddy documentation](https://caddyserver.com/docs/json/apps/http/servers/routes/handle/reverse_proxy/transport/http/tls/)

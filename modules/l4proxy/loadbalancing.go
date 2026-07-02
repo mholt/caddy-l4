@@ -21,6 +21,7 @@ import (
 	weakrand "math/rand/v2"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -81,6 +82,7 @@ func init() {
 	caddy.RegisterModule(&RandomChoiceSelection{})
 	caddy.RegisterModule(&LeastConnSelection{})
 	caddy.RegisterModule(&RoundRobinSelection{})
+	caddy.RegisterModule(&WeightedRoundRobinSelection{})
 	caddy.RegisterModule(&FirstSelection{})
 	caddy.RegisterModule(&IPHashSelection{})
 }
@@ -326,6 +328,75 @@ func (r *RoundRobinSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// WeightedRoundRobinSelection is a policy that selects available hosts in a
+// smooth weighted round-robin order, proportional to each upstream's Weight
+// (an unset or non-positive weight is treated as 1).
+type WeightedRoundRobinSelection struct {
+	mu      sync.Mutex
+	current []int
+}
+
+// CaddyModule returns the Caddy module information.
+func (*WeightedRoundRobinSelection) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.proxy.selection_policies.weighted_round_robin",
+		New: func() caddy.Module { return new(WeightedRoundRobinSelection) },
+	}
+}
+
+// Select returns an available host, if any, using smooth weighted round-robin
+// (the same algorithm nginx uses): each call adds every available host's weight
+// to its current counter, picks the host with the highest counter, then
+// subtracts the total weight from the winner's counter.
+func (w *WeightedRoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connection) *Upstream {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(w.current) != len(pool) {
+		w.current = make([]int, len(pool))
+	}
+
+	total, best := 0, -1
+	for i, up := range pool {
+		if !up.available() {
+			continue
+		}
+		weight := up.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		w.current[i] += weight
+		total += weight
+		if best == -1 || w.current[i] > w.current[best] {
+			best = i
+		}
+	}
+	if best == -1 {
+		return nil
+	}
+	w.current[best] -= total
+	return pool[best]
+}
+
+// UnmarshalCaddyfile sets up the WeightedRoundRobinSelection from Caddyfile tokens. Syntax:
+//
+//	weighted_round_robin
+func (w *WeightedRoundRobinSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	_, wrapper := d.Next(), d.Val() // consume wrapper name
+
+	// No same-line options are supported
+	if d.CountRemainingArgs() > 0 {
+		return d.ArgErr()
+	}
+
+	// No blocks are supported
+	if d.NextBlock(d.Nesting()) {
+		return d.Errf("malformed %s selection policy: blocks are not supported", wrapper)
+	}
+
+	return nil
+}
+
 // FirstSelection is a policy that selects
 // the first available host.
 type FirstSelection struct{}
@@ -467,6 +538,7 @@ var (
 	_ Selector = (*RandomChoiceSelection)(nil)
 	_ Selector = (*LeastConnSelection)(nil)
 	_ Selector = (*RoundRobinSelection)(nil)
+	_ Selector = (*WeightedRoundRobinSelection)(nil)
 	_ Selector = (*FirstSelection)(nil)
 	_ Selector = (*IPHashSelection)(nil)
 
@@ -477,6 +549,7 @@ var (
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*LeastConnSelection)(nil)
 	_ caddyfile.Unmarshaler = (*RoundRobinSelection)(nil)
+	_ caddyfile.Unmarshaler = (*WeightedRoundRobinSelection)(nil)
 	_ caddyfile.Unmarshaler = (*FirstSelection)(nil)
 	_ caddyfile.Unmarshaler = (*IPHashSelection)(nil)
 )
