@@ -9,6 +9,16 @@ title: Proxy Handler
 The Proxy handler implements a layer 4 proxy capable of multiple upstreams with load balancing and health checks.
 This handler is at the core of the package functionality and supports both TCP and UDP.
 
+## Metrics
+
+The handler exposes Prometheus metrics on the instance metrics registry (served by Caddy's admin `/metrics`
+endpoint), labeled by `upstream`:
+
+- `caddy_layer4_proxy_connections_total` — counter of connections proxied to an upstream;
+- `caddy_layer4_proxy_active_connections` — gauge of connections currently being proxied to an upstream;
+- `caddy_layer4_proxy_upstream_healthy` — gauge that is `1` when an upstream is healthy and `0` when it is down,
+  as determined by active health checks.
+
 ## Syntax
 
 The handler has the following optional fields:

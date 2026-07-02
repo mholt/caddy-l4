@@ -202,6 +202,7 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 				h.HealthChecks.Active.logger.Info("host is down", zap.String("address", addr.String()))
 			}
 		}
+		h.metrics.setUpstreamHealthy(p.dialAddr, false)
 		return nil
 	}
 	_ = conn.Close()
@@ -216,6 +217,7 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 			h.HealthChecks.Active.logger.Info("host is up", zap.String("address", addr.String()))
 		}
 	}
+	h.metrics.setUpstreamHealthy(p.dialAddr, true)
 
 	return nil
 }

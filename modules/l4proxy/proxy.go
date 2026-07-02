@@ -62,6 +62,8 @@ type Handler struct {
 
 	proxyProtocolVersion uint8
 
+	metrics *proxyMetrics
+
 	ctx    caddy.Context
 	logger *zap.Logger
 }
@@ -78,6 +80,7 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.ctx = ctx
 	h.logger = ctx.Logger(h)
+	h.metrics = newProxyMetrics(ctx.GetMetricsRegistry())
 
 	// start by loading modules
 	if h.LoadBalancing != nil && h.LoadBalancing.SelectionPolicyRaw != nil {
@@ -159,10 +162,11 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 
 	var upConns []net.Conn
 	var proxyErr error
+	var upstream *Upstream
 
 	for {
 		// choose an available upstream
-		upstream := h.LoadBalancing.SelectionPolicy.Select(h.Upstreams, down)
+		upstream = h.LoadBalancing.SelectionPolicy.Select(h.Upstreams, down)
 		if upstream == nil {
 			if proxyErr == nil {
 				proxyErr = fmt.Errorf("no upstreams available")
@@ -186,11 +190,15 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 		break
 	}
 
-	// make sure upstream connections all get closed
+	upstreamLabel := upstream.String()
+	h.metrics.connectionOpened(upstreamLabel)
+
+	// make sure upstream connections all get closed, and record the close
 	defer func() {
 		for _, conn := range upConns {
 			_ = conn.Close()
 		}
+		h.metrics.connectionClosed(upstreamLabel)
 	}()
 
 	// finally, proxy the connection
