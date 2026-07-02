@@ -54,6 +54,14 @@ type ActiveHealthChecks struct {
 	// peer before considering it unhealthy (default 5s).
 	Timeout caddy.Duration `json:"timeout,omitempty"`
 
+	// Fall is the number of consecutive failed active health checks required
+	// to mark an upstream unhealthy (default 1).
+	Fall int `json:"fall,omitempty"`
+
+	// Rise is the number of consecutive successful active health checks
+	// required to mark an unhealthy upstream healthy again (default 1).
+	Rise int `json:"rise,omitempty"`
+
 	logger *zap.Logger
 }
 
@@ -179,26 +187,34 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 			}
 		}
 	}
+	rise, fall := h.HealthChecks.Active.Rise, h.HealthChecks.Active.Fall
 	if err != nil {
-		h.HealthChecks.Active.logger.Info("host is down",
+		h.HealthChecks.Active.logger.Info("active health check failed",
 			zap.String("address", addr.String()),
 			zap.Duration("timeout", timeout),
 			zap.Error(err))
-		_, err2 := p.setHealthy(false)
-		if err2 != nil {
-			return fmt.Errorf("marking unhealthy: %v (original error: %v)", err2, err)
+		if mark, healthy := p.recordActiveCheck(false, rise, fall); mark {
+			swapped, err2 := p.setHealthy(healthy)
+			if err2 != nil {
+				return fmt.Errorf("marking unhealthy: %v (original error: %v)", err2, err)
+			}
+			if swapped {
+				h.HealthChecks.Active.logger.Info("host is down", zap.String("address", addr.String()))
+			}
 		}
 		return nil
 	}
 	_ = conn.Close()
 
-	// connection succeeded, so mark as healthy
-	swapped, err := p.setHealthy(true)
-	if swapped {
-		h.HealthChecks.Active.logger.Info("host is up", zap.String("address", addr.String()))
-	}
-	if err != nil {
-		return fmt.Errorf("marking healthy: %v", err)
+	// connection succeeded
+	if mark, healthy := p.recordActiveCheck(true, rise, fall); mark {
+		swapped, err := p.setHealthy(healthy)
+		if err != nil {
+			return fmt.Errorf("marking healthy: %v", err)
+		}
+		if swapped {
+			h.HealthChecks.Active.logger.Info("host is up", zap.String("address", addr.String()))
+		}
 	}
 
 	return nil

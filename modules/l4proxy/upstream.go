@@ -20,6 +20,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/caddyserver/caddy/v2"
@@ -509,11 +510,46 @@ type peer struct {
 	fails     atomic.Int32
 	address   *caddy.NetworkAddress
 	dialAddr  string
+
+	// activeHealthMu guards the consecutive active-health-check streak counters
+	// used to apply the rise/fall thresholds.
+	activeHealthMu  sync.Mutex
+	consecSuccesses int
+	consecFails     int
 }
 
 // getNumConns returns the number of active connections with the peer.
 func (p *peer) getNumConns() int {
 	return int(p.numConns.Load())
+}
+
+// recordActiveCheck folds one active-health-check result into the peer's
+// consecutive-success / consecutive-failure streaks and reports whether the
+// peer's health should be marked, honoring the rise/fall thresholds. A streak
+// of `rise` successes marks the peer healthy; a streak of `fall` failures marks
+// it unhealthy. rise/fall below 1 are treated as 1 (flip on a single result,
+// the default behavior). Counters are capped at the threshold to stay bounded.
+func (p *peer) recordActiveCheck(ok bool, rise, fall int) (mark, healthy bool) {
+	if rise < 1 {
+		rise = 1
+	}
+	if fall < 1 {
+		fall = 1
+	}
+	p.activeHealthMu.Lock()
+	defer p.activeHealthMu.Unlock()
+	if ok {
+		p.consecFails = 0
+		if p.consecSuccesses < rise {
+			p.consecSuccesses++
+		}
+		return p.consecSuccesses >= rise, true
+	}
+	p.consecSuccesses = 0
+	if p.consecFails < fall {
+		p.consecFails++
+	}
+	return p.consecFails >= fall, false
 }
 
 // healthy returns true if the peer is not unhealthy.
