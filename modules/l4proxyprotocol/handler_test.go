@@ -194,7 +194,7 @@ func TestProxyProtocolHandleDoesNotLeaveStaleBufferForNextMatcher_LargePrefetch(
 	// body must be ≤ 2^14-1 (TLS spec), so we fragment via two
 	// back-to-back TLS records.
 	const totalBytes = 17 * 1024
-	payload := buildPROXYv2PlusTwoFakeTLSRecordsPayload(totalBytes)
+	payload := buildPROXYv2PlusTwoFakeTLSRecordsPayload(t, totalBytes)
 	if len(payload) != totalBytes {
 		t.Fatalf("payload builder produced %d bytes, want %d", len(payload), totalBytes)
 	}
@@ -336,7 +336,7 @@ func buildPROXYv2PlusFakeTLSPayload(recordBodyLen int) []byte {
 // directly from the wrapped Connection), so any fragmentation works
 // as long as the first record header has the canonical TLS handshake
 // shape.
-func buildPROXYv2PlusTwoFakeTLSRecordsPayload(totalBytes int) []byte {
+func buildPROXYv2PlusTwoFakeTLSRecordsPayload(t *testing.T, totalBytes int) []byte {
 	const (
 		proxyHdrLen = 28
 		tlsHdrLen   = 5
@@ -348,7 +348,7 @@ func buildPROXYv2PlusTwoFakeTLSRecordsPayload(totalBytes int) []byte {
 	record1BodyLen := (availForRecords - tlsHdrLen) / 2
 	record2BodyLen := availForRecords - record1BodyLen - 2*tlsHdrLen
 	if record1BodyLen > (1<<14)-1 || record2BodyLen > (1<<14)-1 {
-		panic("buildPROXYv2PlusTwoFakeTLSRecordsPayload: bodyLen exceeds TLS record ceiling")
+		t.Fatal("buildPROXYv2PlusTwoFakeTLSRecordsPayload: bodyLen exceeds TLS record ceiling")
 	}
 
 	var p []byte
