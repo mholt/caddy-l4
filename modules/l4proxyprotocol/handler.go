@@ -168,11 +168,12 @@ func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
 		opts = append(opts, proxyproto.SetReadHeaderTimeout(time.Duration(h.Timeout)))
 	}
 
-	// Size go-proxyproto's internal bufio.Reader to layer4.MaxBufLen, the
-	// strict upper bound on cx.buf after all prefetch operations
-	// (MaxMatchingBytes + one extra prefetchChunkSize, since prefetch()
-	// guards with `len < MaxMatchingBytes` *before* the read and can then
-	// append up to prefetchChunkSize bytes on top).
+	// Size go-proxyproto's internal bufio.Reader to layer4.MaxBufLen, a
+	// conservative rounded-up bound for cx.buf after prefetch operations.
+	// Because prefetch() guards with `len < MaxMatchingBytes` *before* the
+	// read, the largest reachable cx.buf is actually MaxMatchingBytes +
+	// prefetchChunkSize - 1; using MaxBufLen here still safely ensures the
+	// whole prefetched buffer fits in one bufio read.
 	//
 	// The default bufio size in go-proxyproto is 256 bytes (readBufferSize
 	// in protocol.go), which causes a stream-alignment bug when cx.buf
