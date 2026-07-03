@@ -72,6 +72,13 @@ the similarly named fields of the `l4proxy.PassiveHealthChecks` structure:
 - `unhealthy_connection_count` limits the number of simultaneous connections to this upstream by marking it as "down"
   if it has this many or more concurrent connections.
 
+In addition, the active health check option `close_if_unhealthy` (corresponding to the `close_if_unhealthy` field of
+`l4proxy.ActiveHealthChecks`) force-closes a peer's currently-open proxied connections the moment an active health
+check marks it unhealthy, instead of letting them run until they close on their own. This is useful for failover
+(e.g. moving clients off a demoted database primary). It applies to active health checks only, which provide a clear
+healthy→unhealthy transition to act on; passive health checking has no equivalent event. By default it is off,
+preserving the existing behavior.
+
 **Load balancing** distributes connections between upstreams. To minimally enable load balancing, set `load_balancing`
 field equal to an empty structure in a JSON configuration or include any load balancing option into a Caddyfile. Note:
 load balancing makes sense only if the handler has two or more upstreams.

@@ -534,6 +534,12 @@ type peer struct {
 	activeHealthMu  sync.Mutex
 	consecSuccesses int
 	consecFails     int
+
+	// openConns tracks the currently-open proxied connections to this peer so
+	// they can be force-closed when the peer is marked unhealthy. It is only
+	// populated when HealthChecks.Active.CloseIfUnhealthy is enabled.
+	openConnsMu sync.Mutex
+	openConns   map[net.Conn]struct{}
 }
 
 // getNumConns returns the number of active connections with the peer.
@@ -568,6 +574,36 @@ func (p *peer) recordActiveCheck(ok bool, rise, fall int) (mark, healthy bool) {
 		p.consecFails++
 	}
 	return p.consecFails >= fall, false
+}
+
+// trackConn records an open proxied connection so it can later be closed by
+// closeOpenConns.
+func (p *peer) trackConn(c net.Conn) {
+	p.openConnsMu.Lock()
+	if p.openConns == nil {
+		p.openConns = make(map[net.Conn]struct{})
+	}
+	p.openConns[c] = struct{}{}
+	p.openConnsMu.Unlock()
+}
+
+// untrackConn forgets a proxied connection (e.g. once it has closed normally).
+func (p *peer) untrackConn(c net.Conn) {
+	p.openConnsMu.Lock()
+	delete(p.openConns, c)
+	p.openConnsMu.Unlock()
+}
+
+// closeOpenConns closes every currently-tracked proxied connection. Closing the
+// upstream side causes the proxy's io.Copy loops to return and the session to
+// tear down, moving the client off this peer.
+func (p *peer) closeOpenConns() {
+	p.openConnsMu.Lock()
+	for c := range p.openConns {
+		_ = c.Close()
+		delete(p.openConns, c)
+	}
+	p.openConnsMu.Unlock()
 }
 
 // healthy returns true if the peer is not unhealthy.
