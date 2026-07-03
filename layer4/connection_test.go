@@ -2,6 +2,7 @@ package layer4
 
 import (
 	"bytes"
+	"io"
 	"net"
 	"testing"
 
@@ -89,5 +90,34 @@ func TestConnection_FreezeAndUnfreeze(t *testing.T) {
 	}
 	if !bytes.Equal(consumeData, buf) {
 		t.Fatalf("expected %s but received %s", consumeData, buf)
+	}
+}
+
+func TestConnectionBytesReadWritten(t *testing.T) {
+	in, out := net.Pipe()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
+
+	cx := WrapConnection(out, []byte{}, zap.NewNop())
+
+	go func() {
+		_, _ = in.Write([]byte("hello")) // 5 bytes for cx to read
+		reply := make([]byte, 3)
+		_, _ = io.ReadFull(in, reply) // consume the 3 bytes cx writes
+	}()
+
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(cx, buf); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, err := cx.Write([]byte("bye")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if got := cx.BytesRead(); got != 5 {
+		t.Errorf("BytesRead() = %d, want 5", got)
+	}
+	if got := cx.BytesWritten(); got != 3 {
+		t.Errorf("BytesWritten() = %d, want 3", got)
 	}
 }
