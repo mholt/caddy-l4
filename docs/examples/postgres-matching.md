@@ -9,19 +9,19 @@ title: Postgres Matching Example
 This example shows how to route or gate PostgreSQL connections with the
 [`postgres`](/docs/matchers/postgres.md) matcher, which can filter on the
 `user`/`database` pair, the `application_name`, and whether the connection
-requests SSL.
+requests TLS.
 
 The key thing to understand is **where each parameter lives in the protocol**:
 
 - A client that wants TLS first sends an 8-byte `SSLRequest` (the `postgres`
-  matcher's `ssl` option matches on this). That message carries **no**
+  matcher's `tls` option matches on this). That message carries **no**
   `user`/`database`/`application_name`.
 - Only the later **StartupMessage** carries those parameters. On a plaintext
-  connection it is the first message; on an SSL connection it is sent **after**
+  connection it is the first message; on a TLS connection it is sent **after**
   the TLS handshake, so it is encrypted on the wire.
 
-So `ssl enabled` and a `user`/`client` filter never match the same message. To
-filter by user/database on an SSL connection you must terminate TLS first and
+So `tls enabled` and a `user`/`client` filter never match the same message. To
+filter by user/database on a TLS connection you must terminate TLS first and
 then match the (now cleartext) StartupMessage — see the second config below.
 
 ## Plaintext connections
@@ -47,7 +47,7 @@ Match the StartupMessage directly. Here `alice` may only reach `planets_db` and
 }
 ```
 
-## SSL connections (terminate TLS, then match)
+## TLS connections (terminate TLS, then match)
 
 When clients connect with `sslmode` other than `disable`, gate on the
 `SSLRequest`, terminate TLS with the
@@ -58,10 +58,10 @@ When clients connect with `sslmode` other than `disable`, gate on the
 {
     layer4 {
         :5432 {
-            @pg_ssl postgres {
-                ssl enabled
+            @pg_tls postgres {
+                tls enabled
             }
-            route @pg_ssl {
+            route @pg_tls {
                 postgres_tls
                 tls
                 subroute {

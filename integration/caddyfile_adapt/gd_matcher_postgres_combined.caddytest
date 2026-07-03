@@ -5,7 +5,7 @@
 				user alice planets_db stars_db
 				user * public_db
 				client psql TablePlus
-				ssl disabled
+				tls disabled
 			}
 			route @a {
 				proxy postgres.machine.local:5432
@@ -40,7 +40,7 @@
 											"psql",
 											"TablePlus"
 										],
-										"ssl": "disabled"
+										"tls": "disabled"
 									}
 								}
 							],

@@ -48,11 +48,11 @@ const (
 	maxPayloadSize    = 16 * 1024 // Maximum reasonable payload size (16 KB)
 )
 
-// SSL match modes for MatchPostgres.SSL.
+// TLS match modes for MatchPostgres.TLS.
 const (
-	sslIndifferent = ""         // match regardless of SSLRequest (default)
-	sslEnabled     = "enabled"  // require an SSLRequest
-	sslDisabled    = "disabled" // require the absence of an SSLRequest
+	tlsIndifferent = ""         // match regardless of SSLRequest (default)
+	tlsEnabled     = "enabled"  // require an SSLRequest
+	tlsDisabled    = "disabled" // require the absence of an SSLRequest
 )
 
 // readFirstMessage reads and length-validates the first Postgres message on the
@@ -122,7 +122,7 @@ func classifyMessage(code uint32, payload []byte) (isSSL, isCancel, isStartup bo
 
 // MatchPostgres matches Postgres connections. With no options set it matches any
 // well-formed Postgres first message (SSLRequest, CancelRequest or a protocol-3
-// StartupMessage). The optional User, Client and SSL fields further constrain the
+// StartupMessage). The optional User, Client and TLS fields further constrain the
 // match; when more than one is set, all must be satisfied.
 type MatchPostgres struct {
 	// User maps a Postgres user name to the databases it is allowed to use.
@@ -135,10 +135,10 @@ type MatchPostgres struct {
 	// StartupMessages (which carry the application_name parameter).
 	Client []string `json:"client,omitempty"`
 
-	// SSL constrains whether the connection must begin with an SSLRequest:
+	// TLS constrains whether the connection must begin with an SSLRequest:
 	// "enabled" requires one, "disabled" requires its absence, and "" (the
 	// default) is indifferent.
-	SSL string `json:"ssl,omitempty"`
+	TLS string `json:"tls,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -149,18 +149,18 @@ func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision validates the SSL option.
+// Provision validates the TLS option.
 func (m *MatchPostgres) Provision(_ caddy.Context) error {
-	switch m.SSL {
-	case sslIndifferent, sslEnabled, sslDisabled:
+	switch m.TLS {
+	case tlsIndifferent, tlsEnabled, tlsDisabled:
 		return nil
 	default:
-		return fmt.Errorf("postgres: invalid ssl value %q; must be %q or %q", m.SSL, sslEnabled, sslDisabled)
+		return fmt.Errorf("postgres: invalid tls value %q; must be %q or %q", m.TLS, tlsEnabled, tlsDisabled)
 	}
 }
 
 // Match returns true if the connection looks like the Postgres protocol and
-// satisfies every configured constraint (ssl, user/database, application_name).
+// satisfies every configured constraint (tls, user/database, application_name).
 func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	code, payload, ok, err := readFirstMessage(cx)
 	if err != nil || !ok {
@@ -169,13 +169,13 @@ func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 
 	isSSL, isCancel, isStartup := classifyMessage(code, payload)
 
-	// Apply the SSL constraint.
-	switch m.SSL {
-	case sslEnabled:
+	// Apply the TLS constraint.
+	switch m.TLS {
+	case tlsEnabled:
 		if !isSSL {
 			return false, nil
 		}
-	case sslDisabled:
+	case tlsDisabled:
 		if isSSL {
 			return false, nil
 		}
@@ -321,14 +321,14 @@ func parseStartupParameters(data []byte) map[string]string {
 //		# match the application_name parameter
 //		client <name> [<name>...]
 //		# require (enabled) or reject (disabled) an SSLRequest; "*" is indifferent
-//		ssl <enabled|disabled|*>
+//		tls <enabled|disabled|*>
 //	}
 func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 	if d.CountRemainingArgs() > 0 {
 		return d.ArgErr()
 	}
-	var hasSSL bool
+	var hasTLS bool
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
 		switch optionName {
@@ -348,8 +348,8 @@ func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			m.Client = append(m.Client, args...)
-		case "ssl":
-			if hasSSL {
+		case "tls":
+			if hasTLS {
 				return d.Errf("malformed layer4 connection matcher '%s': duplicate option '%s'", wrapper, optionName)
 			}
 			if !d.NextArg() {
@@ -357,18 +357,18 @@ func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			switch d.Val() {
 			case "enabled":
-				m.SSL = sslEnabled
+				m.TLS = tlsEnabled
 			case "disabled":
-				m.SSL = sslDisabled
+				m.TLS = tlsDisabled
 			case "*":
-				m.SSL = sslIndifferent
+				m.TLS = tlsIndifferent
 			default:
 				return d.Errf("malformed layer4 connection matcher '%s': unrecognized '%s' value '%s'", wrapper, optionName, d.Val())
 			}
 			if d.NextArg() {
 				return d.ArgErr()
 			}
-			hasSSL = true
+			hasTLS = true
 		default:
 			return d.Errf("malformed layer4 connection matcher '%s': unrecognized option '%s'", wrapper, optionName)
 		}

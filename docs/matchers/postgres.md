@@ -20,12 +20,12 @@ is set, all must be satisfied.
   The special key `*` applies to any user that is not listed explicitly. An empty
   database list allows any database for that user.
 - `client` is a list of accepted `application_name` values.
-- `ssl` constrains whether the connection must begin with an `SSLRequest`:
+- `tls` constrains whether the connection must begin with an `SSLRequest`:
   `enabled` requires one, `disabled` requires its absence, and `*` (the default)
   is indifferent.
 
 `user` and `client` are carried only by the StartupMessage, so an `SSLRequest`
-never matches when either is set (and, conversely, `ssl enabled` combined with a
+never matches when either is set (and, conversely, `tls enabled` combined with a
 `user`/`client` filter can never match, since those live on different messages).
 
 ### Caddyfile
@@ -41,7 +41,7 @@ postgres {
     # match the application_name parameter
     client <name> [<name>...]
     # require (enabled) or reject (disabled) an SSLRequest; `*` is indifferent
-    ssl <enabled|disabled|*>
+    tls <enabled|disabled|*>
 }
 ```
 
@@ -51,7 +51,7 @@ only on `public_db`, over plaintext connections:
 postgres {
     user alice planets_db stars_db
     user * public_db
-    ssl disabled
+    tls disabled
 }
 ```
 
