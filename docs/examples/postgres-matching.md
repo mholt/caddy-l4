@@ -51,7 +51,7 @@ Match the StartupMessage directly. Here `alice` may only reach `planets_db` and
 
 When clients connect with `sslmode` other than `disable`, gate on the
 `SSLRequest`, terminate TLS with the
-[`postgres_starttls`](/docs/handlers/postgres_starttls.md) handler followed by
+[`postgres_ssl`](/docs/handlers/postgres_ssl.md) handler followed by
 `tls`, then re-match the decrypted StartupMessage inside a `subroute`:
 
 ```caddyfile
@@ -62,7 +62,7 @@ When clients connect with `sslmode` other than `disable`, gate on the
                 ssl enabled
             }
             route @pg_ssl {
-                postgres_starttls
+                postgres_ssl
                 tls
                 subroute {
                     @pg_allowed postgres {
