@@ -1,12 +1,12 @@
 ---
-title: Postgres STARTTLS Handler
+title: Postgres SSL Handler
 ---
 
-# Postgres STARTTLS Handler
+# Postgres SSL Handler
 
 ## Summary
 
-The `postgres_starttls` handler performs the PostgreSQL `SSLRequest` negotiation
+The `postgres_ssl` handler performs the PostgreSQL `SSLRequest` negotiation
 so that a following [`tls`](tls.md) handler can terminate TLS on a *classic*
 PostgreSQL connection. Once TLS is terminated, the handlers and matchers that
 follow operate on the **cleartext** startup message, so traffic can be routed by
@@ -27,7 +27,7 @@ It must be preceded by a matcher that confirms the connection is a Postgres
 > `postgresql`), in which case the standard `tls` handler/matcher is sufficient
 > and this handler is not needed — see the
 > [Postgres-over-TLS example](../examples/postgres-over-tls.md). Use
-> `postgres_starttls` for the classic `SSLRequest` flow used by earlier servers
+> `postgres_ssl` for the classic `SSLRequest` flow used by earlier servers
 > and by clients that don't request direct TLS.
 
 ## Syntax
@@ -35,7 +35,7 @@ It must be preceded by a matcher that confirms the connection is a Postgres
 The handler takes no arguments and no block:
 
 ```caddyfile
-postgres_starttls
+postgres_ssl
 ```
 
 ### Caddyfile
@@ -48,7 +48,7 @@ postgres_starttls
             # terminate TLS, then proxy the (now cleartext) connection
             @pg postgres
             route @pg {
-                postgres_starttls
+                postgres_ssl
                 tls
                 proxy upstream.local:5432
             }
@@ -82,7 +82,7 @@ JSON equivalent to the Caddyfile config provided above:
                             ],
                             "handle": [
                                 {
-                                    "handler": "postgres_starttls"
+                                    "handler": "postgres_ssl"
                                 },
                                 {
                                     "handler": "tls"
@@ -112,7 +112,7 @@ JSON equivalent to the Caddyfile config provided above:
 The handler above terminates TLS for inbound matching. If the upstream itself
 expects TLS (`sslmode != disable`), the connection must be re-encrypted with the
 same `SSLRequest` → `S` negotiation *outbound*. That counterpart is available
-programmatically as `StartTLSClient(conn, *tls.Config)` in this package; wiring
+programmatically as `SSLClient(conn, *tls.Config)` in this package; wiring
 it into the proxy behind an opt-in upstream option is left as a follow-up.
 Deployments where the hop to the backend is already on a trusted/encrypted
 network (e.g. an overlay such as WireGuard) only need the inbound termination.

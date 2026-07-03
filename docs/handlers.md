@@ -35,7 +35,7 @@ Handlers are categorized into different types based on their relationship with n
 |                       | [**echo**](/docs/handlers/echo.md)                     | Echo server, i.e. sends back exactly what it receives                                           |
 |                       | [**proxy**](/docs/handlers/proxy.md)                   | Layer 4 proxy, capable of multiple upstreams (with load balancing and health checks)            |
 |                       | [**socks5**](/docs/handlers/socks5.md)                 | [SOCKSv5](https://www.rfc-editor.org/rfc/rfc1928) server                                        |
-| Intermediary handlers | [**postgres_starttls**](/docs/handlers/postgres_starttls.md) | Terminating the Postgres `SSLRequest` preamble so `tls` can decrypt STARTTLS connections   |
+| Intermediary handlers | [**postgres_ssl**](/docs/handlers/postgres_ssl.md)     | Negotiating the Postgres `SSLRequest` preamble so `tls` can terminate classic Postgres SSL |
 |                       | [**proxy_protocol**](/docs/handlers/proxy_protocol.md) | Receiving [HAProxy Proxy Protocol](https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt) |
 |                       | [**tls**](/docs/handlers/tls.md)                       | TLS termination                                                                                 |
 |                       | [**throttle**](/docs/handlers/throttle.md)             | Connection throttling to simulate slowness and latency                                          |
