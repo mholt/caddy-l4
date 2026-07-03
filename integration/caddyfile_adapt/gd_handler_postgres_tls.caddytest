@@ -3,7 +3,7 @@
 		:5432 {
 			@pg postgres
 			route @pg {
-				postgres_ssl
+				postgres_tls
 				tls
 				proxy upstream.local:5432
 			}
@@ -28,7 +28,7 @@
 							],
 							"handle": [
 								{
-									"handler": "postgres_ssl"
+									"handler": "postgres_tls"
 								},
 								{
 									"handler": "tls"

@@ -55,7 +55,7 @@ func selfSignedCert(t *testing.T) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
-func TestSSLClientReoriginatesSSL(t *testing.T) {
+func TestTLSClientReoriginatesSSL(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -103,9 +103,9 @@ func TestSSLClientReoriginatesSSL(t *testing.T) {
 	}
 	defer conn.Close()
 
-	tlsConn, err := SSLClient(conn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // test
+	tlsConn, err := TLSClient(conn, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // test
 	if err != nil {
-		t.Fatalf("SSLClient: %v", err)
+		t.Fatalf("TLSClient: %v", err)
 	}
 	if _, err := tlsConn.Write([]byte("ping")); err != nil {
 		t.Fatalf("write over TLS: %v", err)
@@ -122,7 +122,7 @@ func TestSSLClientReoriginatesSSL(t *testing.T) {
 	}
 }
 
-func TestSSLClientHandlesRefusal(t *testing.T) {
+func TestTLSClientHandlesRefusal(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -144,7 +144,7 @@ func TestSSLClientHandlesRefusal(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	defer conn.Close()
-	if _, err := SSLClient(conn, &tls.Config{InsecureSkipVerify: true}); err == nil { //nolint:gosec // test
+	if _, err := TLSClient(conn, &tls.Config{InsecureSkipVerify: true}); err == nil { //nolint:gosec // test
 		t.Fatal("expected an error when the upstream replies 'N'")
 	}
 }
@@ -156,7 +156,7 @@ func sslRequest() []byte {
 	return b
 }
 
-func TestPostgresSSLRepliesSAndContinues(t *testing.T) {
+func TestPostgresTLSRepliesSAndContinues(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	cx := layer4.WrapConnection(server, []byte{}, zap.NewNop())
@@ -193,7 +193,7 @@ func TestPostgresSSLRepliesSAndContinues(t *testing.T) {
 	}
 }
 
-func TestPostgresSSLRejectsNonSSLRequest(t *testing.T) {
+func TestPostgresTLSRejectsNonSSLRequest(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	cx := layer4.WrapConnection(server, []byte{}, zap.NewNop())
@@ -253,7 +253,7 @@ func wrapFake(c net.Conn) *layer4.Connection {
 	return layer4.WrapConnection(c, []byte{}, zap.NewNop())
 }
 
-func TestPostgresSSLHandlerReadError(t *testing.T) {
+func TestPostgresTLSHandlerReadError(t *testing.T) {
 	cx := wrapFake(&fakeConn{readErr: errors.New("boom")})
 	err := (&Handler{}).Handle(cx, layer4.HandlerFunc(func(*layer4.Connection) error { return nil }))
 	if err == nil {
@@ -261,7 +261,7 @@ func TestPostgresSSLHandlerReadError(t *testing.T) {
 	}
 }
 
-func TestPostgresSSLHandlerWriteError(t *testing.T) {
+func TestPostgresTLSHandlerWriteError(t *testing.T) {
 	cx := wrapFake(&fakeConn{r: bytes.NewReader(sslRequest()), writeErr: errors.New("boom")})
 	err := (&Handler{}).Handle(cx, layer4.HandlerFunc(func(*layer4.Connection) error {
 		t.Error("next must not be called when replying 'S' fails")
@@ -272,41 +272,41 @@ func TestPostgresSSLHandlerWriteError(t *testing.T) {
 	}
 }
 
-func TestSSLClientWriteError(t *testing.T) {
-	if _, err := SSLClient(&fakeConn{writeErr: errors.New("boom")}, &tls.Config{}); err == nil {
+func TestTLSClientWriteError(t *testing.T) {
+	if _, err := TLSClient(&fakeConn{writeErr: errors.New("boom")}, &tls.Config{}); err == nil {
 		t.Fatal("expected an error when SSLRequest cannot be sent")
 	}
 }
 
-func TestSSLClientReplyReadError(t *testing.T) {
+func TestTLSClientReplyReadError(t *testing.T) {
 	// write succeeds, but there is no reply to read
-	if _, err := SSLClient(&fakeConn{r: bytes.NewReader(nil)}, &tls.Config{}); err == nil {
+	if _, err := TLSClient(&fakeConn{r: bytes.NewReader(nil)}, &tls.Config{}); err == nil {
 		t.Fatal("expected an error when the reply cannot be read")
 	}
 }
 
-func TestSSLClientUnexpectedReply(t *testing.T) {
-	if _, err := SSLClient(&fakeConn{r: bytes.NewReader([]byte{'X'})}, &tls.Config{}); err == nil {
+func TestTLSClientUnexpectedReply(t *testing.T) {
+	if _, err := TLSClient(&fakeConn{r: bytes.NewReader([]byte{'X'})}, &tls.Config{}); err == nil {
 		t.Fatal("expected an error for an unexpected reply byte")
 	}
 }
 
-func TestSSLClientHandshakeError(t *testing.T) {
+func TestTLSClientHandshakeError(t *testing.T) {
 	// 'S' then non-TLS garbage so the client handshake fails
 	conn := &fakeConn{r: bytes.NewReader([]byte{'S', 0xff, 0xff, 0xff, 0xff, 0xff})}
-	if _, err := SSLClient(conn, &tls.Config{InsecureSkipVerify: true}); err == nil { //nolint:gosec // test
+	if _, err := TLSClient(conn, &tls.Config{InsecureSkipVerify: true}); err == nil { //nolint:gosec // test
 		t.Fatal("expected a TLS handshake error")
 	}
 }
 
-func TestPostgresSSLHandlerUnmarshalCaddyfile(t *testing.T) {
-	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_ssl")); err != nil {
+func TestPostgresTLSHandlerUnmarshalCaddyfile(t *testing.T) {
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_tls")); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_ssl extra")); err == nil {
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_tls extra")); err == nil {
 		t.Fatal("expected an error for an unexpected argument")
 	}
-	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_ssl {\n\tfoo\n}")); err == nil {
+	if err := (&Handler{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser("postgres_tls {\n\tfoo\n}")); err == nil {
 		t.Fatal("expected an error for an unsupported block")
 	}
 }

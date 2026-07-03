@@ -48,11 +48,11 @@ func init() {
 // the SSLRequest.
 //
 // Example (Caddyfile): note that `postgres` is a matcher (it gates the route),
-// while `postgres_ssl`, `tls` and `proxy` are the handlers run on a match.
+// while `postgres_tls`, `tls` and `proxy` are the handlers run on a match.
 //
 //	@pg postgres
 //	route @pg {
-//		postgres_ssl
+//		postgres_tls
 //		tls
 //		# downstream matchers now see the cleartext startup message
 //		proxy ...
@@ -62,7 +62,7 @@ type Handler struct{}
 // CaddyModule returns the Caddy module information.
 func (*Handler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.handlers.postgres_ssl",
+		ID:  "layer4.handlers.postgres_tls",
 		New: func() caddy.Module { return new(Handler) },
 	}
 }
@@ -89,7 +89,7 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	return next.Handle(cx)
 }
 
-// SSLClient performs the PostgreSQL SSLRequest negotiation as a client on
+// TLSClient performs the PostgreSQL SSLRequest negotiation as a client on
 // conn: it sends the SSLRequest, reads the server's reply, and on 'S' completes
 // a TLS handshake using cfg, returning the encrypted connection. On 'N' (the
 // server declines TLS) or any other reply it returns an error.
@@ -97,7 +97,7 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 // Use this to re-originate TLS to a Postgres upstream that expects
 // sslmode != disable, i.e. the outbound counterpart of the inbound termination
 // done by Handler + the `tls` handler.
-func SSLClient(conn net.Conn, cfg *tls.Config) (net.Conn, error) {
+func TLSClient(conn net.Conn, cfg *tls.Config) (net.Conn, error) {
 	req := make([]byte, minMessageLen)
 	binary.BigEndian.PutUint32(req[:lenFieldSize], minMessageLen)
 	binary.BigEndian.PutUint32(req[lenFieldSize:], sslRequestCode)
@@ -125,7 +125,7 @@ func SSLClient(conn net.Conn, cfg *tls.Config) (net.Conn, error) {
 
 // UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
 //
-//	postgres_ssl
+//	postgres_tls
 func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
