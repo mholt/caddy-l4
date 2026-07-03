@@ -196,7 +196,7 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 	// if enabled, track these connections on their peers so they can be
 	// force-closed when a peer is marked unhealthy. upConns[i] corresponds to
 	// upstream.peers[i] (dialPeers dials one connection per peer, in order).
-	closeOnUnhealthy := h.HealthChecks != nil && h.HealthChecks.CloseConnectionsOnUnhealthy
+	closeOnUnhealthy := h.HealthChecks != nil && h.HealthChecks.Active != nil && h.HealthChecks.Active.CloseIfUnhealthy
 	if closeOnUnhealthy {
 		for i, conn := range upConns {
 			if i < len(upstream.peers) {
@@ -514,12 +514,12 @@ func (h *Handler) Cleanup() error {
 //		health_timeout <duration>
 //		health_fall <int>
 //		health_rise <int>
+//		close_if_unhealthy
 //
 //		# passive health check options
 //		fail_duration <duration>
 //		max_fails <int>
 //		unhealthy_connection_count <int>
-//		close_connections_on_unhealthy
 //
 //		# load balancing options
 //		lb_policy <name> [<args...>]
@@ -544,7 +544,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 	var (
 		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
-		hasHealthFall, hasHealthRise                        bool // active health check thresholds
+		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol                                    bool
@@ -696,14 +696,19 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Passive = &PassiveHealthChecks{}
 			}
 			h.HealthChecks.Passive.UnhealthyConnectionCount, hasUnhealthyConnCount = int(val), true
-		case "close_connections_on_unhealthy":
+		case "close_if_unhealthy":
+			if hasCloseIfUnhealthy {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
 			if d.CountRemainingArgs() != 0 {
 				return d.ArgErr()
 			}
 			if h.HealthChecks == nil {
-				h.HealthChecks = &HealthChecks{}
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
 			}
-			h.HealthChecks.CloseConnectionsOnUnhealthy = true
+			h.HealthChecks.Active.CloseIfUnhealthy, hasCloseIfUnhealthy = true, true
 		case "lb_policy":
 			if hasLBPolicy {
 				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)

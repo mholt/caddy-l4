@@ -4,7 +4,7 @@
 			route {
 				proxy upstream.local:5432 {
 					health_interval 2s
-					close_connections_on_unhealthy
+					close_if_unhealthy
 				}
 			}
 		}
@@ -26,9 +26,9 @@
 									"handler": "proxy",
 									"health_checks": {
 										"active": {
+											"close_if_unhealthy": true,
 											"interval": 2000000000
-										},
-										"close_connections_on_unhealthy": true
+										}
 									},
 									"upstreams": [
 										{

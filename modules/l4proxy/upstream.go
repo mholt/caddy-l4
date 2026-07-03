@@ -537,7 +537,7 @@ type peer struct {
 
 	// openConns tracks the currently-open proxied connections to this peer so
 	// they can be force-closed when the peer is marked unhealthy. It is only
-	// populated when HealthChecks.CloseConnectionsOnUnhealthy is enabled.
+	// populated when HealthChecks.Active.CloseIfUnhealthy is enabled.
 	openConnsMu sync.Mutex
 	openConns   map[net.Conn]struct{}
 }

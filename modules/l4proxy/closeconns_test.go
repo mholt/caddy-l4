@@ -64,8 +64,11 @@ func newDeadPeer(t *testing.T) *peer {
 func activeCheckHandler(closeOnUnhealthy bool) *Handler {
 	return &Handler{
 		HealthChecks: &HealthChecks{
-			Active:                      &ActiveHealthChecks{Timeout: caddy.Duration(200 * time.Millisecond), logger: zap.NewNop()},
-			CloseConnectionsOnUnhealthy: closeOnUnhealthy,
+			Active: &ActiveHealthChecks{
+				Timeout:          caddy.Duration(200 * time.Millisecond),
+				CloseIfUnhealthy: closeOnUnhealthy,
+				logger:           zap.NewNop(),
+			},
 		},
 	}
 }
@@ -115,15 +118,20 @@ func TestActiveHealthCheckKeepsConnsWhenDisabled(t *testing.T) {
 
 func TestUnmarshalCaddyfileCloseConnections(t *testing.T) {
 	h := new(Handler)
-	if err := h.UnmarshalCaddyfile(caddyfile.NewTestDispenser("proxy localhost:1 {\n\tclose_connections_on_unhealthy\n}")); err != nil {
+	if err := h.UnmarshalCaddyfile(caddyfile.NewTestDispenser("proxy localhost:1 {\n\tclose_if_unhealthy\n}")); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if h.HealthChecks == nil || !h.HealthChecks.CloseConnectionsOnUnhealthy {
-		t.Fatal("expected CloseConnectionsOnUnhealthy = true")
+	if h.HealthChecks == nil || h.HealthChecks.Active == nil || !h.HealthChecks.Active.CloseIfUnhealthy {
+		t.Fatal("expected Active.CloseIfUnhealthy = true")
 	}
 
 	h2 := new(Handler)
-	if err := h2.UnmarshalCaddyfile(caddyfile.NewTestDispenser("proxy localhost:1 {\n\tclose_connections_on_unhealthy yes\n}")); err == nil {
-		t.Fatal("expected an error when close_connections_on_unhealthy has an argument")
+	if err := h2.UnmarshalCaddyfile(caddyfile.NewTestDispenser("proxy localhost:1 {\n\tclose_if_unhealthy yes\n}")); err == nil {
+		t.Fatal("expected an error when close_if_unhealthy has an argument")
+	}
+
+	h3 := new(Handler)
+	if err := h3.UnmarshalCaddyfile(caddyfile.NewTestDispenser("proxy localhost:1 {\n\tclose_if_unhealthy\n\tclose_if_unhealthy\n}")); err == nil {
+		t.Fatal("expected an error when close_if_unhealthy is specified twice")
 	}
 }

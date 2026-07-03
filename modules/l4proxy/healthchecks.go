@@ -37,14 +37,6 @@ type HealthChecks struct {
 	// To minimally enable passive health checks, specify at least an empty
 	// config object.
 	Passive *PassiveHealthChecks `json:"passive,omitempty"`
-
-	// CloseConnectionsOnUnhealthy, when true, force-closes a peer's currently
-	// open proxied connections the moment an active health check marks it
-	// unhealthy, instead of letting them run until they close on their own.
-	// This is useful for failover, where clients should be moved off a backend
-	// as soon as it goes down (e.g. a demoted database primary). Default false,
-	// preserving the existing behavior.
-	CloseConnectionsOnUnhealthy bool `json:"close_connections_on_unhealthy,omitempty"`
 }
 
 // ActiveHealthChecks holds configuration related to active health
@@ -61,6 +53,20 @@ type ActiveHealthChecks struct {
 	// How long to wait for a connection to be established with
 	// peer before considering it unhealthy (default 5s).
 	Timeout caddy.Duration `json:"timeout,omitempty"`
+
+	// CloseIfUnhealthy, when true, force-closes a peer's currently open proxied
+	// connections the moment an active health check marks it unhealthy, instead
+	// of letting them run until they close on their own. This is useful for
+	// failover, where clients should be moved off a backend as soon as it goes
+	// down (e.g. a demoted database primary). Default false, preserving the
+	// existing behavior.
+	//
+	// This applies to active health checks only: they provide a clear
+	// healthy->unhealthy transition to hook onto. Passive health checking has no
+	// equivalent transition event (a peer is simply considered down on demand
+	// once its failure count crosses the threshold), so there is nothing to
+	// trigger a close.
+	CloseIfUnhealthy bool `json:"close_if_unhealthy,omitempty"`
 
 	// Fall is the number of consecutive failed active health checks required
 	// to mark an upstream unhealthy (default 1).
@@ -209,7 +215,7 @@ func (h *Handler) doActiveHealthCheck(upstream *Upstream, p *peer) error {
 			if swapped {
 				h.HealthChecks.Active.logger.Info("host is down", zap.String("address", addr.String()))
 			}
-			if swapped && h.HealthChecks.CloseConnectionsOnUnhealthy {
+			if swapped && h.HealthChecks.Active.CloseIfUnhealthy {
 				p.closeOpenConns()
 			}
 		}
