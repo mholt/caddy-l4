@@ -47,10 +47,11 @@ func init() {
 // SSLRequest (e.g. the postgres matcher), so the 8 bytes it consumes really are
 // the SSLRequest.
 //
-// Example (Caddyfile):
+// Example (Caddyfile): note that `postgres` is a matcher (it gates the route),
+// while `postgres_starttls`, `tls` and `proxy` are the handlers run on a match.
 //
-//	route {
-//		postgres
+//	@pg postgres
+//	route @pg {
 //		postgres_starttls
 //		tls
 //		# downstream matchers now see the cleartext startup message
