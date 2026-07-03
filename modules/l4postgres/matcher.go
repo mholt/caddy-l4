@@ -316,7 +316,7 @@ func parseStartupParameters(data []byte) map[string]string {
 //	postgres
 //
 //	postgres {
-//		# match user/database pairs; repeat for each entry, "*" is the wildcard user
+//		# match user/database pairs; repeat for each entry, "*" is the wildcard
 //		user <name> [<database>...]
 //		# match the application_name parameter
 //		client <name> [<name>...]
