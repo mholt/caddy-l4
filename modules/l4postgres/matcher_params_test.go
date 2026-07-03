@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/mholt/caddy-l4/layer4"
 	"go.uber.org/zap"
@@ -176,7 +177,7 @@ func TestMatchPostgresClient(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &MatchPostgresClient{Client: tc.clients}
+			m := &MatchPostgres{Client: tc.clients}
 			matched, err := runMatch(t, m, tc.input)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -191,20 +192,22 @@ func TestMatchPostgresClient(t *testing.T) {
 func TestMatchPostgresSSL(t *testing.T) {
 	tests := []struct {
 		name      string
-		disabled  bool
+		ssl       string
 		input     []byte
 		wantMatch bool
 	}{
-		{name: "require SSL, got SSLRequest", disabled: false, input: buildSSLRequest(), wantMatch: true},
-		{name: "require SSL, got startup", disabled: false, input: startup(map[string]string{"user": "alice"}), wantMatch: false},
-		{name: "reject SSL, got startup", disabled: true, input: startup(map[string]string{"user": "alice"}), wantMatch: true},
-		{name: "reject SSL, got SSLRequest", disabled: true, input: buildSSLRequest(), wantMatch: false},
-		{name: "not a postgres connection", disabled: false, input: []byte("GET / HTTP/1.1\r\n\r\n"), wantMatch: false},
+		{name: "require SSL, got SSLRequest", ssl: sslEnabled, input: buildSSLRequest(), wantMatch: true},
+		{name: "require SSL, got startup", ssl: sslEnabled, input: startup(map[string]string{"user": "alice"}), wantMatch: false},
+		{name: "reject SSL, got startup", ssl: sslDisabled, input: startup(map[string]string{"user": "alice"}), wantMatch: true},
+		{name: "reject SSL, got SSLRequest", ssl: sslDisabled, input: buildSSLRequest(), wantMatch: false},
+		{name: "indifferent, got SSLRequest", ssl: sslIndifferent, input: buildSSLRequest(), wantMatch: true},
+		{name: "indifferent, got startup", ssl: sslIndifferent, input: startup(map[string]string{"user": "alice"}), wantMatch: true},
+		{name: "not a postgres connection", ssl: sslEnabled, input: []byte("GET / HTTP/1.1\r\n\r\n"), wantMatch: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &MatchPostgresSSL{Disabled: tc.disabled}
+			m := &MatchPostgres{SSL: tc.ssl}
 			matched, err := runMatch(t, m, tc.input)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -213,6 +216,45 @@ func TestMatchPostgresSSL(t *testing.T) {
 				t.Fatalf("match = %v, want %v", matched, tc.wantMatch)
 			}
 		})
+	}
+}
+
+// Combining constraints requires all of them to hold.
+func TestMatchPostgresCombined(t *testing.T) {
+	// ssl disabled + a matching user must both hold on a plaintext startup.
+	m := &MatchPostgres{
+		SSL:  sslDisabled,
+		User: map[string][]string{"alice": {"planets_db"}},
+	}
+	ok, err := runMatch(t, m, startup(map[string]string{"user": "alice", "database": "planets_db"}))
+	if err != nil || !ok {
+		t.Fatalf("expected a match for ssl=disabled + user alice: ok=%v err=%v", ok, err)
+	}
+
+	// ssl enabled + a user filter can never match: an SSLRequest carries no params.
+	m2 := &MatchPostgres{SSL: sslEnabled, User: map[string][]string{"alice": {"planets_db"}}}
+	if ok, err := runMatch(t, m2, buildSSLRequest()); err != nil || ok {
+		t.Fatalf("ssl=enabled + user filter must not match an SSLRequest: ok=%v err=%v", ok, err)
+	}
+
+	// user matches but client does not -> no match.
+	m3 := &MatchPostgres{
+		User:   map[string][]string{"alice": {}},
+		Client: []string{"psql"},
+	}
+	if ok, err := runMatch(t, m3, startup(map[string]string{"user": "alice", "application_name": "pgadmin"})); err != nil || ok {
+		t.Fatalf("mismatched client must fail the combined match: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMatchPostgresProvision(t *testing.T) {
+	for _, v := range []string{sslIndifferent, sslEnabled, sslDisabled} {
+		if err := (&MatchPostgres{SSL: v}).Provision(caddy.Context{}); err != nil {
+			t.Errorf("ssl=%q should provision cleanly: %v", v, err)
+		}
+	}
+	if err := (&MatchPostgres{SSL: "bogus"}).Provision(caddy.Context{}); err == nil {
+		t.Error("an invalid ssl value must be rejected at provision")
 	}
 }
 
@@ -280,11 +322,13 @@ func TestReadFirstMessageReadErrors(t *testing.T) {
 }
 
 func TestMatchPostgresUnmarshalCaddyfile(t *testing.T) {
-	t.Run("valid with users", func(t *testing.T) {
+	t.Run("full block", func(t *testing.T) {
 		d := caddyfile.NewTestDispenser(`postgres {
 			user alice planets_db stars_db
 			user * public_db
 			user alice extra_db
+			client psql TablePlus
+			ssl enabled
 		}`)
 		m := &MatchPostgres{}
 		if err := m.UnmarshalCaddyfile(d); err != nil {
@@ -296,6 +340,32 @@ func TestMatchPostgresUnmarshalCaddyfile(t *testing.T) {
 		if got := m.User["*"]; len(got) != 1 || got[0] != "public_db" {
 			t.Fatalf("wildcard databases = %v, want [public_db]", got)
 		}
+		if len(m.Client) != 2 || m.Client[0] != "psql" || m.Client[1] != "TablePlus" {
+			t.Fatalf("clients = %v, want [psql TablePlus]", m.Client)
+		}
+		if m.SSL != sslEnabled {
+			t.Fatalf("ssl = %q, want %q", m.SSL, sslEnabled)
+		}
+	})
+
+	t.Run("ssl disabled and wildcard", func(t *testing.T) {
+		d := caddyfile.NewTestDispenser("postgres {\n\tssl disabled\n}")
+		m := &MatchPostgres{}
+		if err := m.UnmarshalCaddyfile(d); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.SSL != sslDisabled {
+			t.Fatalf("ssl = %q, want %q", m.SSL, sslDisabled)
+		}
+
+		d2 := caddyfile.NewTestDispenser("postgres {\n\tssl *\n}")
+		m2 := &MatchPostgres{}
+		if err := m2.UnmarshalCaddyfile(d2); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m2.SSL != sslIndifferent {
+			t.Fatalf("ssl = %q, want indifferent", m2.SSL)
+		}
 	})
 
 	t.Run("bare matcher", func(t *testing.T) {
@@ -305,96 +375,21 @@ func TestMatchPostgresUnmarshalCaddyfile(t *testing.T) {
 		}
 	})
 
-	t.Run("args after wrapper are rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres extra`)
-		if err := (&MatchPostgres{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for arguments after the wrapper")
-		}
-	})
-
-	t.Run("user without a name is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser("postgres {\n\tuser\n}")
-		if err := (&MatchPostgres{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for a user line without a name")
-		}
-	})
-
-	t.Run("unknown option is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser("postgres {\n\tnonsense\n}")
-		if err := (&MatchPostgres{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for an unrecognized option")
-		}
-	})
-}
-
-func TestMatchPostgresClientUnmarshalCaddyfile(t *testing.T) {
-	t.Run("valid", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_client psql TablePlus`)
-		m := &MatchPostgresClient{}
-		if err := m.UnmarshalCaddyfile(d); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(m.Client) != 2 || m.Client[0] != "psql" || m.Client[1] != "TablePlus" {
-			t.Fatalf("clients = %v, want [psql TablePlus]", m.Client)
-		}
-	})
-
-	t.Run("no arguments is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_client`)
-		if err := (&MatchPostgresClient{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error when no client names are given")
-		}
-	})
-
-	t.Run("block is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser("postgres_client psql {\n\tfoo\n}")
-		if err := (&MatchPostgresClient{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for an unsupported block")
-		}
-	})
-}
-
-func TestMatchPostgresSSLUnmarshalCaddyfile(t *testing.T) {
-	t.Run("require SSL (no args)", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_ssl`)
-		m := &MatchPostgresSSL{}
-		if err := m.UnmarshalCaddyfile(d); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if m.Disabled {
-			t.Fatal("Disabled should be false by default")
-		}
-	})
-
-	t.Run("disabled", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_ssl disabled`)
-		m := &MatchPostgresSSL{}
-		if err := m.UnmarshalCaddyfile(d); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !m.Disabled {
-			t.Fatal("Disabled should be true")
-		}
-	})
-
-	t.Run("unrecognized argument is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_ssl enabled`)
-		if err := (&MatchPostgresSSL{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for an unrecognized argument")
-		}
-	})
-
-	t.Run("too many arguments is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser(`postgres_ssl disabled extra`)
-		if err := (&MatchPostgresSSL{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for too many arguments")
-		}
-	})
-
-	t.Run("block is rejected", func(t *testing.T) {
-		d := caddyfile.NewTestDispenser("postgres_ssl {\n\tfoo\n}")
-		if err := (&MatchPostgresSSL{}).UnmarshalCaddyfile(d); err == nil {
-			t.Fatal("expected an error for an unsupported block")
-		}
-	})
+	errorCases := map[string]string{
+		"args after wrapper":    `postgres extra`,
+		"user without a name":   "postgres {\n\tuser\n}",
+		"client without a name": "postgres {\n\tclient\n}",
+		"ssl without a value":   "postgres {\n\tssl\n}",
+		"ssl unknown value":     "postgres {\n\tssl maybe\n}",
+		"ssl with extra arg":    "postgres {\n\tssl enabled extra\n}",
+		"ssl specified twice":   "postgres {\n\tssl enabled\n\tssl disabled\n}",
+		"unrecognized option":   "postgres {\n\tnonsense\n}",
+	}
+	for name, input := range errorCases {
+		t.Run(name, func(t *testing.T) {
+			if err := (&MatchPostgres{}).UnmarshalCaddyfile(caddyfile.NewTestDispenser(input)); err == nil {
+				t.Fatalf("expected an error for %q", name)
+			}
+		})
+	}
 }

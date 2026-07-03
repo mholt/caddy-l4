@@ -14,12 +14,13 @@
 
 // Package l4postgres allows the L4 multiplexing of Postgres connections.
 //
-// In addition to detecting a Postgres connection, the matchers can select on
-// the contents of the StartupMessage the client sends first:
+// The single "postgres" matcher detects a Postgres connection and can, in
+// addition, filter on the contents of the first message the client sends:
 //
-//   - postgres        also filters on the user/database pair;
-//   - postgres_client filters on the application_name parameter;
-//   - postgres_ssl     requires (or rejects) an SSLRequest.
+//   - user   filters on the user (and, optionally, database) StartupMessage
+//     parameters;
+//   - client filters on the application_name StartupMessage parameter;
+//   - ssl    requires the presence or absence of an SSLRequest.
 package l4postgres
 
 import (
@@ -37,8 +38,6 @@ import (
 
 func init() {
 	caddy.RegisterModule(&MatchPostgres{})
-	caddy.RegisterModule(&MatchPostgresClient{})
-	caddy.RegisterModule(&MatchPostgresSSL{})
 }
 
 const (
@@ -47,6 +46,13 @@ const (
 	lenFieldSize      = 4         // Size of message length field (bytes)
 	minMessageLen     = 8         // Smallest valid message: SSLRequest (8 bytes)
 	maxPayloadSize    = 16 * 1024 // Maximum reasonable payload size (16 KB)
+)
+
+// SSL match modes for MatchPostgres.SSL.
+const (
+	sslIndifferent = ""         // match regardless of SSLRequest (default)
+	sslEnabled     = "enabled"  // require an SSLRequest
+	sslDisabled    = "disabled" // require the absence of an SSLRequest
 )
 
 // readFirstMessage reads and length-validates the first Postgres message on the
@@ -114,19 +120,25 @@ func classifyMessage(code uint32, payload []byte) (isSSL, isCancel, isStartup bo
 	}
 }
 
-// MatchPostgres is able to match Postgres connections. Without any configuration
-// it matches every well-formed Postgres first message (SSLRequest, CancelRequest
-// or a protocol-3 StartupMessage). When the User map is set, only StartupMessages
-// whose user (and, optionally, database) parameters satisfy the map will match.
-//
-// The User map is keyed by user name; the special key "*" matches any user that
-// is not listed explicitly. Each value is the list of databases allowed for that
-// user; an empty list allows any database.
+// MatchPostgres matches Postgres connections. With no options set it matches any
+// well-formed Postgres first message (SSLRequest, CancelRequest or a protocol-3
+// StartupMessage). The optional User, Client and SSL fields further constrain the
+// match; when more than one is set, all must be satisfied.
 type MatchPostgres struct {
 	// User maps a Postgres user name to the databases it is allowed to use.
 	// The special key "*" applies to any user not listed explicitly. An empty
-	// (or nil) database list matches any database for that user.
+	// (or nil) database list matches any database for that user. Only applies to
+	// StartupMessages (which carry the user/database parameters).
 	User map[string][]string `json:"user,omitempty"`
+
+	// Client is the list of accepted application_name values. Only applies to
+	// StartupMessages (which carry the application_name parameter).
+	Client []string `json:"client,omitempty"`
+
+	// SSL constrains whether the connection must begin with an SSLRequest:
+	// "enabled" requires one, "disabled" requires its absence, and "" (the
+	// default) is indifferent.
+	SSL string `json:"ssl,omitempty"`
 }
 
 // CaddyModule returns the Caddy module information.
@@ -137,9 +149,18 @@ func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Match returns true if the connection looks like the Postgres protocol and, when
-// the User map is configured, the StartupMessage satisfies the user/database
-// filter.
+// Provision validates the SSL option.
+func (m *MatchPostgres) Provision(_ caddy.Context) error {
+	switch m.SSL {
+	case sslIndifferent, sslEnabled, sslDisabled:
+		return nil
+	default:
+		return fmt.Errorf("postgres: invalid ssl value %q; must be %q or %q", m.SSL, sslEnabled, sslDisabled)
+	}
+}
+
+// Match returns true if the connection looks like the Postgres protocol and
+// satisfies every configured constraint (ssl, user/database, application_name).
 func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 	code, payload, ok, err := readFirstMessage(cx)
 	if err != nil || !ok {
@@ -148,19 +169,35 @@ func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
 
 	isSSL, isCancel, isStartup := classifyMessage(code, payload)
 
-	// Without a user/database filter, any well-formed Postgres first message
-	// matches (this preserves the original detection behavior).
-	if len(m.User) == 0 {
-		return isSSL || isCancel || isStartup, nil
+	// Apply the SSL constraint.
+	switch m.SSL {
+	case sslEnabled:
+		if !isSSL {
+			return false, nil
+		}
+	case sslDisabled:
+		if isSSL {
+			return false, nil
+		}
 	}
 
-	// The user/database filter only applies to StartupMessages, which are the
-	// only kind that carry parameters. SSLRequest/CancelRequest cannot match.
+	// The user and client filters need StartupMessage parameters, which only a
+	// StartupMessage carries (SSLRequest/CancelRequest do not).
+	if len(m.User) == 0 && len(m.Client) == 0 {
+		return isSSL || isCancel || isStartup, nil
+	}
 	if !isStartup {
 		return false, nil
 	}
 
-	return m.matchUserDatabase(parseStartupParameters(payload[4:])), nil
+	params := parseStartupParameters(payload[4:])
+	if len(m.User) > 0 && !m.matchUserDatabase(params) {
+		return false, nil
+	}
+	if len(m.Client) > 0 && !matchClient(m.Client, params) {
+		return false, nil
+	}
+	return true, nil
 }
 
 // matchUserDatabase applies the User map to the StartupMessage parameters.
@@ -193,71 +230,14 @@ func (m *MatchPostgres) matchUserDatabase(params map[string]string) bool {
 	return true
 }
 
-// MatchPostgresClient matches Postgres StartupMessages whose application_name
-// parameter is one of the configured client names.
-type MatchPostgresClient struct {
-	// Client is the list of accepted application_name values.
-	Client []string `json:"client,omitempty"`
-}
-
-// CaddyModule returns the Caddy module information.
-func (*MatchPostgresClient) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.postgres_client",
-		New: func() caddy.Module { return new(MatchPostgresClient) },
-	}
-}
-
-// Match returns true if the connection is a Postgres StartupMessage whose
-// application_name parameter is in the configured Client list.
-func (m *MatchPostgresClient) Match(cx *layer4.Connection) (bool, error) {
-	code, payload, ok, err := readFirstMessage(cx)
-	if err != nil || !ok {
-		return false, err
-	}
-
-	// Only StartupMessages carry an application_name; SSL/Cancel requests don't.
-	if _, _, isStartup := classifyMessage(code, payload); !isStartup {
-		return false, nil
-	}
-
-	name, ok := parseStartupParameters(payload[4:])["application_name"]
+// matchClient reports whether the StartupMessage's application_name is one of
+// the configured client names.
+func matchClient(clients []string, params map[string]string) bool {
+	name, ok := params["application_name"]
 	if !ok {
-		return false, nil
+		return false
 	}
-
-	return slices.Contains(m.Client, name), nil
-}
-
-// MatchPostgresSSL matches on whether the Postgres connection began with an
-// SSLRequest. By default it matches connections that request SSL; set Disabled
-// to instead match connections that do not.
-type MatchPostgresSSL struct {
-	// Disabled inverts the match: when true, the matcher requires the absence
-	// of an SSLRequest instead of its presence.
-	Disabled bool `json:"disabled,omitempty"`
-}
-
-// CaddyModule returns the Caddy module information.
-func (*MatchPostgresSSL) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "layer4.matchers.postgres_ssl",
-		New: func() caddy.Module { return new(MatchPostgresSSL) },
-	}
-}
-
-// Match returns true when the connection's SSL state matches the configuration:
-// by default when it is an SSLRequest, or (with Disabled set) when it is not.
-func (m *MatchPostgresSSL) Match(cx *layer4.Connection) (bool, error) {
-	code, payload, ok, err := readFirstMessage(cx)
-	if err != nil || !ok {
-		return false, err
-	}
-
-	isSSL, _, _ := classifyMessage(code, payload)
-	// Disabled=false -> match when SSL is requested.
-	// Disabled=true  -> match when SSL is not requested.
-	return isSSL != m.Disabled, nil
+	return slices.Contains(clients, name)
 }
 
 // validateStartupMessageFormat checks if the payload has valid Postgres startup format
@@ -336,17 +316,22 @@ func parseStartupParameters(data []byte) map[string]string {
 //	postgres
 //
 //	postgres {
+//		# match user/database pairs; repeat for each entry, "*" is the wildcard user
 //		user <name> [<database>...]
+//		# match the application_name parameter
+//		client <name> [<name>...]
+//		# require (enabled) or reject (disabled) an SSLRequest; "*" is indifferent
+//		ssl <enabled|disabled|*>
 //	}
-//
-// Repeated user lines accumulate; use "*" as the name to match any unlisted user.
 func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 	if d.CountRemainingArgs() > 0 {
 		return d.ArgErr()
 	}
+	var hasSSL bool
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
-		switch d.Val() {
+		optionName := d.Val()
+		switch optionName {
 		case "user":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -357,47 +342,36 @@ func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			// Remaining args on the line (if any) are the allowed databases.
 			m.User[name] = append(m.User[name], d.RemainingArgs()...)
+		case "client":
+			args := d.RemainingArgs()
+			if len(args) == 0 {
+				return d.ArgErr()
+			}
+			m.Client = append(m.Client, args...)
+		case "ssl":
+			if hasSSL {
+				return d.Errf("malformed layer4 connection matcher '%s': duplicate option '%s'", wrapper, optionName)
+			}
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			switch d.Val() {
+			case "enabled":
+				m.SSL = sslEnabled
+			case "disabled":
+				m.SSL = sslDisabled
+			case "*":
+				m.SSL = sslIndifferent
+			default:
+				return d.Errf("malformed layer4 connection matcher '%s': unrecognized '%s' value '%s'", wrapper, optionName, d.Val())
+			}
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+			hasSSL = true
 		default:
-			return d.Errf("malformed layer4 connection matcher '%s': unrecognized option '%s'", wrapper, d.Val())
+			return d.Errf("malformed layer4 connection matcher '%s': unrecognized option '%s'", wrapper, optionName)
 		}
-	}
-	return nil
-}
-
-// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens. Syntax:
-//
-//	postgres_client <name> [<name>...]
-func (m *MatchPostgresClient) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	_, wrapper := d.Next(), d.Val() // consume wrapper name
-	m.Client = append(m.Client, d.RemainingArgs()...)
-	if len(m.Client) == 0 {
-		return d.ArgErr()
-	}
-	if d.NextBlock(d.Nesting()) {
-		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
-	}
-	return nil
-}
-
-// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens. Syntax:
-//
-//	postgres_ssl [disabled]
-func (m *MatchPostgresSSL) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	_, wrapper := d.Next(), d.Val() // consume wrapper name
-	args := d.RemainingArgs()
-	switch len(args) {
-	case 0:
-		// require SSL (default)
-	case 1:
-		if args[0] != "disabled" {
-			return d.Errf("malformed layer4 connection matcher '%s': unrecognized argument '%s'", wrapper, args[0])
-		}
-		m.Disabled = true
-	default:
-		return d.ArgErr()
-	}
-	if d.NextBlock(d.Nesting()) {
-		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
 	}
 	return nil
 }
@@ -414,9 +388,6 @@ func (m *MatchPostgresSSL) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // Interface guards
 var (
 	_ layer4.ConnMatcher    = (*MatchPostgres)(nil)
+	_ caddy.Provisioner     = (*MatchPostgres)(nil)
 	_ caddyfile.Unmarshaler = (*MatchPostgres)(nil)
-	_ layer4.ConnMatcher    = (*MatchPostgresClient)(nil)
-	_ caddyfile.Unmarshaler = (*MatchPostgresClient)(nil)
-	_ layer4.ConnMatcher    = (*MatchPostgresSSL)(nil)
-	_ caddyfile.Unmarshaler = (*MatchPostgresSSL)(nil)
 )

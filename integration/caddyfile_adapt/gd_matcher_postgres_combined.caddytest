@@ -1,12 +1,14 @@
 {
 	layer4 {
-		:443 {
+		:5432 {
 			@a postgres {
 				user alice planets_db stars_db
 				user * public_db
+				client psql TablePlus
+				ssl disabled
 			}
 			route @a {
-				proxy postgres.machine.local:443
+				proxy postgres.machine.local:5432
 			}
 		}
 	}
@@ -18,7 +20,7 @@
 			"servers": {
 				"srv0": {
 					"listen": [
-						":443"
+						":5432"
 					],
 					"routes": [
 						{
@@ -33,7 +35,12 @@
 												"planets_db",
 												"stars_db"
 											]
-										}
+										},
+										"client": [
+											"psql",
+											"TablePlus"
+										],
+										"ssl": "disabled"
 									}
 								}
 							],
@@ -43,7 +50,7 @@
 									"upstreams": [
 										{
 											"dial": [
-												"postgres.machine.local:443"
+												"postgres.machine.local:5432"
 											]
 										}
 									]

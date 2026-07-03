@@ -10,20 +10,23 @@ The Postgres (PostgreSQL) matcher allows to match connections that look
 like [Postgres Wire Protocol](https://www.postgresql.org/docs/current/protocol.html).
 It does independent raw packet parsing under the hood.
 
-This package also provides two companion matchers:
-[`postgres_client`](postgres_client.md) (match on the `application_name`
-parameter) and [`postgres_ssl`](postgres_ssl.md) (require or reject an
-`SSLRequest`).
-
 ## Syntax
 
 By default the matcher matches any Postgres connection. It can optionally filter
-on the `user` and `database` parameters carried by the StartupMessage:
+on the contents of the first message the client sends. When more than one filter
+is set, all must be satisfied.
 
 - `user` maps a Postgres user name to the list of databases it is allowed to use.
   The special key `*` applies to any user that is not listed explicitly. An empty
-  database list allows any database for that user. The filter only applies to
-  StartupMessages; an `SSLRequest` never matches when a `user` filter is set.
+  database list allows any database for that user.
+- `client` is a list of accepted `application_name` values.
+- `ssl` constrains whether the connection must begin with an `SSLRequest`:
+  `enabled` requires one, `disabled` requires its absence, and `*` (the default)
+  is indifferent.
+
+`user` and `client` are carried only by the StartupMessage, so an `SSLRequest`
+never matches when either is set (and, conversely, `ssl enabled` combined with a
+`user`/`client` filter can never match, since those live on different messages).
 
 ### Caddyfile
 
@@ -32,19 +35,23 @@ The matcher supports the following syntax:
 # bare `postgres` matches any Postgres traffic
 postgres
 
-# filter on user/database pairs
 postgres {
     # repeat `user` for each entry; `*` is the wildcard user
     user <name> [<database>...]
+    # match the application_name parameter
+    client <name> [<name>...]
+    # require (enabled) or reject (disabled) an SSLRequest; `*` is indifferent
+    ssl <enabled|disabled|*>
 }
 ```
 
 For example, allow `alice` only on `planets_db`/`stars_db`, and any other user
-only on `public_db`:
+only on `public_db`, over plaintext connections:
 ```caddyfile
 postgres {
     user alice planets_db stars_db
     user * public_db
+    ssl disabled
 }
 ```
 
