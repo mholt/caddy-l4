@@ -63,6 +63,28 @@ func TestProxyMetricsNilSafe(t *testing.T) {
 	m.setUpstreamHealthy("x", true)
 }
 
+// TestProxyMetricsDuplicateRegistration reproduces issue #445: multiple proxy
+// handlers share one instance registry, so provisioning a second one must not
+// panic on a duplicate collector registration, and both must share the same
+// underlying collectors.
+func TestProxyMetricsDuplicateRegistration(t *testing.T) {
+	reg := prometheus.NewRegistry()
+
+	m1 := newProxyMetrics(reg)
+	m2 := newProxyMetrics(reg) // previously panicked: "duplicate metrics collector registration attempted"
+
+	m1.connectionOpened("up")
+	m2.connectionOpened("up")
+
+	// Both handlers write to the same registered collector.
+	if got := testutil.ToFloat64(m1.connectionsTotal.WithLabelValues("up")); got != 2 {
+		t.Errorf("connections_total = %v, want 2 (collectors must be shared)", got)
+	}
+	if m1.connectionsTotal != m2.connectionsTotal {
+		t.Error("expected the second proxy handler to reuse the existing collector")
+	}
+}
+
 func TestActiveHealthCheckUpdatesHealthMetricDown(t *testing.T) {
 	addr, err := caddy.ParseNetworkAddress("127.0.0.1:1") // nothing listening
 	if err != nil {
