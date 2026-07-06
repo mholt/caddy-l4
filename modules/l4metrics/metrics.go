@@ -17,10 +17,11 @@
 package l4metrics
 
 import (
+	"errors"
+
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/mholt/caddy-l4/layer4"
 )
@@ -91,28 +92,49 @@ type metrics struct {
 	sentBytes        prometheus.Counter
 }
 
-// newMetrics creates and registers the connection metrics on reg.
+// registerOrExisting registers c on reg, or returns the already-registered
+// equivalent collector if an identical one is present. Multiple metrics handlers
+// in one config share the same instance registry, so the second and subsequent
+// Provision calls must reuse the collectors rather than panicking on a duplicate
+// registration.
+func registerOrExisting[C prometheus.Collector](reg *prometheus.Registry, c C) C {
+	if err := reg.Register(c); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			if existing, ok := are.ExistingCollector.(C); ok {
+				return existing
+			}
+		}
+		// Any other registration error means the metric is unusable; fall back to
+		// the unregistered collector so recording is a harmless no-op rather than
+		// crashing the whole server.
+	}
+	return c
+}
+
+// newMetrics creates and registers the connection metrics on reg, reusing any
+// collectors already registered there by another metrics handler.
 func newMetrics(reg *prometheus.Registry) *metrics {
 	const ns, sub = "caddy", "layer4"
 	return &metrics{
-		connectionsTotal: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+		connectionsTotal: registerOrExisting(reg, prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "connections_total",
 			Help:      "Total number of connections handled through the metrics handler.",
-		}),
-		receivedBytes: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+		})),
+		receivedBytes: registerOrExisting(reg, prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "received_bytes_total",
 			Help:      "Total number of bytes received from clients through the metrics handler.",
-		}),
-		sentBytes: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+		})),
+		sentBytes: registerOrExisting(reg, prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "sent_bytes_total",
 			Help:      "Total number of bytes sent to clients through the metrics handler.",
-		}),
+		})),
 	}
 }
 

@@ -51,6 +51,29 @@ func TestMetricsNilSafe(t *testing.T) {
 	m.record(1, 2)
 }
 
+// TestMetricsDuplicateRegistration guards against the panic seen in issue #445:
+// multiple metrics handlers share one instance registry, so a second one must
+// reuse the existing collectors instead of panicking on a duplicate.
+func TestMetricsDuplicateRegistration(t *testing.T) {
+	reg := prometheus.NewRegistry()
+
+	m1 := newMetrics(reg)
+	m2 := newMetrics(reg) // must not panic
+
+	m1.record(10, 5)
+	m2.record(20, 7)
+
+	if got := testutil.ToFloat64(m1.connectionsTotal); got != 2 {
+		t.Errorf("connections_total = %v, want 2 (collectors must be shared)", got)
+	}
+	if got := testutil.ToFloat64(m1.receivedBytes); got != 30 {
+		t.Errorf("received_bytes_total = %v, want 30", got)
+	}
+	if m1.connectionsTotal != m2.connectionsTotal {
+		t.Error("expected the second handler to reuse the existing collector")
+	}
+}
+
 func TestProvision(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
