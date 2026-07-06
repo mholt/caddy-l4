@@ -1,0 +1,53 @@
+{
+	layer4 {
+		:5432 {
+			@pg postgres
+			route @pg {
+				postgres_tls
+				tls
+				proxy upstream.local:5432
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"postgres": {}
+								}
+							],
+							"handle": [
+								{
+									"handler": "postgres_tls"
+								},
+								{
+									"handler": "tls"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:5432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
