@@ -52,6 +52,11 @@ func Test_MatchRegexp_Match(t *testing.T) {
 		{matcher: &MatchRegexp{Pattern: "^\\d+$"}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^\\d+$", Count: 0}, data: packet0123, shouldMatch: true},
 		{matcher: &MatchRegexp{Pattern: "^\x30\x31\x32(\x33|\x34)$", Count: 0}, data: packet0123, shouldMatch: true},
+		{matcher: &MatchRegexp{Pattern: "^30313233$", Hex: true}, data: packet0123, shouldMatch: true},
+		{matcher: &MatchRegexp{Pattern: "^303132(33|34)$", Hex: true}, data: packet0123, shouldMatch: true},
+		{matcher: &MatchRegexp{Pattern: "^30313234$", Hex: true}, data: packet0123, shouldMatch: false},
+		{matcher: &MatchRegexp{Pattern: "^9E79BC40$", Hex: true, Count: 4}, data: packetNonUTF8, shouldMatch: true},
+		{matcher: &MatchRegexp{Pattern: "^9E7\\dBC4\\d$", Hex: true, Count: 4}, data: packetNonUTF8, shouldMatch: true},
 	}
 
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
@@ -90,3 +95,5 @@ func Test_MatchRegexp_Match(t *testing.T) {
 }
 
 var packet0123 = []byte{0x30, 0x31, 0x32, 0x33}
+
+var packetNonUTF8 = []byte{0x9E, 0x79, 0xBC, 0x40}
