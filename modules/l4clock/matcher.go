@@ -31,13 +31,14 @@ func init() {
 
 // MatchClock is able to match any connections using the time when they are wrapped/matched.
 type MatchClock struct {
-	// After is a mandatory field that must have a value in 15:04:05 format representing the lowest valid time point.
-	// Placeholders are supported and evaluated at provision. If Before is lower than After, their values are swapped
-	// at provision.
+	// After should have a value in 15:04:05 format representing the lowest valid time point. Placeholders are
+	// supported and evaluated at provision. An empty value is treated as 00:00:00. If After is greater than Before,
+	// the matcher spans midnight, i.e. it matches the overnight window (e.g. an After of 22:00:00 together with a
+	// Before of 06:00:00 matches from 22:00:00 through 05:59:59).
 	After string `json:"after,omitempty"`
-	// Before is a mandatory field that must have a value in 15:04:05 format representing the highest valid time point
-	// plus one second. Placeholders are supported and evaluated at provision. 00:00:00 is treated here as 24:00:00.
-	// If Before is lower than After, their values are swapped at provision.
+	// Before should have a value in 15:04:05 format representing the highest valid time point plus one second.
+	// Placeholders are supported and evaluated at provision. 00:00:00 (or an empty value) is treated here as
+	// 24:00:00. If Before is lower than After, the matcher spans midnight (see After).
 	Before string `json:"before,omitempty"`
 	// Timezone is an optional field that may be an IANA time zone location (e.g. America/Los_Angeles), a fixed offset
 	// to the east of UTC (e.g. +02, -03:30, or even +12:34:56) or Local (to use the system's local time zone).
@@ -60,16 +61,24 @@ func (m *MatchClock) CaddyModule() caddy.ModuleInfo {
 // Match returns true if the connection wrapping/matching occurs within m's time points.
 func (m *MatchClock) Match(cx *layer4.Connection) (bool, error) {
 	repl := cx.Replacer()
-	t, known := repl.Get(layer4.ConnWrapTimeReplKey)
-	if !known {
-		t = time.Now().UTC()
-		repl.Set(layer4.ConnWrapTimeReplKey, t)
+	// Use the connection wrap time if it is present and of the expected type, falling back to the current
+	// time otherwise. The comma-ok assertion guards against a panic if the value is ever missing or not a
+	// time.Time, since a panic here would not be recovered further up the matching path.
+	now, ok := time.Time{}, false
+	if v, known := repl.Get(layer4.ConnWrapTimeReplKey); known {
+		now, ok = v.(time.Time)
 	}
-	secondsNow := timeToSeconds(t.(time.Time).In(m.location))
-	if secondsNow >= m.secondsAfter && secondsNow < m.secondsBefore {
-		return true, nil
+	if !ok {
+		now = time.Now().UTC()
+		repl.Set(layer4.ConnWrapTimeReplKey, now)
 	}
-	return false, nil
+	secondsNow := timeToSeconds(now.In(m.location))
+	if m.secondsAfter <= m.secondsBefore {
+		// Same-day window: [secondsAfter, secondsBefore).
+		return secondsNow >= m.secondsAfter && secondsNow < m.secondsBefore, nil
+	}
+	// Overnight window that wraps around midnight: [secondsAfter, 24:00:00) or [00:00:00, secondsBefore).
+	return secondsNow >= m.secondsAfter || secondsNow < m.secondsBefore, nil
 }
 
 // Provision parses m's time points and a time zone (UTC is used by default).
@@ -88,13 +97,11 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 
 	// Treat secondsBefore of 00:00:00 as 24:00:00
 	if m.secondsBefore == 0 {
-		m.secondsBefore = 86400
+		m.secondsBefore = secondsPerDay
 	}
 
-	// Swap time points, if secondsAfter is greater than secondsBefore
-	if m.secondsBefore < m.secondsAfter {
-		m.secondsAfter, m.secondsBefore = m.secondsBefore, m.secondsAfter
-	}
+	// Note: secondsAfter greater than secondsBefore is valid and denotes an overnight window that wraps
+	// around midnight (see Match). The two are intentionally not swapped.
 
 	timezone := repl.ReplaceAll(m.Timezone, "")
 	for _, layout := range tzLayouts {
@@ -124,7 +131,8 @@ func (m *MatchClock) Provision(_ caddy.Context) (err error) {
 //
 // Note: MatchClock checks if time_now is greater than or equal to time_after AND less than time_before.
 // The lowest value is 00:00:00. If time_before equals 00:00:00, it is treated as 24:00:00. If time_after is greater
-// than time_before, they are swapped. Both "after 00:00:00" and "before 00:00:00" match all day. An IANA time zone
+// than time_before, the window wraps around midnight (e.g. "clock 22:00:00 06:00:00" matches the overnight window
+// from 22:00:00 through 05:59:59). Both "after 00:00:00" and "before 00:00:00" match all day. An IANA time zone
 // location should be used as a value for time_zone. The system's local time zone may be used with "Local" value.
 // If time_zone is empty, UTC is used.
 func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -158,9 +166,10 @@ func (m *MatchClock) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 }
 
 const (
-	timeLayout = time.TimeOnly
-	timeMax    = "00:00:00"
-	timeMin    = "00:00:00"
+	secondsPerDay = 24 * 60 * 60
+	timeLayout    = time.TimeOnly
+	timeMax       = "00:00:00"
+	timeMin       = "00:00:00"
 )
 
 var tzLayouts = [...]string{"-07", "-07:00", "-07:00:00"}
