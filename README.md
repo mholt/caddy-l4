@@ -72,6 +72,7 @@ The following configuration examples are included in the documentation:
 - [HTTP & HTTPS Mix](/docs/examples/http_and_https_mix.md)
 - [IMAPS with Proxy Protocol](/docs/examples/imaps_with_proxy_protocol.md)
 - [Mutual TLS](/docs/examples/mutual_tls.md)
+- [Postgres Matching](/docs/examples/postgres-matching.md)
 - [Postgres-over-TLS](/docs/examples/postgres-over-tls.md)
 - [SOCKS Proxy](/docs/examples/socks_proxy.md)
 - [SSH-over-TLS](/docs/examples/ssh-over-tls.md)

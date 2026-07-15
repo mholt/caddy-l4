@@ -3,6 +3,7 @@ package l4proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -494,5 +495,185 @@ func TestActiveHealthCheckUsesLocalAddress(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("no health check connection observed")
+	}
+}
+
+// newHandleTestConn returns a paired in-memory downstream connection: the
+// client end (for the test to drive) and a layer4.Connection wrapping the
+// server end (handed to Handle).
+func newHandleTestConn(t *testing.T, h *Handler) (net.Conn, *layer4.Connection) {
+	t.Helper()
+	downClient, downServer := net.Pipe()
+	t.Cleanup(func() {
+		_ = downClient.Close()
+		_ = downServer.Close()
+	})
+	return downClient, layer4.WrapConnection(downServer, nil, h.logger)
+}
+
+// TestHandleReturnsErrorWhenNoUpstreamAvailable covers the branch where the
+// selection policy yields no upstream and retrying is disabled (TryDuration 0),
+// so Handle returns the "no upstreams available" error immediately.
+func TestHandleReturnsErrorWhenNoUpstreamAvailable(t *testing.T) {
+	h := &Handler{logger: zap.NewNop(), ctx: caddy.Context{Context: context.Background()}}
+	h.LoadBalancing = &LoadBalancing{SelectionPolicy: &RandomSelection{}}
+	// no upstreams configured -> Select always returns nil
+
+	_, down := newHandleTestConn(t, h)
+
+	err := h.Handle(down, nil)
+	if err == nil || !strings.Contains(err.Error(), "no upstreams available") {
+		t.Fatalf("expected a 'no upstreams available' error, got %v", err)
+	}
+}
+
+// TestHandleReturnsErrorWhenDialFails covers the branch where an upstream is
+// selected but dialing every peer fails and retrying is disabled, so Handle
+// surfaces the dial error.
+func TestHandleReturnsErrorWhenDialFails(t *testing.T) {
+	// Reserve a port and immediately release it so connecting is refused.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving a closed port: %v", err)
+	}
+	closedAddr := ln.Addr().String()
+	_ = ln.Close()
+
+	parsed, err := caddy.ParseNetworkAddress(closedAddr)
+	if err != nil {
+		t.Fatalf("parsing upstream address: %v", err)
+	}
+
+	h := &Handler{logger: zap.NewNop(), ctx: caddy.Context{Context: context.Background()}}
+	h.LoadBalancing = &LoadBalancing{SelectionPolicy: &RandomSelection{}}
+	h.Upstreams = UpstreamPool{{peers: []*peer{{address: &parsed}}}}
+
+	_, down := newHandleTestConn(t, h)
+
+	if err := h.Handle(down, nil); err == nil {
+		t.Fatal("expected a dial error when the upstream is unreachable, got nil")
+	}
+}
+
+// TestHandleRetriesThenGivesUp covers the retry loop: with no upstream ever
+// becoming available, Handle keeps calling tryAgain until TryDuration elapses,
+// then returns the error. It also exercises the "proxyErr already set" branch
+// on the second and later iterations.
+func TestHandleRetriesThenGivesUp(t *testing.T) {
+	h := &Handler{logger: zap.NewNop(), ctx: caddy.Context{Context: context.Background()}}
+	h.LoadBalancing = &LoadBalancing{
+		SelectionPolicy: &RandomSelection{},
+		TryDuration:     caddy.Duration(80 * time.Millisecond),
+		TryInterval:     caddy.Duration(10 * time.Millisecond),
+	}
+
+	_, down := newHandleTestConn(t, h)
+
+	start := time.Now()
+	err := h.Handle(down, nil)
+	if err == nil || !strings.Contains(err.Error(), "no upstreams available") {
+		t.Fatalf("expected a 'no upstreams available' error, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
+		t.Fatalf("expected Handle to retry for about TryDuration, returned after %s", elapsed)
+	}
+}
+
+// TestHandleRetriesDialFailureThenGivesUp covers the dial-failure retry branch:
+// an upstream is selected but unreachable, so Handle loops (tryAgain -> continue)
+// until TryDuration elapses, then returns the dial error.
+func TestHandleRetriesDialFailureThenGivesUp(t *testing.T) {
+	// Reserve a port and immediately release it so connecting is refused.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserving a closed port: %v", err)
+	}
+	closedAddr := ln.Addr().String()
+	_ = ln.Close()
+
+	parsed, err := caddy.ParseNetworkAddress(closedAddr)
+	if err != nil {
+		t.Fatalf("parsing upstream address: %v", err)
+	}
+
+	h := &Handler{logger: zap.NewNop(), ctx: caddy.Context{Context: context.Background()}}
+	h.LoadBalancing = &LoadBalancing{
+		SelectionPolicy: &RandomSelection{},
+		TryDuration:     caddy.Duration(80 * time.Millisecond),
+		TryInterval:     caddy.Duration(10 * time.Millisecond),
+	}
+	h.Upstreams = UpstreamPool{{peers: []*peer{{address: &parsed}}}}
+
+	_, down := newHandleTestConn(t, h)
+
+	start := time.Now()
+	if err := h.Handle(down, nil); err == nil {
+		t.Fatal("expected a dial error after exhausting retries, got nil")
+	}
+	if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
+		t.Fatalf("expected Handle to retry for about TryDuration, returned after %s", elapsed)
+	}
+}
+
+// TestHandleProxiesDataToUpstream covers the success path: an upstream is
+// selected and dialed, data flows in both directions, and Handle returns nil
+// once the downstream connection is closed.
+func TestHandleProxiesDataToUpstream(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening for echo upstream: %v", err)
+	}
+	defer ln.Close()
+
+	// Echo server: write back whatever is read, then close.
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(c, c)
+				_ = c.Close()
+			}(c)
+		}
+	}()
+
+	parsed, err := caddy.ParseNetworkAddress(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("parsing upstream address: %v", err)
+	}
+
+	h := &Handler{logger: zap.NewNop(), ctx: caddy.Context{Context: context.Background()}}
+	h.LoadBalancing = &LoadBalancing{SelectionPolicy: &RandomSelection{}}
+	h.Upstreams = UpstreamPool{{peers: []*peer{{address: &parsed}}}}
+
+	downClient, down := newHandleTestConn(t, h)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- h.Handle(down, nil) }()
+
+	msg := []byte("ping")
+	if _, err := downClient.Write(msg); err != nil {
+		t.Fatalf("writing to downstream: %v", err)
+	}
+	got := make([]byte, len(msg))
+	if _, err := io.ReadFull(downClient, got); err != nil {
+		t.Fatalf("reading echoed bytes: %v", err)
+	}
+	if string(got) != "ping" {
+		t.Fatalf("echo = %q, want %q", got, "ping")
+	}
+
+	// Closing the downstream ends the proxy duplex and unblocks Handle.
+	_ = downClient.Close()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Handle returned an error on the success path: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Handle did not return after the downstream connection was closed")
 	}
 }

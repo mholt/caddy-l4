@@ -1,0 +1,65 @@
+{
+	layer4 {
+		:5432 {
+			@a postgres {
+				user alice planets_db stars_db
+				user * public_db
+				client psql TablePlus
+				tls disabled
+			}
+			route @a {
+				proxy postgres.machine.local:5432
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"postgres": {
+										"user": {
+											"*": [
+												"public_db"
+											],
+											"alice": [
+												"planets_db",
+												"stars_db"
+											]
+										},
+										"client": [
+											"psql",
+											"TablePlus"
+										],
+										"tls": "disabled"
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"postgres.machine.local:5432"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

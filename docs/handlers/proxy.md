@@ -9,6 +9,16 @@ title: Proxy Handler
 The Proxy handler implements a layer 4 proxy capable of multiple upstreams with load balancing and health checks.
 This handler is at the core of the package functionality and supports both TCP and UDP.
 
+## Metrics
+
+The handler exposes Prometheus metrics on the instance metrics registry (served by Caddy's admin `/metrics`
+endpoint), labeled by `upstream`:
+
+- `caddy_layer4_proxy_connections_total` — counter of connections proxied to an upstream;
+- `caddy_layer4_proxy_active_connections` — gauge of connections currently being proxied to an upstream;
+- `caddy_layer4_proxy_upstream_healthy` — gauge that is `1` when an upstream is healthy and `0` when it is down,
+  as determined by active health checks.
+
 ## Syntax
 
 The handler has the following optional fields:
@@ -38,7 +48,13 @@ Active health check options include `health_interval`, `health_port` and `health
 - `health_port` is the port to use (if different from the upstream's dial address) for active health checks;
 
 - `health_timeout` sets how long to wait for a connection to be established with a peer (one of the dial addresses)
-  before considering it unhealthy (by default, it equals `5s`).
+  before considering it unhealthy (by default, it equals `5s`);
+
+- `health_fall` is the number of consecutive failed active health checks required to mark an upstream unhealthy
+  (by default, `1`). Raising it smooths over transient blips (HAProxy-style hysteresis);
+
+- `health_rise` is the number of consecutive successful active health checks required to mark an unhealthy upstream
+  healthy again (by default, `1`).
 
 **Passive health checks** monitor proxied connections for errors or timeouts. To minimally enable passive health checks,
 set `passive` field equal to an empty structure inside `health_checks` in a JSON configuration or include any passive
@@ -56,6 +72,13 @@ the similarly named fields of the `l4proxy.PassiveHealthChecks` structure:
 - `unhealthy_connection_count` limits the number of simultaneous connections to this upstream by marking it as "down"
   if it has this many or more concurrent connections.
 
+In addition, the active health check option `close_if_unhealthy` (corresponding to the `close_if_unhealthy` field of
+`l4proxy.ActiveHealthChecks`) force-closes a peer's currently-open proxied connections the moment an active health
+check marks it unhealthy, instead of letting them run until they close on their own. This is useful for failover
+(e.g. moving clients off a demoted database primary). It applies to active health checks only, which provide a clear
+healthy→unhealthy transition to act on; passive health checking has no equivalent event. By default it is off,
+preserving the existing behavior.
+
 **Load balancing** distributes connections between upstreams. To minimally enable load balancing, set `load_balancing`
 field equal to an empty structure in a JSON configuration or include any load balancing option into a Caddyfile. Note:
 load balancing makes sense only if the handler has two or more upstreams.
@@ -72,7 +95,9 @@ Load balancing options include `lb_policy`, `lb_try_duration` and `lb_try_interv
   - `random_choose` is a policy that selects two or more available hosts at random, then chooses the one with
     the least load (Caddyfile syntax is `random_choose [<int>]` with the argument setting the count of available
     hosts to be chosen at random before considering their load);
-  - `round_robin` is a policy that selects an upstream based on round-robin ordering.
+  - `round_robin` is a policy that selects an upstream based on round-robin ordering;
+  - `weighted_round_robin` is a policy that selects upstreams in smooth weighted round-robin order, proportional to
+    each upstream's `weight` (see the `weight` field below; an unset or non-positive weight is treated as `1`).
 
 - `lb_try_duration` defines how long to try selecting available upstreams for each connection if the next available
   host is down. By default, this retry is disabled. Clients will wait for up to this long while the load balancer
@@ -120,6 +145,9 @@ Each `upstream` has the following fields:
 
 - `max_connections` may contain an integer value representing how many connections this upstream is allowed to have
   before being marked as unhealthy (if more than 0).
+
+- `weight` may contain an integer giving this upstream's relative weight for the `weighted_round_robin` load-balancing
+  policy. A value less than or equal to `0` is treated as `1`. It is ignored by the other policies.
 
 - `tls` may contain a `reverseproxy.TLSConfig` structure to enable TLS when connecting to this upstream. Refer to the
   [relevant Caddy documentation](https://caddyserver.com/docs/json/apps/http/servers/routes/handle/reverse_proxy/transport/http/tls/)

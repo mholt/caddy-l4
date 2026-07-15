@@ -20,6 +20,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/caddyserver/caddy/v2"
@@ -85,6 +86,10 @@ type Upstream struct {
 	// How many connections this upstream is allowed to
 	// have before being marked as unhealthy (if > 0).
 	MaxConnections int `json:"max_connections,omitempty"`
+
+	// Weight is this upstream's relative weight for weighted load-balancing
+	// policies (e.g. weighted_round_robin). A value <= 0 is treated as 1.
+	Weight int `json:"weight,omitempty"`
 
 	peers             []*peer
 	tlsConfig         *tls.Config
@@ -289,6 +294,7 @@ func (u *Upstream) totalConns() int {
 //		local_addr <address[:port]> [<address[:port]>]
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
+//		weight <int>
 //
 //		tls
 //		tls_client_auth <automate_name> | <cert_file> <key_file>
@@ -312,7 +318,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
-		hasResolverPreference                   bool
+		hasResolverPreference, hasWeight        bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -356,6 +362,19 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
 			}
 			u.MaxConnections, hasMaxConnections = int(val), true
+		case "weight":
+			if hasWeight {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			u.Weight, hasWeight = int(val), true
 		case "tls":
 			if hasTLS {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
@@ -509,11 +528,82 @@ type peer struct {
 	fails     atomic.Int32
 	address   *caddy.NetworkAddress
 	dialAddr  string
+
+	// activeHealthMu guards the consecutive active-health-check streak counters
+	// used to apply the rise/fall thresholds.
+	activeHealthMu  sync.Mutex
+	consecSuccesses int
+	consecFails     int
+
+	// openConns tracks the currently-open proxied connections to this peer so
+	// they can be force-closed when the peer is marked unhealthy. It is only
+	// populated when HealthChecks.Active.CloseIfUnhealthy is enabled.
+	openConnsMu sync.Mutex
+	openConns   map[net.Conn]struct{}
 }
 
 // getNumConns returns the number of active connections with the peer.
 func (p *peer) getNumConns() int {
 	return int(p.numConns.Load())
+}
+
+// recordActiveCheck folds one active-health-check result into the peer's
+// consecutive-success / consecutive-failure streaks and reports whether the
+// peer's health should be marked, honoring the rise/fall thresholds. A streak
+// of `rise` successes marks the peer healthy; a streak of `fall` failures marks
+// it unhealthy. rise/fall below 1 are treated as 1 (flip on a single result,
+// the default behavior). Counters are capped at the threshold to stay bounded.
+func (p *peer) recordActiveCheck(ok bool, rise, fall int) (mark, healthy bool) {
+	if rise < 1 {
+		rise = 1
+	}
+	if fall < 1 {
+		fall = 1
+	}
+	p.activeHealthMu.Lock()
+	defer p.activeHealthMu.Unlock()
+	if ok {
+		p.consecFails = 0
+		if p.consecSuccesses < rise {
+			p.consecSuccesses++
+		}
+		return p.consecSuccesses >= rise, true
+	}
+	p.consecSuccesses = 0
+	if p.consecFails < fall {
+		p.consecFails++
+	}
+	return p.consecFails >= fall, false
+}
+
+// trackConn records an open proxied connection so it can later be closed by
+// closeOpenConns.
+func (p *peer) trackConn(c net.Conn) {
+	p.openConnsMu.Lock()
+	if p.openConns == nil {
+		p.openConns = make(map[net.Conn]struct{})
+	}
+	p.openConns[c] = struct{}{}
+	p.openConnsMu.Unlock()
+}
+
+// untrackConn forgets a proxied connection (e.g. once it has closed normally).
+func (p *peer) untrackConn(c net.Conn) {
+	p.openConnsMu.Lock()
+	delete(p.openConns, c)
+	p.openConnsMu.Unlock()
+}
+
+// closeOpenConns closes every currently-tracked proxied connection. Closing the
+// upstream side causes the proxy's io.Copy loops to return and the session to
+// tear down, moving the client off this peer.
+func (p *peer) closeOpenConns() {
+	p.openConnsMu.Lock()
+	for c := range p.openConns {
+		_ = c.Close()
+		delete(p.openConns, c)
+	}
+	p.openConnsMu.Unlock()
 }
 
 // healthy returns true if the peer is not unhealthy.

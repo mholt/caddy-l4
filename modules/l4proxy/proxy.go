@@ -62,6 +62,8 @@ type Handler struct {
 
 	proxyProtocolVersion uint8
 
+	metrics *proxyMetrics
+
 	ctx    caddy.Context
 	logger *zap.Logger
 }
@@ -78,6 +80,7 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.ctx = ctx
 	h.logger = ctx.Logger(h)
+	h.metrics = newProxyMetrics(ctx.GetMetricsRegistry())
 
 	// start by loading modules
 	if h.LoadBalancing != nil && h.LoadBalancing.SelectionPolicyRaw != nil {
@@ -159,10 +162,11 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 
 	var upConns []net.Conn
 	var proxyErr error
+	var upstream *Upstream
 
 	for {
 		// choose an available upstream
-		upstream := h.LoadBalancing.SelectionPolicy.Select(h.Upstreams, down)
+		upstream = h.LoadBalancing.SelectionPolicy.Select(h.Upstreams, down)
 		if upstream == nil {
 			if proxyErr == nil {
 				proxyErr = fmt.Errorf("no upstreams available")
@@ -186,11 +190,30 @@ func (h *Handler) Handle(down *layer4.Connection, _ layer4.Handler) error {
 		break
 	}
 
-	// make sure upstream connections all get closed
-	defer func() {
-		for _, conn := range upConns {
-			_ = conn.Close()
+	upstreamLabel := upstream.String()
+	h.metrics.connectionOpened(upstreamLabel)
+
+	// if enabled, track these connections on their peers so they can be
+	// force-closed when a peer is marked unhealthy. upConns[i] corresponds to
+	// upstream.peers[i] (dialPeers dials one connection per peer, in order).
+	closeOnUnhealthy := h.HealthChecks != nil && h.HealthChecks.Active != nil && h.HealthChecks.Active.CloseIfUnhealthy
+	if closeOnUnhealthy {
+		for i, conn := range upConns {
+			if i < len(upstream.peers) {
+				upstream.peers[i].trackConn(conn)
+			}
 		}
+	}
+
+	// make sure upstream connections all get closed, and record the close
+	defer func() {
+		for i, conn := range upConns {
+			_ = conn.Close()
+			if closeOnUnhealthy && i < len(upstream.peers) {
+				upstream.peers[i].untrackConn(conn)
+			}
+		}
+		h.metrics.connectionClosed(upstreamLabel)
 	}()
 
 	// finally, proxy the connection
@@ -489,6 +512,9 @@ func (h *Handler) Cleanup() error {
 //		health_interval <duration>
 //		health_port <int>
 //		health_timeout <duration>
+//		health_fall <int>
+//		health_rise <int>
+//		close_if_unhealthy
 //
 //		# passive health check options
 //		fail_duration <duration>
@@ -518,6 +544,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 	var (
 		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
+		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol                                    bool
@@ -579,6 +606,42 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Active = &ActiveHealthChecks{}
 			}
 			h.HealthChecks.Active.Timeout, hasHealthTimeout = caddy.Duration(dur), true
+		case "health_fall":
+			if hasHealthFall {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.Fall, hasHealthFall = int(val), true
+		case "health_rise":
+			if hasHealthRise {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			val, err := strconv.ParseInt(d.Val(), 10, 32)
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.Rise, hasHealthRise = int(val), true
 		case "fail_duration":
 			if hasFailDuration {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
@@ -633,6 +696,19 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Passive = &PassiveHealthChecks{}
 			}
 			h.HealthChecks.Passive.UnhealthyConnectionCount, hasUnhealthyConnCount = int(val), true
+		case "close_if_unhealthy":
+			if hasCloseIfUnhealthy {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.CloseIfUnhealthy, hasCloseIfUnhealthy = true, true
 		case "lb_policy":
 			if hasLBPolicy {
 				return d.Errf("duplicate proxy load_balancing option '%s'", optionName)

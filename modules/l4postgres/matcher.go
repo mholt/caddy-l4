@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package l4postgres allows the L4 multiplexing of Postgres connections
+// Package l4postgres allows the L4 multiplexing of Postgres connections.
+//
+// The single "postgres" matcher detects a Postgres connection and can, in
+// addition, filter on the contents of the first message the client sends:
+//
+//   - user   filters on the user (and, optionally, database) StartupMessage
+//     parameters;
+//   - client filters on the application_name StartupMessage parameter;
+//   - ssl    requires the presence or absence of an SSLRequest.
 package l4postgres
 
 import (
@@ -20,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -39,8 +48,98 @@ const (
 	maxPayloadSize    = 16 * 1024 // Maximum reasonable payload size (16 KB)
 )
 
-// MatchPostgres is able to match Postgres connections.
-type MatchPostgres struct{}
+// TLS match modes for MatchPostgres.TLS.
+const (
+	tlsIndifferent = ""         // match regardless of SSLRequest (default)
+	tlsEnabled     = "enabled"  // require an SSLRequest
+	tlsDisabled    = "disabled" // require the absence of an SSLRequest
+)
+
+// readFirstMessage reads and length-validates the first Postgres message on the
+// connection, using DoS-safe bounds checks. It returns the message code (the
+// first 4 bytes of the payload, i.e. an SSL/Cancel request code or the protocol
+// version) together with the full payload (payload[:4] holds the code bytes).
+//
+// ok is false when the bytes on the wire cannot be a valid Postgres first
+// message; callers should then return (false, nil). err is non-nil only for
+// unexpected read errors (a short/closed connection is reported as ok=false,
+// err=nil so it simply doesn't match).
+func readFirstMessage(cx *layer4.Connection) (code uint32, payload []byte, ok bool, err error) {
+	// Read message length (first 4 bytes)
+	lenBytes := make([]byte, lenFieldSize)
+	if _, err := io.ReadFull(cx, lenBytes); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return 0, nil, false, nil // Not enough data for PostgreSQL
+		}
+		return 0, nil, false, fmt.Errorf("reading message length: %w", err)
+	}
+
+	// Parse and validate message length
+	msgLen := binary.BigEndian.Uint32(lenBytes)
+	if msgLen < minMessageLen {
+		return 0, nil, false, nil // Too small to be a valid PostgreSQL message
+	}
+
+	// Calculate and validate payload length
+	payloadLen := msgLen - lenFieldSize
+	if payloadLen > maxPayloadSize || payloadLen < 4 {
+		// Payload too large (reject to prevent DoS) or too small to hold the
+		// 4-byte code/version field.
+		return 0, nil, false, nil
+	}
+
+	// Read the payload
+	payload = make([]byte, payloadLen)
+	if _, err := io.ReadFull(cx, payload); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return 0, nil, false, nil // Incomplete message
+		}
+		return 0, nil, false, fmt.Errorf("reading payload: %w", err)
+	}
+
+	return binary.BigEndian.Uint32(payload[:4]), payload, true, nil
+}
+
+// classifyMessage reports which kind of Postgres first message the payload is.
+// At most one of the returned booleans is true; all false means the bytes are
+// not a recognized Postgres first message.
+func classifyMessage(code uint32, payload []byte) (isSSL, isCancel, isStartup bool) {
+	switch code {
+	case sslRequestCode:
+		// SSLRequest is exactly 8 bytes (4 for length + 4 for code)
+		return len(payload) == 4, false, false
+	case cancelRequestCode:
+		// CancelRequest is 16 bytes (4 length + 4 code + 4 pid + 4 secret key)
+		return false, len(payload) == 12, false
+	default:
+		// Otherwise the code is the protocol version; only v3 is supported
+		if code>>16 != 3 {
+			return false, false, false
+		}
+		return false, false, validateStartupMessageFormat(payload[4:])
+	}
+}
+
+// MatchPostgres matches Postgres connections. With no options set it matches any
+// well-formed Postgres first message (SSLRequest, CancelRequest or a protocol-3
+// StartupMessage). The optional User, Client and TLS fields further constrain the
+// match; when more than one is set, all must be satisfied.
+type MatchPostgres struct {
+	// User maps a Postgres user name to the databases it is allowed to use.
+	// The special key "*" applies to any user not listed explicitly. An empty
+	// (or nil) database list matches any database for that user. Only applies to
+	// StartupMessages (which carry the user/database parameters).
+	User map[string][]string `json:"user,omitempty"`
+
+	// Client is the list of accepted application_name values. Only applies to
+	// StartupMessages (which carry the application_name parameter).
+	Client []string `json:"client,omitempty"`
+
+	// TLS constrains whether the connection must begin with an SSLRequest:
+	// "enabled" requires one, "disabled" requires its absence, and "" (the
+	// default) is indifferent.
+	TLS string `json:"tls,omitempty"`
+}
 
 // CaddyModule returns the Caddy module information.
 func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
@@ -50,61 +149,95 @@ func (*MatchPostgres) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Match returns true if the connection looks like the Postgres protocol.
-func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
-	// Read message length (first 4 bytes)
-	lenBytes := make([]byte, lenFieldSize)
-	if _, err := io.ReadFull(cx, lenBytes); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return false, nil // Not enough data for PostgreSQL
-		}
-		return false, fmt.Errorf("reading message length: %w", err)
-	}
-
-	// Parse and validate message length
-	msgLen := binary.BigEndian.Uint32(lenBytes)
-	if msgLen < minMessageLen {
-		return false, nil // Too small to be a valid PostgreSQL message
-	}
-
-	// Calculate and validate payload length
-	payloadLen := msgLen - lenFieldSize
-	if payloadLen > maxPayloadSize || payloadLen < 4 {
-		return false, nil // Payload too large, reject to prevent DoS and need at least 4 bytes for the code/version
-	}
-
-	// Read the payload
-	payload := make([]byte, payloadLen)
-	if _, err := io.ReadFull(cx, payload); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return false, nil // Incomplete message
-		}
-		return false, fmt.Errorf("reading payload: %w", err)
-	}
-
-	// Check the first 4 bytes (code or protocol version)
-	code := binary.BigEndian.Uint32(payload[:4])
-
-	// Check for special message types
-	switch code {
-	case sslRequestCode:
-		// SSLRequest is exactly 8 bytes (4 for length + 4 for code)
-		return len(payload) == 4, nil
-
-	case cancelRequestCode:
-		// CancelRequest is 16 bytes (4 for length + 4 for code + 4 for pid + 4 for secret key)
-		return len(payload) == 12, nil
-
+// Provision validates the TLS option.
+func (m *MatchPostgres) Provision(_ caddy.Context) error {
+	switch m.TLS {
+	case tlsIndifferent, tlsEnabled, tlsDisabled:
+		return nil
 	default:
-		// Check if it's a startup message (protocol version)
-		majorVersion := code >> 16
-		if majorVersion != 3 {
-			return false, nil // Only support protocol version 3
-		}
-
-		// Basic validation of parameters format
-		return validateStartupMessageFormat(payload[4:]), nil
+		return fmt.Errorf("postgres: invalid tls value %q; must be %q or %q", m.TLS, tlsEnabled, tlsDisabled)
 	}
+}
+
+// Match returns true if the connection looks like the Postgres protocol and
+// satisfies every configured constraint (tls, user/database, application_name).
+func (m *MatchPostgres) Match(cx *layer4.Connection) (bool, error) {
+	code, payload, ok, err := readFirstMessage(cx)
+	if err != nil || !ok {
+		return false, err
+	}
+
+	isSSL, isCancel, isStartup := classifyMessage(code, payload)
+
+	// Apply the TLS constraint.
+	switch m.TLS {
+	case tlsEnabled:
+		if !isSSL {
+			return false, nil
+		}
+	case tlsDisabled:
+		if isSSL {
+			return false, nil
+		}
+	}
+
+	// The user and client filters need StartupMessage parameters, which only a
+	// StartupMessage carries (SSLRequest/CancelRequest do not).
+	if len(m.User) == 0 && len(m.Client) == 0 {
+		return isSSL || isCancel || isStartup, nil
+	}
+	if !isStartup {
+		return false, nil
+	}
+
+	params := parseStartupParameters(payload[4:])
+	if len(m.User) > 0 && !m.matchUserDatabase(params) {
+		return false, nil
+	}
+	if len(m.Client) > 0 && !matchClient(m.Client, params) {
+		return false, nil
+	}
+	return true, nil
+}
+
+// matchUserDatabase applies the User map to the StartupMessage parameters.
+func (m *MatchPostgres) matchUserDatabase(params map[string]string) bool {
+	user, ok := params["user"]
+	if !ok {
+		// No user parameter: fall back to the wildcard entry, gated on the
+		// database if one was sent.
+		if databases, ok := m.User["*"]; ok {
+			if db, ok := params["database"]; ok {
+				return slices.Contains(databases, db)
+			}
+		}
+		return false
+	}
+
+	databases, ok := m.User[user]
+	if !ok {
+		return false
+	}
+
+	// If specific databases are configured for this user, the connection's
+	// database (when present) must be one of them.
+	if len(databases) > 0 {
+		if db, ok := params["database"]; ok {
+			return slices.Contains(databases, db)
+		}
+	}
+
+	return true
+}
+
+// matchClient reports whether the StartupMessage's application_name is one of
+// the configured client names.
+func matchClient(clients []string, params map[string]string) bool {
+	name, ok := params["application_name"]
+	if !ok {
+		return false
+	}
+	return slices.Contains(clients, name)
 }
 
 // validateStartupMessageFormat checks if the payload has valid Postgres startup format
@@ -149,18 +282,96 @@ func validateStartupMessageFormat(data []byte) bool {
 	return false
 }
 
-func (m *MatchPostgres) Provision(_ caddy.Context) error {
-	return nil
+// parseStartupParameters extracts the key/value parameters from a StartupMessage
+// payload (the bytes after the 4-byte protocol version). It assumes the payload
+// has already been validated by validateStartupMessageFormat, so it does not
+// need to guard against malformed input.
+func parseStartupParameters(data []byte) map[string]string {
+	params := make(map[string]string)
+	pos := 0
+	for pos < len(data) {
+		keyEnd := pos
+		for keyEnd < len(data) && data[keyEnd] != 0 {
+			keyEnd++
+		}
+		// Empty key marks the end of the parameter list.
+		if keyEnd == pos {
+			break
+		}
+		key := string(data[pos:keyEnd])
+		pos = keyEnd + 1
+
+		valEnd := pos
+		for valEnd < len(data) && data[valEnd] != 0 {
+			valEnd++
+		}
+		params[key] = string(data[pos:valEnd])
+		pos = valEnd + 1
+	}
+	return params
 }
 
-// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens.
+// UnmarshalCaddyfile sets up the matcher from Caddyfile tokens. Syntax:
+//
+//	postgres
+//
+//	postgres {
+//		# match user/database pairs; repeat for each entry, "*" is the wildcard
+//		user <name> [<database>...]
+//		# match the application_name parameter
+//		client <name> [<name>...]
+//		# require (enabled) or reject (disabled) an SSLRequest; "*" is indifferent
+//		tls <enabled|disabled|*>
+//	}
 func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 	if d.CountRemainingArgs() > 0 {
 		return d.ArgErr()
 	}
-	if d.NextBlock(d.Nesting()) {
-		return d.Errf("malformed layer4 connection matcher '%s': blocks are not supported", wrapper)
+	var hasTLS bool
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		optionName := d.Val()
+		switch optionName {
+		case "user":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			name := d.Val()
+			if m.User == nil {
+				m.User = make(map[string][]string)
+			}
+			// Remaining args on the line (if any) are the allowed databases.
+			m.User[name] = append(m.User[name], d.RemainingArgs()...)
+		case "client":
+			args := d.RemainingArgs()
+			if len(args) == 0 {
+				return d.ArgErr()
+			}
+			m.Client = append(m.Client, args...)
+		case "tls":
+			if hasTLS {
+				return d.Errf("malformed layer4 connection matcher '%s': duplicate option '%s'", wrapper, optionName)
+			}
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			switch d.Val() {
+			case "enabled":
+				m.TLS = tlsEnabled
+			case "disabled":
+				m.TLS = tlsDisabled
+			case "*":
+				m.TLS = tlsIndifferent
+			default:
+				return d.Errf("malformed layer4 connection matcher '%s': unrecognized '%s' value '%s'", wrapper, optionName, d.Val())
+			}
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+			hasTLS = true
+		default:
+			return d.Errf("malformed layer4 connection matcher '%s': unrecognized option '%s'", wrapper, optionName)
+		}
 	}
 	return nil
 }
@@ -177,5 +388,6 @@ func (m *MatchPostgres) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // Interface guards
 var (
 	_ layer4.ConnMatcher    = (*MatchPostgres)(nil)
+	_ caddy.Provisioner     = (*MatchPostgres)(nil)
 	_ caddyfile.Unmarshaler = (*MatchPostgres)(nil)
 )

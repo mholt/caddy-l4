@@ -28,8 +28,11 @@ while serving HTTPS on the same port (443/tcp).
                 route @tls-pgsql {
                     tls {
                         # the connection policy below is required
-                        # if the matcher above has no ALPN condition,
-                        # otherwise it may be securely omitted
+                        # because PostgreSQL 17+ direct TLS client
+                        # offers only `postgresql` as the ALPN value;
+                        # it is safe to omit the connection policy
+                        # if the client offers `h2` and/or `http/1.1`,
+                        # but the matcher above has to be adjusted as well
                         connection_policy {
                             # supported by PostgreSQL 17 or later
                             alpn postgresql
