@@ -162,11 +162,38 @@ func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
 		return nil
 	}
 
-	// Create connection with timeout option
+	// Create connection with timeout option.
 	var opts []func(*proxyproto.Conn)
 	if h.Timeout > 0 {
 		opts = append(opts, proxyproto.SetReadHeaderTimeout(time.Duration(h.Timeout)))
 	}
+
+	// Size go-proxyproto's internal bufio.Reader to layer4.MaxBufLen, a
+	// conservative rounded-up bound for cx.buf after prefetch operations.
+	// Because prefetch() guards with `len < MaxMatchingBytes` *before* the
+	// read, the largest reachable cx.buf is actually MaxMatchingBytes +
+	// prefetchChunkSize - 1; using MaxBufLen here still safely ensures the
+	// whole prefetched buffer fits in one bufio read.
+	//
+	// The default bufio size in go-proxyproto is 256 bytes (readBufferSize
+	// in protocol.go), which causes a stream-alignment bug when cx.buf
+	// already holds a prefetched chunk larger than 256: bufio drains only
+	// 256 bytes from cx via cx.Read, advancing cx.offset to 256 without
+	// triggering the "offset == len(buf)" reset branch. The remaining
+	// prefetched bytes in cx.buf are then unreachable to the wrapped conn
+	// (proxyproto.Conn only knows about bufio's contents + future
+	// underlying reads), so subsequent matchers either see misaligned
+	// mid-stream data (when they read from cx.buf directly) or time out
+	// waiting for bytes that aren't coming (when they read through
+	// proxyproto.Conn, which only has bufio's leftover).
+	//
+	// By sizing bufio to MaxBufLen, the first cx.Read drains all of
+	// cx.buf in one call regardless of how many prefetch iterations
+	// preceded the handler, the reset branch fires, and bufio ends up
+	// holding the entire prefetched chunk minus the PROXY header. All
+	// post-header bytes then flow through proxyproto.Conn.Read in order,
+	// matching the stream the wrapped conn semantically represents.
+	opts = append(opts, proxyproto.WithBufferSize(layer4.MaxBufLen))
 
 	return proxyproto.NewConn(cx, opts...)
 }
