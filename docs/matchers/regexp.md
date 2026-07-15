@@ -17,12 +17,21 @@ The matcher also has `count` field that sets the number of bytes read from the b
 to match against. By default, it equals `4`. It shouldn't exceed `16 KiB` (`MaxMatchingBytes` constant value) which is
 the amount of bytes that are at most prefetched during matching.
 
+The matcher additionally has a boolean `hex` field. When it is enabled, the bytes read are first converted to their
+uppercase hexadecimal representation (e.g. `9E79BC40`), and the pattern is matched against that string rather than
+against the raw bytes. This makes it possible to match byte sequences that aren't valid UTF-8 (see
+[golang/go#48749](https://github.com/golang/go/issues/48749)), at the cost of the extra conversion performed on each
+matcher test. When you don't deal with non-UTF-8 sequences, leave `hex` disabled: standard matching is enough and
+works faster.
+
 ### Caddyfile
 
 The matcher supports the following syntax:
 ```caddyfile
-regexp <pattern> [<count>]
+regexp <pattern> [<count>] [hex]
 ```
+
+The optional `count` and `hex` arguments may appear in any order.
 
 An example config of the Layer 4 app that proxies connections based on regular expressions applied
 to their first packets:
@@ -57,6 +66,16 @@ to their first packets:
             @r3 regexp ^(b|c|r)at(.*)\x00\x00$ 10
             route @r3 {
                 proxy r3.machine.local:10001
+            }
+            
+            # proxy to r4.machine.local:10001
+            # any traffic on TCP port 12345
+            # if the first 4 bytes Caddy receives
+            # are `9E ?? BC 4?` (matched on their hex
+            # representation, so non-UTF-8 bytes work)
+            @r4 regexp ^9E..BC4.$ 4 hex
+            route @r4 {
+                proxy r4.machine.local:10001
             }
             
             # otherwise echo anything received on TCP port 12345
@@ -140,6 +159,29 @@ JSON equivalent to the caddyfile config provided above:
                                         {
                                             "dial": [
                                                 "r3.machine.local:10001"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "match": [
+                                {
+                                    "regexp": {
+                                        "count": 4,
+                                        "hex": true,
+                                        "pattern": "^9E..BC4.$"
+                                    }
+                                }
+                            ],
+                            "handle": [
+                                {
+                                    "handler": "proxy",
+                                    "upstreams": [
+                                        {
+                                            "dial": [
+                                                "r4.machine.local:10001"
                                             ]
                                         }
                                     ]
