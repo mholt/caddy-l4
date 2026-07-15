@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -515,6 +516,12 @@ func (h *Handler) Cleanup() error {
 //		health_fall <int>
 //		health_rise <int>
 //		close_if_unhealthy
+//		health_uri <path>
+//		health_status <code|class>
+//		health_https
+//		health_tls_skip_verify
+//		health_header <name> <value>
+//		health_expect_body <regexp>
 //
 //		# passive health check options
 //		fail_duration <duration>
@@ -545,6 +552,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	var (
 		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
 		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
+		hasHealthURI, hasHealthStatus, hasHealthExpectBody  bool // active HTTP health check options
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol                                    bool
@@ -642,6 +650,89 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Active = &ActiveHealthChecks{}
 			}
 			h.HealthChecks.Active.Rise, hasHealthRise = int(val), true
+		case "health_uri":
+			if hasHealthURI {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.URI, hasHealthURI = d.Val(), true
+		case "health_status":
+			if hasHealthStatus {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			status, err := parseStatusCode(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.ExpectStatus, hasHealthStatus = status, true
+		case "health_https":
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.HTTPS = true
+		case "health_tls_skip_verify":
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.TLSSkipVerify = true
+		case "health_header":
+			if d.CountRemainingArgs() != 2 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			headerName := d.Val()
+			d.NextArg()
+			headerValue := d.Val()
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			if h.HealthChecks.Active.Headers == nil {
+				h.HealthChecks.Active.Headers = make(http.Header)
+			}
+			h.HealthChecks.Active.Headers.Add(headerName, headerValue)
+		case "health_expect_body":
+			if hasHealthExpectBody {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.ExpectBody, hasHealthExpectBody = d.Val(), true
 		case "fail_duration":
 			if hasFailDuration {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
@@ -797,6 +888,23 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // allows the state of remote hosts to be preserved
 // through config reloads.
 var peers = caddy.NewUsagePool()
+
+// parseStatusCode parses the health_status Caddyfile value. It accepts a full
+// status code ("200") or a status class in "Nxx" form ("2xx"), the latter
+// returned as the single class digit (e.g. 2), matching ExpectStatus semantics.
+func parseStatusCode(s string) (int, error) {
+	if len(s) == 3 && (s[1] == 'x' || s[1] == 'X') && (s[2] == 'x' || s[2] == 'X') {
+		if s[0] >= '1' && s[0] <= '5' {
+			return int(s[0] - '0'), nil
+		}
+		return 0, fmt.Errorf("invalid status class %q", s)
+	}
+	code, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid status code %q", s)
+	}
+	return code, nil
+}
 
 // Interface guards
 var (
