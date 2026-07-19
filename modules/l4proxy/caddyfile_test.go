@@ -44,3 +44,31 @@ func TestUnmarshalCaddyfileErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestUnmarshalCaddyfileTransparentUpstream(t *testing.T) {
+	u := new(Upstream)
+	input := "upstream 127.0.0.1:8080 {\n\ttransparent\n}"
+	if err := u.UnmarshalCaddyfile(caddyfile.NewTestDispenser(input)); err != nil {
+		t.Fatalf("unmarshal transparent upstream: %v", err)
+	}
+	if !u.Transparent {
+		t.Fatal("transparent = false, want true")
+	}
+	if len(u.Dial) != 1 || u.Dial[0] != "127.0.0.1:8080" {
+		t.Fatalf("dial = %v, want [127.0.0.1:8080]", u.Dial)
+	}
+}
+
+func TestUnmarshalCaddyfileTransparentErrors(t *testing.T) {
+	for name, input := range map[string]string{
+		"arguments": "upstream 127.0.0.1:8080 {\n\ttransparent yes\n}",
+		"duplicate": "upstream 127.0.0.1:8080 {\n\ttransparent\n\ttransparent\n}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			u := new(Upstream)
+			if err := u.UnmarshalCaddyfile(caddyfile.NewTestDispenser(input)); err == nil {
+				t.Fatalf("expected error for %s transparent option", name)
+			}
+		})
+	}
+}

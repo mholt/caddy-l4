@@ -128,6 +128,14 @@ Each `upstream` has the following fields:
   and resolved in two phases: known ones are replaced at provision, the rest are replaced at handle
   (e.g. `{env.BIND_IP}` resolves at provision, while `{l4.conn.local_addr}` resolves per-connection).
 
+- `transparent` enables Linux transparent proxying for this upstream. Caddy configures the outbound socket
+  with `IP_TRANSPARENT` (or `IPV6_TRANSPARENT`) and binds it to the effective downstream client's IP address,
+  including an address supplied by the PROXY protocol handler. The source port is chosen by the OS. This
+  option is supported only on Linux and requires `CAP_NET_ADMIN` or equivalent privileges, plus policy routing
+  that returns the upstream's replies through the Caddy host. The upstream must be reachable over the same IP
+  family as the client. `transparent` cannot be combined with `local_address` or `resolver_preference`, and
+  it is not supported for Unix socket upstreams.
+
 - `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
   exactly one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. Any other value, including
   typos and differing case, is rejected at provision time rather than silently falling back to the default.
@@ -205,6 +213,7 @@ proxy [<upstreams...>] {
     upstream [<address:port>] {
         dial <address:port> [<address:port>]
         local_addr <address[:port]> [<address[:port]>]
+        transparent
         resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
         max_connections <int>
         
@@ -543,3 +552,27 @@ JSON equivalent of the two proxies above. Note that `local_address` is an **arra
     }
 }
 ```
+
+#### Preserving the client's source IP
+
+On Linux, `transparent` makes the upstream connection originate from the effective client's IP address:
+
+```caddyfile
+{
+    layer4 {
+        :443 {
+            route {
+                proxy {
+                    upstream 10.0.0.2:443 {
+                        transparent
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+The Caddy process needs `CAP_NET_ADMIN` (or equivalent privileges). The host also needs transparent-proxy
+policy routing so replies from `10.0.0.2` return through Caddy instead of going directly to the client. This
+option preserves the source IP only; the kernel chooses a source port for the upstream connection.
