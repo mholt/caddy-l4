@@ -171,6 +171,17 @@ func (cx *Connection) Write(p []byte) (n int, err error) {
 	return
 }
 
+// BytesRead returns the total number of bytes read from the connection so far,
+// including any bytes consumed during matching. It enables handlers (e.g. a
+// metrics handler) to report per-connection traffic. It is not safe to call
+// concurrently with active reads; read it once the connection has finished (for
+// example after next.Handle returns).
+func (cx *Connection) BytesRead() uint64 { return cx.bytesRead }
+
+// BytesWritten returns the total number of bytes written to the connection so
+// far. See [Connection.BytesRead] for usage notes.
+func (cx *Connection) BytesWritten() uint64 { return cx.bytesWritten }
+
 // Wrap wraps conn in a new Connection based on cx (reusing
 // cx's existing buffer and context). This is useful after
 // a connection is wrapped by a package that does not support
