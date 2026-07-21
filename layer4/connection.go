@@ -190,6 +190,27 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 	}
 }
 
+// WrapWithEmptyBuffer is like Wrap, but the returned Connection starts with an
+// empty prefetch buffer instead of inheriting cx's. Use it when conn already
+// reads through cx — and therefore already delivers any bytes cx previously
+// prefetched — so that those bytes are not also served directly from the
+// returned Connection's buffer, bypassing conn. This is required by the packet
+// (e.g. UDP) PROXY protocol reader, which must strip a header from every
+// datagram: letting the prefetched datagrams leak through the buffer unwrapped
+// would forward them with their PROXY headers still attached.
+func (cx *Connection) WrapWithEmptyBuffer(conn net.Conn) *Connection {
+	wrapped := cx.Wrap(conn)
+	wrapped.buf, wrapped.offset = nil, 0
+	return wrapped
+}
+
+// IsPacketConn reports whether the underlying connection is a packet
+// (datagram) connection, such as UDP. Datagram connections preserve message
+// boundaries, which some handlers must account for.
+func (cx *Connection) IsPacketConn() bool {
+	return cx.isPacketConn
+}
+
 // prefetch tries to read all bytes that a client initially sent us without blocking.
 func (cx *Connection) prefetch() (err error) {
 	var n int
