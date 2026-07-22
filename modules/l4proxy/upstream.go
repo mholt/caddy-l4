@@ -71,8 +71,9 @@ type Upstream struct {
 	// Transparent enables Linux transparent proxying for connections to this upstream. The outbound
 	// socket is configured with IP_TRANSPARENT and bound to the effective downstream client's IP
 	// address. This requires Linux routing to return upstream traffic through this host and the
-	// CAP_NET_ADMIN capability (or equivalent privileges). It cannot be combined with LocalAddrs or
-	// ResolverPreference because the downstream client's address determines the source and IP family.
+	// CAP_NET_ADMIN or CAP_NET_RAW capability (or equivalent privileges). It cannot be combined with
+	// LocalAddrs or ResolverPreference because the downstream client's address determines the source
+	// and IP family.
 	Transparent bool `json:"transparent,omitempty"`
 
 	// Preference for address family when resolving upstream hostnames. Must be one of:
