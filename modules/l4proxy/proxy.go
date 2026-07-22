@@ -260,10 +260,24 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		hostPort := addr.JoinHostPort(0)
 
 		// Resolve the destination address family only when it will actually be used,
-		// i.e. when the user has configured local_address or resolver_preference.
+		// i.e. when the user has configured transparent proxying, local_address, or
+		// resolver_preference.
 		// Otherwise skip it to avoid an extra DNS lookup per dial for hostname upstreams.
 		var destFam int
-		if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
+		if upstream.Transparent {
+			sourceFam, famErr := ipFamilyFromAddr(l4proxyprotocol.GetConn(down).RemoteAddr())
+			if famErr != nil {
+				return nil, fmt.Errorf("determining transparent source address: %w", famErr)
+			}
+			preference := "ipv4_only"
+			if sourceFam == 6 {
+				preference = "ipv6_only"
+			}
+			destFam, famErr = resolveDestFamily(addr.Network, hostPort, preference)
+			if famErr != nil {
+				return nil, fmt.Errorf("transparent upstream must match the client address family: %w", famErr)
+			}
+		} else if len(upstream.localAddrs) > 0 || upstream.ResolverPreference != "" {
 			var famErr error
 			destFam, famErr = resolveDestFamily(addr.Network, hostPort, upstream.ResolverPreference)
 			if famErr != nil {
@@ -277,17 +291,23 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		// compat. Already-specific networks (tcp4/tcp6/udp4/udp6/unix*) are untouched.
 		dialNetwork := narrowNetworkForFamily(addr.Network, destFam)
 
-		var resolvedLocalAddrs []string
-		if len(upstream.localAddrs) > 0 {
-			resolvedLocalAddrs = make([]string, 0, len(upstream.localAddrs))
+		var localAddrs []net.Addr
+		if upstream.Transparent {
+			localAddr, localErr := transparentLocalAddr(l4proxyprotocol.GetConn(down).RemoteAddr(), dialNetwork)
+			if localErr != nil {
+				return nil, localErr
+			}
+			localAddrs = []net.Addr{localAddr}
+		} else if len(upstream.localAddrs) > 0 {
+			resolvedLocalAddrs := make([]string, 0, len(upstream.localAddrs))
 			for _, la := range upstream.localAddrs {
 				resolvedLocalAddrs = append(resolvedLocalAddrs, repl.ReplaceAll(la, ""))
 			}
+			localAddrs = buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
 		}
-		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort)
+			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort, upstream.Transparent)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -319,7 +339,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg)
+			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg, upstream.Transparent)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -998,7 +1018,72 @@ func narrowNetworkForFamily(netw string, destFam int) string {
 	}
 }
 
-func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, error) {
+func ipFamilyFromAddr(addr net.Addr) (int, error) {
+	var ip net.IP
+	switch value := addr.(type) {
+	case *net.TCPAddr:
+		ip = value.IP
+	case *net.UDPAddr:
+		ip = value.IP
+	case *net.IPAddr:
+		ip = value.IP
+	default:
+		host, _, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return 0, fmt.Errorf("unsupported client address %q: %w", addr, err)
+		}
+		ip = net.ParseIP(host)
+	}
+	if ip == nil {
+		return 0, fmt.Errorf("client address %q is not an IP address", addr)
+	}
+	if ip.To4() != nil {
+		return 4, nil
+	}
+	if ip.To16() != nil {
+		return 6, nil
+	}
+	return 0, fmt.Errorf("client address %q is not a valid IP address", addr)
+}
+
+func transparentLocalAddr(remote net.Addr, network string) (net.Addr, error) {
+	family, err := ipFamilyFromAddr(remote)
+	if err != nil {
+		return nil, fmt.Errorf("determining transparent source address: %w", err)
+	}
+
+	var ip net.IP
+	var zone string
+	switch value := remote.(type) {
+	case *net.TCPAddr:
+		ip, zone = value.IP, value.Zone
+	case *net.UDPAddr:
+		ip, zone = value.IP, value.Zone
+	case *net.IPAddr:
+		ip, zone = value.IP, value.Zone
+	default:
+		host, _, splitErr := net.SplitHostPort(remote.String())
+		if splitErr != nil {
+			return nil, fmt.Errorf("determining transparent source address: %w", splitErr)
+		}
+		ip = net.ParseIP(host)
+	}
+
+	if family == 4 {
+		ip = ip.To4()
+		zone = ""
+	}
+	switch {
+	case strings.HasPrefix(network, "tcp"):
+		return &net.TCPAddr{IP: ip, Zone: zone}, nil
+	case strings.HasPrefix(network, "udp"):
+		return &net.UDPAddr{IP: ip, Zone: zone}, nil
+	default:
+		return nil, fmt.Errorf("transparent proxying is not supported for network %q", network)
+	}
+}
+
+func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string, transparent bool) (net.Conn, error) {
 	if len(localAddrs) == 0 {
 		return net.Dial(network, addr)
 	}
@@ -1006,6 +1091,9 @@ func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, 
 	var lastErr error
 	for _, la := range localAddrs {
 		d := &net.Dialer{LocalAddr: la}
+		if transparent {
+			d.Control = transparentSocketControl
+		}
 		conn, err := d.Dial(network, addr)
 		if err == nil {
 			return conn, nil
@@ -1015,7 +1103,7 @@ func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, 
 	return nil, lastErr
 }
 
-func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
+func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config, transparent bool) (net.Conn, error) {
 	if len(localAddrs) == 0 {
 		return tls.Dial(network, addr, cfg)
 	}
@@ -1023,6 +1111,9 @@ func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls
 	var lastErr error
 	for _, la := range localAddrs {
 		d := &net.Dialer{LocalAddr: la}
+		if transparent {
+			d.Control = transparentSocketControl
+		}
 		conn, err := tls.DialWithDialer(d, network, addr, cfg)
 		if err == nil {
 			return conn, nil

@@ -68,6 +68,14 @@ type Upstream struct {
 	// ones are replaced per-connection.
 	LocalAddrs []string `json:"local_address,omitempty"`
 
+	// Transparent enables Linux transparent proxying for connections to this upstream. The outbound
+	// socket is configured with IP_TRANSPARENT and bound to the effective downstream client's IP
+	// address. This requires Linux routing to return upstream traffic through this host and the
+	// CAP_NET_ADMIN or CAP_NET_RAW capability (or equivalent privileges). It cannot be combined with
+	// LocalAddrs or ResolverPreference because the downstream client's address determines the source
+	// and IP family.
+	Transparent bool `json:"transparent,omitempty"`
+
 	// Preference for address family when resolving upstream hostnames. Must be one of:
 	// "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first", or empty (equivalent to "ipv4_first").
 	// Any other value is rejected at provision time. The "_only" modes fail fast if the requested
@@ -105,6 +113,18 @@ func (u *Upstream) String() string {
 }
 
 func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
+	if u.Transparent {
+		if !transparentProxySupported {
+			return fmt.Errorf("transparent proxying is only supported on Linux")
+		}
+		if len(u.LocalAddrs) > 0 {
+			return fmt.Errorf("transparent proxying cannot be combined with local_address")
+		}
+		if u.ResolverPreference != "" {
+			return fmt.Errorf("transparent proxying cannot be combined with resolver_preference")
+		}
+	}
+
 	// Validate resolver_preference early: must be one of the known values or empty (default).
 	switch u.ResolverPreference {
 	case "", "ipv4_only", "ipv6_only", "ipv4_first", "ipv6_first":
@@ -140,12 +160,15 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		u.peers = append(u.peers, p)
 	}
 
-	// Reject local_address for Unix socket upstreams. Peers whose addresses contain
+	// Reject source-address controls for Unix socket upstreams. Peers whose addresses contain
 	// runtime placeholders aren't parsed until dial time (p.address == nil) and are
 	// skipped here; in practice such dynamic dial strings aren't Unix sockets.
-	if len(u.LocalAddrs) > 0 {
+	if len(u.LocalAddrs) > 0 || u.Transparent {
 		for _, p := range u.peers {
 			if p.address != nil && caddy.IsUnixNetwork(p.address.Network) {
+				if u.Transparent {
+					return fmt.Errorf("transparent proxying is not supported for Unix socket upstreams (%s)", p.address.Network)
+				}
 				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
 			}
 		}
@@ -292,6 +315,7 @@ func (u *Upstream) totalConns() int {
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
 //		local_addr <address[:port]> [<address[:port]>]
+//		transparent
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //		weight <int>
@@ -318,7 +342,8 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
-		hasResolverPreference, hasWeight        bool
+		hasResolverPreference, hasTransparent   bool
+		hasWeight                               bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -349,6 +374,14 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			u.LocalAddrs = append(u.LocalAddrs, d.RemainingArgs()...)
+		case "transparent":
+			if hasTransparent {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			u.Transparent, hasTransparent = true, true
 		case "max_connections":
 			if hasMaxConnections {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

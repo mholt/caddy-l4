@@ -128,6 +128,14 @@ Each `upstream` has the following fields:
   and resolved in two phases: known ones are replaced at provision, the rest are replaced at handle
   (e.g. `{env.BIND_IP}` resolves at provision, while `{l4.conn.local_addr}` resolves per-connection).
 
+- `transparent` enables Linux transparent proxying for this upstream. Caddy configures the outbound socket
+  with `IP_TRANSPARENT` (or `IPV6_TRANSPARENT`) and binds it to the effective downstream client's IP address,
+  including an address supplied by the PROXY protocol handler. The source port is chosen by the OS. This
+  option is supported only on Linux and requires `CAP_NET_ADMIN`, `CAP_NET_RAW`, or equivalent privileges,
+  plus policy routing that returns the upstream's replies through the Caddy host. The upstream must be reachable
+  over the same IP family as the client. `transparent` cannot be combined with `local_address` or
+  `resolver_preference`, and it is not supported for Unix socket upstreams.
+
 - `resolver_preference` optionally controls address-family preference when resolving upstream hostnames. It must be
   exactly one of: `ipv4_only`, `ipv6_only`, `ipv4_first` (default), `ipv6_first`. Any other value, including
   typos and differing case, is rejected at provision time rather than silently falling back to the default.
@@ -205,6 +213,7 @@ proxy [<upstreams...>] {
     upstream [<address:port>] {
         dial <address:port> [<address:port>]
         local_addr <address[:port]> [<address[:port]>]
+        transparent
         resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
         max_connections <int>
         
@@ -543,3 +552,54 @@ JSON equivalent of the two proxies above. Note that `local_address` is an **arra
     }
 }
 ```
+
+#### Preserving the client's source IP
+
+On Linux, `transparent` makes the upstream connection originate from the effective client's IP address:
+
+```caddyfile
+{
+    layer4 {
+        :443 {
+            route {
+                proxy {
+                    upstream 10.0.0.2:443 {
+                        transparent
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+The Caddy process needs `CAP_NET_ADMIN`, `CAP_NET_RAW`, or equivalent privileges. The upstream must route the
+client address range back through Caddy's upstream-facing address. For example, if clients are in
+`192.0.2.0/24` and Caddy is `10.0.0.1` on the upstream network, configure this route on the upstream or its
+gateway:
+
+```sh
+ip route add 192.0.2.0/24 via 10.0.0.1
+```
+
+Caddy's host must then deliver matching replies to the transparent socket instead of forwarding them as ordinary
+traffic. One IPv4 `iptables` policy-routing setup is:
+
+```sh
+iptables -t mangle -N CADDY_DIVERT
+iptables -t mangle -A PREROUTING -p tcp -m socket --transparent -j CADDY_DIVERT
+iptables -t mangle -A PREROUTING -p udp -m socket --transparent -j CADDY_DIVERT
+iptables -t mangle -A CADDY_DIVERT -j MARK --set-mark 1
+iptables -t mangle -A CADDY_DIVERT -j ACCEPT
+
+ip rule add fwmark 1 lookup 100
+ip route add local 0.0.0.0/0 dev lo table 100
+```
+
+Restrict the rules to the upstream-facing interface where appropriate, and make sure the firewall permits the
+return traffic. IPv6 deployments need equivalent `ip6tables` rules, an IPv6 policy rule and a local `::/0` route.
+The exact commands depend on the host's existing firewall and routing tables; the kernel's
+[transparent proxy documentation](https://docs.kernel.org/networking/tproxy.html) describes the underlying
+socket-match and policy-routing mechanism.
+
+This option preserves the source IP only; the kernel chooses a source port for the upstream connection.
