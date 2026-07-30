@@ -1,6 +1,7 @@
 package l4http
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -317,6 +318,103 @@ func TestMatchHTTP_isHttp(t *testing.T) {
 			_, matched := (&MatchHTTP{}).isHttp(tc.data)
 			if matched != tc.shouldMatch {
 				t.Fatalf("test %v | matched: %v != shouldMatch: %v", tc.name, matched, tc.shouldMatch)
+			}
+		})
+	}
+}
+
+// captureClientHello returns the raw bytes of a TLS ClientHello for the given SNI.
+func captureClientHello(t *testing.T, serverName string) []byte {
+	t.Helper()
+
+	in, out := net.Pipe()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
+
+	go func() {
+		_ = tls.Client(in, &tls.Config{ServerName: serverName, InsecureSkipVerify: true}).Handshake() //nolint:gosec // test only
+	}()
+
+	buf := make([]byte, 4096)
+	n, err := out.Read(buf)
+	assertNoError(t, err)
+
+	return buf[:n]
+}
+
+// splitMatchTester writes data in two chunks separated by a pause, so matchers observe
+// a partially delivered stream, and reports whether a route handler was invoked.
+func splitMatchTester(t *testing.T, routes layer4.RouteList, data []byte, cut int) bool {
+	t.Helper()
+
+	in, out := net.Pipe()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
+
+	cx := layer4.WrapConnection(in, make([]byte, 0), zap.NewNop())
+	go func() {
+		// errors are ignored: abandoned matching closes the pipe before the second write
+		_, _ = out.Write(data[:cut])
+		time.Sleep(100 * time.Millisecond)
+		_, _ = out.Write(data[cut:])
+	}()
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	err := routes.Provision(ctx)
+	assertNoError(t, err)
+
+	matched := false
+	compiledRoute := routes.Compile(zap.NewNop(), 5*time.Second,
+		layer4.HandlerFunc(func(con *layer4.Connection) error {
+			matched = con.GetVar("test_handler_called") != nil
+			return nil
+		}))
+
+	err = compiledRoute.Handle(cx)
+	assertNoError(t, err)
+
+	return matched
+}
+
+// A ClientHello split across TCP segments must still match a tls route ordered before an
+// http route, even though the http matcher can rule itself out from the first segment alone.
+func TestHttpMatchingDoesNotAbortTlsMatching(t *testing.T) {
+	clientHello := captureClientHello(t, "localhost")
+
+	// cut just past the first \n at index >= 10, so isHttp() reports a conclusive
+	// non-match for the first segment instead of asking for more data
+	cut := bytes.IndexByte(clientHello[10:], 0x0a)
+	if cut < 0 {
+		t.Fatalf("client hello has no 0x0a byte at index >= 10")
+	}
+	cut += 10 + 1
+
+	tlsRoute := &layer4.Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"tls": json.RawMessage("{\"sni\":[\"localhost\"]}")},
+		},
+		HandlersRaw: []json.RawMessage{json.RawMessage("{\"handler\":\"test_handler\"}")},
+	}
+	httpRoute := &layer4.Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"http": json.RawMessage("[{\"host\":[\"localhost\"]}]")},
+		},
+		HandlersRaw: []json.RawMessage{json.RawMessage("{\"handler\":\"test_handler\"}")},
+	}
+
+	for _, tc := range []struct {
+		name   string
+		routes layer4.RouteList
+	}{
+		{name: "tls-before-http", routes: layer4.RouteList{tlsRoute, httpRoute}},
+		{name: "http-before-tls", routes: layer4.RouteList{httpRoute, tlsRoute}},
+		{name: "tls-only", routes: layer4.RouteList{tlsRoute}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !splitMatchTester(t, tc.routes, clientHello, cut) {
+				t.Fatalf("matcher did not match")
 			}
 		})
 	}
