@@ -56,6 +56,22 @@ Active health check options include `health_interval`, `health_port` and `health
 - `health_rise` is the number of consecutive successful active health checks required to mark an unhealthy upstream
   healthy again (by default, `1`).
 
+By default an active health check is a raw TCP dial. It can instead probe over HTTP, which lets the proxy follow an
+application-level signal (e.g. a primary-election endpoint such as Patroni's `/primary`) rather than mere port
+liveness. The HTTP probe is enabled by setting `health_uri` and is configured with these options, which correspond to
+the `uri`, `expect_status`, `https` and `tls_skip_verify` fields of the `l4proxy.ActiveHealthChecks` structure:
+
+- `health_uri` is the request path for an HTTP `GET` health check (e.g. `/primary`). When set, the check is performed
+  over HTTP (on `health_port` if configured, otherwise the dial port) instead of a raw TCP dial;
+
+- `health_status` is the status code considered healthy (by default, `200`). A value below `100` is treated as a
+  status class, e.g. `2` matches any `2xx` response;
+
+- `health_https` performs the HTTP health check over TLS;
+
+- `health_tls_skip_verify` disables TLS certificate verification for an `health_https` check (useful with self-signed
+  certificates).
+
 **Passive health checks** monitor proxied connections for errors or timeouts. To minimally enable passive health checks,
 set `passive` field equal to an empty structure inside `health_checks` in a JSON configuration or include any passive
 health check option into a Caddyfile.
