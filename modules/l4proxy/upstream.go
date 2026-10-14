@@ -57,6 +57,9 @@ type Upstream struct {
 	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
+	// TODO: write explanation
+	DialVia ContextDialer `json:"dial_via,omitempty"`
+
 	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
 	// setting this for a Unix socket upstream (unix, unixpacket, unixgram) is an error at provision
 	// time because source binding has no useful effect for Unix IPC. Provide only the address (no
@@ -149,6 +152,18 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
 			}
 		}
+	}
+
+	if u.DialVia != nil && len(u.LocalAddrs) > 0 {
+		return fmt.Errorf("local_address is not supported in combination with dial_via")
+	}
+
+	if u.DialVia == nil {
+		u.DialVia = DefaultDialer()
+	}
+
+	if p, ok := u.DialVia.(caddy.Provisioner); ok {
+		p.Provision(ctx)
 	}
 
 	// Resolve known placeholders in local_address at provision time; any unknown
@@ -319,6 +334,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
 		hasResolverPreference, hasWeight        bool
+		hasDialer                               bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -499,6 +515,25 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
+		case "dial_via":
+			if hasDialer {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			_, moduleName := d.NextArg(), d.Val()
+
+			unm, err := caddyfile.UnmarshalModule(d, "layer4.proxy.upstream.dial_via."+moduleName)
+			if err != nil {
+				return err
+			}
+			dialer, ok := unm.(ContextDialer)
+			if !ok {
+				return d.Errf("dial_via module '%s' is not a l4proxy.ContextDialer", moduleName)
+			}
+			u.DialVia = dialer
+			hasDialer = true
 		default:
 			return d.ArgErr()
 		}
