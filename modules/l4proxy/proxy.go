@@ -432,9 +432,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 		// intentional closure by setting this flag.
 		downClosed.Store(true)
 		for _, up := range upConns {
-			if conn, ok := up.(closeWriter); ok {
-				_ = conn.CloseWrite()
-			} else {
+			if !closeWrite(up) {
 				_ = up.Close()
 			}
 		}
@@ -445,9 +443,7 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 
 	// Shut down the writing side of the downstream connection, in case that
 	// the upstream connections are all half closed.
-	if downConn, ok := down.Conn.(closeWriter); ok {
-		_ = downConn.CloseWrite()
-	}
+	closeWrite(down.Conn)
 
 	// Wait for reading from the downstream connection, if possible.
 	<-downConnClosedCh
@@ -1037,6 +1033,27 @@ func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls
 type closeWriter interface {
 	// CloseWrite shuts down the writing side of the connection.
 	CloseWrite() error
+}
+
+// closeWrite shuts down the writing side of conn and reports whether conn
+// supports it. On a TLS connection, CloseWrite only sends close_notify and
+// does not shut down the underlying connection, so the writing side of the
+// underlying connection is shut down as well: the peer gets the same TCP FIN
+// it would get if no TLS was involved.
+func closeWrite(conn net.Conn) bool {
+	switch c := conn.(type) {
+	case *layer4.Connection:
+		return closeWrite(c.Conn)
+	case *tls.Conn:
+		_ = c.CloseWrite()
+		closeWrite(c.NetConn())
+		return true
+	case closeWriter:
+		_ = c.CloseWrite()
+		return true
+	default:
+		return false
+	}
 }
 
 // Ensure we notice if CloseWrite changes for these important connections
