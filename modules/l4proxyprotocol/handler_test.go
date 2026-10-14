@@ -213,15 +213,11 @@ func assertProxyV2WithFakeTLSReadsCleanlyAfterHandler(t *testing.T, payload []by
 
 	wg := &sync.WaitGroup{}
 	in, out := net.Pipe()
+	// The payload is delivered via cx.buf, not via Pipe reads. Don't close
+	// the peer before the handler runs: go-proxyproto sets a read deadline
+	// before parsing the header, and net.Pipe rejects SetReadDeadline once
+	// either end is closed.
 	defer closePipe(wg, in, out)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Close immediately — the payload is delivered via cx.buf,
-		// not via Pipe reads. Any read on cx.Conn after bufio drains
-		// its leftover should EOF cleanly.
-		_ = out.Close()
-	}()
 
 	cx := layer4.WrapConnection(in, payload, zap.NewNop())
 
@@ -386,4 +382,100 @@ func buildPROXYv2PlusTwoFakeTLSRecordsPayload(t *testing.T, totalBytes int) []by
 	p = append(p, body2...)
 
 	return p
+}
+
+// tcpAddrConn overrides RemoteAddr so that the handler's policy treats the
+// connection as a TCP peer instead of an implicitly trusted in-memory pipe.
+type tcpAddrConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c tcpAddrConn) RemoteAddr() net.Addr { return c.remote }
+
+// TestProxyProtocolHandlePolicy verifies that the policy computed by the
+// handler is the one go-proxyproto enforces on the wrapped connection, rather
+// than the library's default policy (USE before v0.15.0, REQUIRE since).
+func TestProxyProtocolHandlePolicy(t *testing.T) {
+	const peer = "10.0.0.1:1234"
+	payload := []byte("hello")
+
+	for _, tc := range []struct {
+		name           string
+		allow          []string
+		fallback       Policy
+		header         []byte
+		expectedRemote string
+	}{
+		{
+			name:           "fallback USE without header",
+			fallback:       PolicyUSE,
+			expectedRemote: peer,
+		},
+		{
+			name:           "fallback USE with header",
+			fallback:       PolicyUSE,
+			header:         ProxyV1Example,
+			expectedRemote: "192.168.0.1:56324",
+		},
+		{
+			name:           "fallback IGNORE without header",
+			fallback:       PolicyIGNORE,
+			expectedRemote: peer,
+		},
+		{
+			name:           "fallback IGNORE with header",
+			fallback:       PolicyIGNORE,
+			header:         ProxyV1Example,
+			expectedRemote: peer,
+		},
+		{
+			name:           "allowed peer without header",
+			allow:          []string{"10.0.0.0/8"},
+			fallback:       PolicyREQUIRE,
+			expectedRemote: peer,
+		},
+		{
+			name:           "allowed peer with header",
+			allow:          []string{"10.0.0.0/8"},
+			fallback:       PolicyREQUIRE,
+			header:         ProxyV1Example,
+			expectedRemote: "192.168.0.1:56324",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wg := &sync.WaitGroup{}
+			in, out := net.Pipe()
+			defer closePipe(wg, in, out)
+
+			remote, err := net.ResolveTCPAddr("tcp", peer)
+			assertNoError(t, err)
+			buf := append(append([]byte{}, tc.header...), payload...)
+			cx := layer4.WrapConnection(tcpAddrConn{Conn: in, remote: remote}, buf, zap.NewNop())
+
+			ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+			defer cancel()
+
+			handler := Handler{Allow: tc.allow, FallbackPolicy: tc.fallback}
+			err = handler.Provision(ctx)
+			assertNoError(t, err)
+
+			var nextCx *layer4.Connection
+			err = handler.Handle(cx, layer4.HandlerFunc(func(c *layer4.Connection) error {
+				nextCx = c
+				return nil
+			}))
+			assertNoError(t, err)
+			if nextCx == nil {
+				t.Fatalf("handler did not call next")
+			}
+
+			assertString(t, tc.expectedRemote, nextCx.RemoteAddr().String())
+
+			got := make([]byte, len(payload))
+			_, err = io.ReadFull(nextCx, got)
+			assertNoError(t, err)
+			assertString(t, string(payload), string(got))
+		})
+	}
 }

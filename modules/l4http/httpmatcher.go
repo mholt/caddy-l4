@@ -189,7 +189,7 @@ func (m *MatchHTTP) handleHttp2WithPriorKnowledge(reader io.Reader, req *http.Re
 	}
 
 	decoder := hpack.NewDecoder(4096, nil) // max table size 4096 from http2.initialHeaderTableSize
-	headers, err := decoder.DecodeFull((frame.(*http2.HeadersFrame)).HeaderBlockFragment())
+	headers, err := decoder.DecodeFull(frame.(*http2.HeadersFrame).HeaderBlockFragment())
 	if err != nil {
 		return err
 	}

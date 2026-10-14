@@ -27,13 +27,15 @@ import (
 // happy paths are already covered there.
 func TestUnmarshalCaddyfileErrors(t *testing.T) {
 	cases := map[string]string{
-		"duplicate health_interval": "proxy localhost:1 {\n\thealth_interval 5s\n\thealth_interval 6s\n}",
-		"bad health_interval":       "proxy localhost:1 {\n\thealth_interval nope\n}",
-		"bad health_port":           "proxy localhost:1 {\n\thealth_port nope\n}",
-		"bad max_fails":             "proxy localhost:1 {\n\tmax_fails nope\n}",
-		"duplicate lb_try_duration": "proxy localhost:1 {\n\tlb_try_duration 1s\n\tlb_try_duration 2s\n}",
-		"unknown lb_policy":         "proxy localhost:1 {\n\tlb_policy does_not_exist\n}",
-		"unknown directive":         "proxy localhost:1 {\n\tnope 1\n}",
+		"duplicate health_interval":    "proxy localhost:1 {\n\thealth_interval 5s\n\thealth_interval 6s\n}",
+		"bad health_interval":          "proxy localhost:1 {\n\thealth_interval nope\n}",
+		"bad health_port":              "proxy localhost:1 {\n\thealth_port nope\n}",
+		"bad max_fails":                "proxy localhost:1 {\n\tmax_fails nope\n}",
+		"duplicate lb_try_duration":    "proxy localhost:1 {\n\tlb_try_duration 1s\n\tlb_try_duration 2s\n}",
+		"unknown lb_policy":            "proxy localhost:1 {\n\tlb_policy does_not_exist\n}",
+		"duplicate half_close_timeout": "proxy localhost:1 {\n\thalf_close_timeout 1s\n\thalf_close_timeout 2s\n}",
+		"bad half_close_timeout":       "proxy localhost:1 {\n\thalf_close_timeout nope\n}",
+		"unknown directive":            "proxy localhost:1 {\n\tnope 1\n}",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
