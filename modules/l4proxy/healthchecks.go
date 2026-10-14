@@ -122,10 +122,33 @@ func (h *Handler) activeHealthChecker() {
 	}
 }
 
-// doActiveHealthCheckForAllHosts immediately performs a
-// health checks for all upstream hosts configured by h.
+// doActiveHealthCheckForAllHosts immediately performs health checks for all
+// upstream hosts known to h: the statically-configured ones and, if a dynamic
+// upstreams source is configured, the currently-discovered ones too. This lets
+// a discovered cluster (e.g. via DNS SRV/A) be health-gated — for example to
+// route only to the node whose /primary endpoint reports it is the leader —
+// without any external coordinator.
 func (h *Handler) doActiveHealthCheckForAllHosts() {
-	for _, upstream := range h.Upstreams {
+	h.activeHealthCheckUpstreams(h.Upstreams)
+
+	if h.dynamicUpstreams != nil {
+		// Discovery here is connection-independent, so use a bare replacer;
+		// dynamic upstream sources used with active health checks should not
+		// rely on connection-scoped placeholders.
+		dynamic, err := h.dynamicUpstreams.GetUpstreams(caddy.NewReplacer())
+		if err != nil {
+			h.HealthChecks.Active.logger.Error("getting dynamic upstreams for active health check",
+				zap.Error(err))
+		} else {
+			h.activeHealthCheckUpstreams(dynamic)
+		}
+	}
+}
+
+// activeHealthCheckUpstreams runs an active health check against every peer of
+// every upstream in the pool, one goroutine per upstream.
+func (h *Handler) activeHealthCheckUpstreams(upstreams UpstreamPool) {
+	for _, upstream := range upstreams {
 		go func(upstream *Upstream) {
 			defer func() {
 				if err := recover(); err != nil {
