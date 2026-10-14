@@ -251,5 +251,5 @@ const (
 	MessageTypeCookieReply uint32 = 3
 	MessageTypeTransport   uint32 = 4
 
-	ReservedZeroFilter = ^(uint32(0)) >> 8 << 8
+	ReservedZeroFilter = ^uint32(0) >> 8 << 8
 )

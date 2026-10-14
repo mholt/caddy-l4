@@ -163,7 +163,7 @@ func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
 	}
 
 	// Create connection with timeout option.
-	var opts []func(*proxyproto.Conn)
+	opts := []func(*proxyproto.Conn){proxyproto.WithPolicy(policy)}
 	if h.Timeout > 0 {
 		opts = append(opts, proxyproto.SetReadHeaderTimeout(time.Duration(h.Timeout)))
 	}
