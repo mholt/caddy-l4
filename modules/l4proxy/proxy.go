@@ -18,10 +18,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -60,6 +62,13 @@ type Handler struct {
 	// Ref: https://www.haproxy.org/download/1.8/doc/proxy-protocol.txt
 	ProxyProtocol string `json:"proxy_protocol,omitempty"`
 
+	// How long to wait for the other side of a connection once one side has
+	// finished sending (a half-closed connection) while nothing is received.
+	// Every read restarts the wait, so data still flowing in the other
+	// direction is never cut; when the wait elapses, the connection is closed.
+	// Default: 0 (wait until the other side finishes, however long it takes).
+	HalfCloseTimeout caddy.Duration `json:"half_close_timeout,omitempty"`
+
 	proxyProtocolVersion uint8
 
 	metrics *proxyMetrics
@@ -78,6 +87,10 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the handler.
 func (h *Handler) Provision(ctx caddy.Context) error {
+	if h.HalfCloseTimeout < 0 {
+		return fmt.Errorf("half_close_timeout: %s must not be negative", time.Duration(h.HalfCloseTimeout))
+	}
+
 	h.ctx = ctx
 	h.logger = ctx.Logger(h)
 	h.metrics = newProxyMetrics(ctx.GetMetricsRegistry())
@@ -382,10 +395,13 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 
 // proxy proxies the downstream connection to all upstream connections.
 func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
+	halfCloseTimeout := time.Duration(h.HalfCloseTimeout)
+
 	// every time we read from downstream, we write
 	// the same to each upstream; this is half of
 	// the proxy duplex
-	var downTee io.Reader = down
+	downReader := newHalfCloseReader(down, halfCloseTimeout)
+	var downTee io.Reader = downReader
 	for _, up := range upConns {
 		downTee = io.TeeReader(downTee, up)
 	}
@@ -393,13 +409,15 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	var wg sync.WaitGroup
 	var downClosed atomic.Bool
 
-	for _, up := range upConns {
+	upReaders := make([]*halfCloseReader, len(upConns))
+	for i, up := range upConns {
+		upReaders[i] = newHalfCloseReader(up, halfCloseTimeout)
 		wg.Add(1)
 
-		go func(up net.Conn) {
+		go func(up net.Conn, upReader *halfCloseReader) {
 			defer wg.Done()
 
-			if _, err := io.Copy(down, up); err != nil {
+			if _, err := io.Copy(down, upReader); err != nil {
 				// If the downstream connection has been closed, we can assume this is
 				// the reason io.Copy() errored.  That's normal operation for UDP
 				// connections after idle timeout, so don't log an error in that case.
@@ -409,9 +427,14 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 						zap.String("remote_address", up.RemoteAddr().String()),
 						zap.Error(err),
 					)
+				} else if upReader.timedOut(err) {
+					h.logger.Debug("closing half-closed connection: upstream idle after the downstream finished",
+						zap.String("remote_address", up.RemoteAddr().String()),
+						zap.Duration("half_close_timeout", halfCloseTimeout),
+					)
 				}
 			}
-		}(up)
+		}(up, upReaders[i])
 	}
 
 	downConnClosedCh := make(chan struct{}, 1)
@@ -419,7 +442,12 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	go func() {
 		// read from downstream until connection is closed;
 		// TODO: this pumps the reader, but writing into discard is a weird way to do it; could be avoided if we used io.Pipe - see _gitignore/oldtee.go.txt
-		_, _ = io.Copy(io.Discard, downTee)
+		if _, err := io.Copy(io.Discard, downTee); downReader.timedOut(err) {
+			h.logger.Debug("closing half-closed connection: downstream idle after the upstreams finished",
+				zap.String("remote_address", down.RemoteAddr().String()),
+				zap.Duration("half_close_timeout", halfCloseTimeout),
+			)
+		}
 		downConnClosedCh <- struct{}{}
 
 		// Shut down the writing side of all upstream connections, in case
@@ -436,6 +464,12 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 				_ = up.Close()
 			}
 		}
+
+		// The downstream has finished sending: do not wait for longer than the
+		// half-close timeout for an upstream that sends nothing.
+		for _, upReader := range upReaders {
+			upReader.arm()
+		}
 	}()
 
 	// wait for reading from all upstream connections
@@ -445,8 +479,48 @@ func (h *Handler) proxy(down *layer4.Connection, upConns []net.Conn) {
 	// the upstream connections are all half closed.
 	closeWrite(down.Conn)
 
+	// The upstreams have finished sending: do not wait for longer than the
+	// half-close timeout for a downstream that sends nothing.
+	downReader.arm()
+
 	// Wait for reading from the downstream connection, if possible.
 	<-downConnClosedCh
+}
+
+// halfCloseReader reads from a connection and, once armed, fails as soon as
+// the connection has been idle for the timeout: every read moves the deadline
+// forward, so a connection that keeps receiving data is not cut. It is armed
+// when the other side of the proxied connection has finished sending. A zero
+// timeout never arms it.
+type halfCloseReader struct {
+	conn    net.Conn
+	timeout time.Duration
+	armed   atomic.Bool
+}
+
+func newHalfCloseReader(conn net.Conn, timeout time.Duration) *halfCloseReader {
+	return &halfCloseReader{conn: conn, timeout: timeout}
+}
+
+func (r *halfCloseReader) Read(p []byte) (int, error) {
+	if r.armed.Load() {
+		_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+	}
+	return r.conn.Read(p)
+}
+
+// arm starts the idle timeout, including for a read that is already blocked.
+func (r *halfCloseReader) arm() {
+	if r.timeout <= 0 {
+		return
+	}
+	r.armed.Store(true)
+	_ = r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+}
+
+// timedOut reports whether err is the idle timeout of an armed reader.
+func (r *halfCloseReader) timedOut(err error) bool {
+	return r.armed.Load() && errors.Is(err, os.ErrDeadlineExceeded)
 }
 
 // countFailure is used with passive health checks. It
@@ -523,6 +597,7 @@ func (h *Handler) Cleanup() error {
 //		lb_try_interval <duration>
 //
 //		proxy_protocol <v1|v2>
+//		half_close_timeout <duration>
 //
 //		# multiple upstream options are supported
 //		upstream [<args...>] {
@@ -543,7 +618,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
-		hasProxyProtocol                                    bool
+		hasProxyProtocol, hasHalfCloseTimeout               bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -769,6 +844,19 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
 			_, h.ProxyProtocol, hasProxyProtocol = d.NextArg(), d.Val(), true
+		case "half_close_timeout":
+			if hasHalfCloseTimeout {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			dur, err := caddy.ParseDuration(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s' duration: %v", wrapper, optionName, err)
+			}
+			h.HalfCloseTimeout, hasHalfCloseTimeout = caddy.Duration(dur), true
 		case "upstream":
 			u := &Upstream{}
 			if err := u.UnmarshalCaddyfile(d.NewFromNextSegment()); err != nil {

@@ -23,6 +23,12 @@ endpoint), labeled by `upstream`:
 
 The handler has the following optional fields:
 
+- `half_close_timeout` may specify how long to wait for the other side of a connection once one side has finished
+  sending (a half-closed connection) while nothing is received from it. Every read restarts the wait, so data still
+  flowing in the other direction is never cut; when the wait elapses, the connection is closed. By default, it equals
+  `0`, and the handler waits until the other side finishes, however long it takes. It is similar to HAProxy's
+  `timeout client-fin` and `timeout server-fin`.
+
 - `health_checks` may contain a `l4proxy.HealthChecks` structure which includes `active` (`l4proxy.ActiveHealthChecks`)
   and `passive` (`l4proxy.PassiveHealthChecks`) fields (valid for JSON). In a Caddyfile, multiple options are used to
   fill these structures as described below.
@@ -199,6 +205,7 @@ proxy [<upstreams...>] {
     lb_try_duration <duration>
     lb_try_interval <duration>
     
+    half_close_timeout <duration>
     proxy_protocol <v1|v2>
     
     # multiple upstream options are supported
@@ -299,6 +306,7 @@ filled at random:
                     lb_policy round_robin
                     lb_try_duration 5s
                     lb_try_interval 15s
+                    half_close_timeout 30s
                     proxy_protocol v2
                     upstream 10.0.0.1:8080
                     upstream 10.0.0.2:8080 10.0.0.2:8888
@@ -344,6 +352,7 @@ JSON equivalent to the caddyfile config provided above:
                         {
                             "handle": [
                                 {
+                                    "half_close_timeout": 30000000000,
                                     "handler": "proxy",
                                     "health_checks": {
                                         "active": {
