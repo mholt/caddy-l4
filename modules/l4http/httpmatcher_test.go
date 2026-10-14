@@ -403,6 +403,9 @@ func TestHttpMatchingDoesNotAbortTlsMatching(t *testing.T) {
 		},
 		HandlersRaw: []json.RawMessage{json.RawMessage("{\"handler\":\"test_handler\"}")},
 	}
+	// a catch-all route has no matchers and must wait for earlier routes that still need data;
+	// it has no handlers either, so if it wins, test_handler is never called and the case fails
+	catchAllRoute := &layer4.Route{}
 
 	for _, tc := range []struct {
 		name   string
@@ -411,6 +414,8 @@ func TestHttpMatchingDoesNotAbortTlsMatching(t *testing.T) {
 		{name: "tls-before-http", routes: layer4.RouteList{tlsRoute, httpRoute}},
 		{name: "http-before-tls", routes: layer4.RouteList{httpRoute, tlsRoute}},
 		{name: "tls-only", routes: layer4.RouteList{tlsRoute}},
+		{name: "tls-before-catch-all", routes: layer4.RouteList{tlsRoute, catchAllRoute}},
+		{name: "tls-before-http-before-catch-all", routes: layer4.RouteList{tlsRoute, httpRoute, catchAllRoute}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !splitMatchTester(t, tc.routes, clientHello, cut) {
