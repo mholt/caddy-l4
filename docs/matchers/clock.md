@@ -13,8 +13,10 @@ These are examples of the scenarios can be realised with this matcher.
 ## Syntax
 
 The matcher returns true, if the connection matching time is greater than or equal to `after` AND less than `before`.
-Both fields are mandatory, and each one accepts time in `15:04:05` format. If `before` has `00:00:00` value,
-it is treated as `24:00:00`. If `after` is greater than `before`, these time points are automatically swapped.
+Each field accepts time in `15:04:05` format. An empty `after` is treated as `00:00:00`, and an empty `before`
+(or a `before` of `00:00:00`) is treated as `24:00:00`; so an all-empty matcher matches all day long. If `after` is
+greater than `before`, the window wraps around midnight, i.e. it matches the overnight window (for example,
+`after` of `22:00:00` together with `before` of `06:00:00` matches from `22:00:00` through `05:59:59`).
 
 The matcher also has `timezone` field, which is non-mandatory and may be used to match the time points in any IANA
 time zone location or a custom fixed time zone defined by an offset (e.g. `+02`, `-03:30` or even `+12:34:56`)
@@ -42,12 +44,11 @@ depending on the time:
 {
     layer4 {
         :8080 {
-            @night_m clock before 05:00:00
             @morning clock 05:00:00 12:00:00
             @afternoon clock 12:00:00 17:00:00
             @evening clock 17:00:00 21:00:00
-            @night_e clock after 21:00:00
-            route @night_m @night_e {
+            @night clock 21:00:00 05:00:00
+            route @night {
                 proxy 00.upstream.local:8080
             }
             route @morning {
@@ -65,7 +66,7 @@ depending on the time:
             route @la_is_awake {
                 proxy existing.machine.local:8888
             }
-            @la_is_asleep not clock 08:00:00 20:00:00 America/Los_Angeles
+            @la_is_asleep clock 20:00:00 08:00:00 America/Los_Angeles
             route @la_is_asleep {
                 proxy non-existing.machine.local:8888
             }
@@ -91,14 +92,8 @@ JSON equivalent to the caddyfile config provided above:
                             "match": [
                                 {
                                     "clock": {
-                                        "after": "00:00:00",
-                                        "before": "05:00:00"
-                                    }
-                                },
-                                {
-                                    "clock": {
                                         "after": "21:00:00",
-                                        "before": "00:00:00"
+                                        "before": "05:00:00"
                                     }
                                 }
                             ],
@@ -234,15 +229,11 @@ JSON equivalent to the caddyfile config provided above:
                         {
                             "match": [
                                 {
-                                    "not": [
-                                        {
-                                            "clock": {
-                                                "after": "08:00:00",
-                                                "before": "20:00:00",
-                                                "timezone": "America/Los_Angeles"
-                                            }
-                                        }
-                                    ]
+                                    "clock": {
+                                        "after": "20:00:00",
+                                        "before": "08:00:00",
+                                        "timezone": "America/Los_Angeles"
+                                    }
                                 }
                             ],
                             "handle": [
