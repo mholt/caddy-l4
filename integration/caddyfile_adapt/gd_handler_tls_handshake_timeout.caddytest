@@ -1,0 +1,46 @@
+{
+	layer4 {
+		:8443 {
+			route {
+				tls {
+					handshake_timeout 5s
+				}
+				proxy upstream.local:8080
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":8443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "tls",
+									"handshake_timeout": 5000000000
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
