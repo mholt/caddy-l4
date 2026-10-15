@@ -26,8 +26,8 @@ in Caddyfile.
 The handler also has an optional `handshake_timeout` field, which may specify how long to wait for the TLS handshake
 to complete. It bounds clients that open a connection but never finish the handshake (they send no ClientHello, only
 part of it, or stop in the middle of the handshake); when the timeout elapses, the connection is closed. Once the
-handshake completes, the timeout no longer applies. By default, it equals `0`, and the handshake has no time limit.
-Negative values are rejected.
+handshake completes, the timeout no longer applies. By default, or when set to `0`, it equals `60s`. Negative values
+are rejected.
 
 The handler itself supports no [placeholders](https://caddyserver.com/docs/conventions#placeholders), but they may be supported at Caddy level for some connection policy
 fields.

@@ -44,6 +44,9 @@ func init() {
 	caddy.RegisterModule(&Handler{})
 }
 
+// HandshakeTimeoutDefault is the handshake timeout used when none is set.
+const HandshakeTimeoutDefault = 60 * time.Second
+
 // Handler is a connection handler that terminates TLS.
 type Handler struct {
 	ConnectionPolicies caddytls.ConnectionPolicies `json:"connection_policies,omitempty"`
@@ -51,9 +54,9 @@ type Handler struct {
 	// HandshakeTimeout is how long to wait for the TLS handshake to complete.
 	// It bounds clients that open a connection but never finish the handshake
 	// (no ClientHello, a partial one, or a stall mid-handshake), which would
-	// otherwise hold the connection open until they close it. By default, it
-	// equals 0 and the handshake has no time limit. Negative values are
-	// rejected.
+	// otherwise hold the connection open until they close it. By default, or
+	// when set to 0, it equals 60s, like nginx's ssl_handshake_timeout.
+	// Negative values are rejected.
 	HandshakeTimeout caddy.Duration `json:"handshake_timeout,omitempty"`
 
 	ctx    caddy.Context
@@ -72,6 +75,9 @@ func (*Handler) CaddyModule() caddy.ModuleInfo {
 func (t *Handler) Provision(ctx caddy.Context) error {
 	if t.HandshakeTimeout < 0 {
 		return fmt.Errorf("handshake_timeout: %s must not be negative", time.Duration(t.HandshakeTimeout))
+	}
+	if t.HandshakeTimeout == 0 {
+		t.HandshakeTimeout = caddy.Duration(HandshakeTimeoutDefault)
 	}
 
 	t.ctx = ctx
