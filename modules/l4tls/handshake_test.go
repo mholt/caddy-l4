@@ -24,7 +24,6 @@ import (
 	"io"
 	"math/big"
 	"net"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +31,6 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddytls"
-	_ "github.com/caddyserver/caddy/v2/modules/filestorage"
 	"go.uber.org/zap"
 
 	"github.com/mholt/caddy-l4/layer4"
@@ -215,25 +213,15 @@ func TestHandshakeTimeoutClearedAfterHandshake(t *testing.T) {
 	}
 }
 
-// TestProvisionDefaultsHandshakeTimeout: without a handshake timeout, Provision
-// sets the default one, so a client that never finishes the handshake is not
-// kept forever.
-func TestProvisionDefaultsHandshakeTimeout(t *testing.T) {
-	// Provision needs the TLS app, which needs a running config
-	cfg := `{"admin": {"disabled": true, "config": {"persist": false}},` +
-		`"storage": {"module": "file_system", "root": ` + strconv.Quote(t.TempDir()) + `},` +
-		`"apps": {"tls": {}}}`
-	if err := caddy.Load([]byte(cfg), false); err != nil {
-		t.Fatalf("loading config: %v", err)
+// TestHandshakeTimeoutDefault: without a handshake timeout, the default one
+// applies, so a client that never finishes the handshake is not kept forever.
+func TestHandshakeTimeoutDefault(t *testing.T) {
+	if got := (&Handler{}).handshakeTimeout(); got != HandshakeTimeoutDefault {
+		t.Fatalf("handshake timeout = %v; want %v", got, HandshakeTimeoutDefault)
 	}
-	t.Cleanup(func() { _ = caddy.Stop() })
-
-	h := &Handler{}
-	if err := h.Provision(caddy.ActiveContext()); err != nil {
-		t.Fatalf("provisioning: %v", err)
-	}
-	if time.Duration(h.HandshakeTimeout) != HandshakeTimeoutDefault {
-		t.Fatalf("handshake_timeout = %v; want %v", time.Duration(h.HandshakeTimeout), HandshakeTimeoutDefault)
+	h := &Handler{HandshakeTimeout: caddy.Duration(5 * time.Second)}
+	if got := h.handshakeTimeout(); got != 5*time.Second {
+		t.Fatalf("handshake timeout = %v; want 5s", got)
 	}
 }
 

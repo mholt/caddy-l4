@@ -76,9 +76,6 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 	if t.HandshakeTimeout < 0 {
 		return fmt.Errorf("handshake_timeout: %s must not be negative", time.Duration(t.HandshakeTimeout))
 	}
-	if t.HandshakeTimeout == 0 {
-		t.HandshakeTimeout = caddy.Duration(HandshakeTimeoutDefault)
-	}
 
 	t.ctx = ctx
 	t.logger = ctx.Logger(t)
@@ -94,6 +91,15 @@ func (t *Handler) Provision(ctx caddy.Context) error {
 	}
 
 	return nil
+}
+
+// handshakeTimeout returns the handshake timeout to use, or the default one if
+// none is set.
+func (t *Handler) handshakeTimeout() time.Duration {
+	if t.HandshakeTimeout == 0 {
+		return HandshakeTimeoutDefault
+	}
+	return time.Duration(t.HandshakeTimeout)
 }
 
 // Handle handles the connections.
@@ -114,14 +120,9 @@ func (t *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	// connection to perform the handshake, and cx might have some
 	// bytes already buffered need to be read first)
 	tlsConn := tls.Server(cx, tlsCfg)
-	handshakeTimeout := time.Duration(t.HandshakeTimeout)
-	if handshakeTimeout > 0 {
-		_ = cx.SetDeadline(time.Now().Add(handshakeTimeout))
-	}
+	_ = cx.SetDeadline(time.Now().Add(t.handshakeTimeout()))
 	err := tlsConn.Handshake()
-	if handshakeTimeout > 0 {
-		_ = cx.SetDeadline(time.Time{})
-	}
+	_ = cx.SetDeadline(time.Time{})
 	if err != nil {
 		return err
 	}
