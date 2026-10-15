@@ -221,6 +221,81 @@ func TestSelectLocalAddrChoosesMatchingFromList(t *testing.T) {
 	}
 }
 
+func TestTransparentLocalAddr(t *testing.T) {
+	tests := []struct {
+		name    string
+		remote  net.Addr
+		network string
+		wantIP  string
+		wantFam int
+		wantUDP bool
+	}{
+		{
+			name:    "tcp ipv4",
+			remote:  &net.TCPAddr{IP: net.ParseIP("192.0.2.10"), Port: 12345},
+			network: "tcp4",
+			wantIP:  "192.0.2.10",
+			wantFam: 4,
+		},
+		{
+			name:    "udp ipv6",
+			remote:  &net.UDPAddr{IP: net.ParseIP("2001:db8::10"), Port: 12345, Zone: "eth0"},
+			network: "udp6",
+			wantIP:  "2001:db8::10",
+			wantFam: 6,
+			wantUDP: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := transparentLocalAddr(tt.remote, tt.network)
+			if err != nil {
+				t.Fatalf("transparentLocalAddr: %v", err)
+			}
+			family, err := ipFamilyFromAddr(got)
+			if err != nil {
+				t.Fatalf("ipFamilyFromAddr: %v", err)
+			}
+			if family != tt.wantFam {
+				t.Fatalf("family = %d, want %d", family, tt.wantFam)
+			}
+
+			var ip net.IP
+			var port int
+			switch addr := got.(type) {
+			case *net.TCPAddr:
+				if tt.wantUDP {
+					t.Fatalf("got TCP address, want UDP")
+				}
+				ip, port = addr.IP, addr.Port
+			case *net.UDPAddr:
+				if !tt.wantUDP {
+					t.Fatalf("got UDP address, want TCP")
+				}
+				ip, port = addr.IP, addr.Port
+			default:
+				t.Fatalf("unexpected address type %T", got)
+			}
+			if !ip.Equal(net.ParseIP(tt.wantIP)) {
+				t.Fatalf("IP = %s, want %s", ip, tt.wantIP)
+			}
+			if port != 0 {
+				t.Fatalf("port = %d, want 0", port)
+			}
+		})
+	}
+}
+
+func TestTransparentLocalAddrRejectsNonIPClient(t *testing.T) {
+	if _, err := transparentLocalAddr(&net.UnixAddr{Name: "/tmp/client.sock", Net: "unix"}, "tcp"); err == nil {
+		t.Fatal("expected non-IP client address to be rejected")
+	}
+	if _, err := transparentLocalAddr(&net.TCPAddr{IP: net.ParseIP("127.0.0.1")}, "unix"); err == nil {
+		t.Fatal("expected Unix upstream network to be rejected")
+	}
+}
+
 // Known placeholders in local_address should be replaced at provision time,
 // while unknown (runtime) placeholders must be preserved for per-connection expansion.
 func TestProvisionExpandsKnownPlaceholdersInLocalAddr(t *testing.T) {
@@ -439,6 +514,56 @@ func TestProvisionRejectsLocalAddrForUnixUpstream(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "local_address is not supported for Unix socket upstreams") {
 				t.Fatalf("unexpected error for %s upstream: %v", netw, err)
+			}
+		})
+	}
+}
+
+func TestProvisionTransparentProxy(t *testing.T) {
+	dialAddr := "127.0.0.1:63001"
+	t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+
+	u := &Upstream{Dial: []string{dialAddr}, Transparent: true}
+	err := u.provision(caddy.Context{}, &Handler{logger: zap.NewNop()})
+	if transparentProxySupported && err != nil {
+		t.Fatalf("provision rejected transparent proxying on Linux: %v", err)
+	}
+	if !transparentProxySupported && (err == nil || !strings.Contains(err.Error(), "only supported on Linux")) {
+		t.Fatalf("provision error = %v, want unsupported-platform error", err)
+	}
+}
+
+func TestProvisionRejectsTransparentProxyConflicts(t *testing.T) {
+	if !transparentProxySupported {
+		t.Skip("conflict validation follows the platform support check")
+	}
+
+	cases := []struct {
+		name     string
+		upstream *Upstream
+		want     string
+	}{
+		{
+			name:     "local address",
+			upstream: &Upstream{LocalAddrs: []string{"127.0.0.1"}},
+			want:     "local_address",
+		},
+		{
+			name:     "resolver preference",
+			upstream: &Upstream{ResolverPreference: "ipv4_only"},
+			want:     "resolver_preference",
+		},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dialAddr := fmt.Sprintf("127.0.0.1:6310%d", i)
+			t.Cleanup(func() { _, _ = peers.Delete(dialAddr) })
+			tc.upstream.Dial = []string{dialAddr}
+			tc.upstream.Transparent = true
+
+			err := tc.upstream.provision(caddy.Context{}, &Handler{logger: zap.NewNop()})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("provision error = %v, want conflict mentioning %s", err, tc.want)
 			}
 		})
 	}
