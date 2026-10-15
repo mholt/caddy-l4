@@ -16,6 +16,7 @@ package l4proxy
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -57,9 +58,6 @@ type Upstream struct {
 	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
 
-	// TODO: write explanation
-	DialVia ContextDialer `json:"dial_via,omitempty"`
-
 	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
 	// setting this for a Unix socket upstream (unix, unixpacket, unixgram) is an error at provision
 	// time because source binding has no useful effect for Unix IPC. Provide only the address (no
@@ -94,6 +92,10 @@ type Upstream struct {
 	// policies (e.g. weighted_round_robin). A value <= 0 is treated as 1.
 	Weight int `json:"weight,omitempty"`
 
+	// DialVia is this upstream's custom dialer
+	// If set it will connect to the upstream through the custom dialer
+	DialVia json.RawMessage `json:"dial_via,omitempty" caddy:"namespace=layer4.proxy.upstream.dial_via inline_key=provider"`
+
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
@@ -101,6 +103,8 @@ type Upstream struct {
 	// localAddrs holds LocalAddrs after known placeholders are replaced at
 	// provision time. Unknown placeholders remain and are expanded per-connection.
 	localAddrs []string
+
+	dialVia ContextDialer
 }
 
 func (u *Upstream) String() string {
@@ -159,11 +163,24 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 	}
 
 	if u.DialVia == nil {
-		u.DialVia = DefaultDialer()
-	}
+		u.dialVia = DefaultDialer()
+	} else {
+		mod, err := ctx.LoadModule(u, "DialVia")
+		if err != nil {
+			return err
+		}
 
-	if p, ok := u.DialVia.(caddy.Provisioner); ok {
-		p.Provision(ctx)
+		if dialer, ok := mod.(ContextDialer); !ok {
+			return fmt.Errorf("wat")
+		} else {
+			u.dialVia = dialer
+			if p, ok := u.dialVia.(caddy.Provisioner); ok {
+				if err := p.Provision(ctx); err != nil {
+					return err
+				}
+			}
+		}
+
 	}
 
 	// Resolve known placeholders in local_address at provision time; any unknown
@@ -310,6 +327,7 @@ func (u *Upstream) totalConns() int {
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //		weight <int>
+//		dial_via <module>
 //
 //		tls
 //		tls_client_auth <automate_name> | <cert_file> <key_file>
@@ -532,7 +550,15 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if !ok {
 				return d.Errf("dial_via module '%s' is not a l4proxy.ContextDialer", moduleName)
 			}
-			u.DialVia = dialer
+
+			moduleRaw := caddyconfig.JSON(dialer, nil)
+
+			moduleRaw, err = layer4.SetModuleNameInline("provider", moduleName, moduleRaw)
+			if err != nil {
+				return err
+			}
+
+			u.DialVia = moduleRaw
 			hasDialer = true
 		default:
 			return d.ArgErr()

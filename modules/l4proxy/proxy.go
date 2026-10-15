@@ -303,7 +303,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(down.Context, upstream.DialVia, localAddrs, dialNetwork, hostPort)
+			up, err = dialWithLocalAddrs(down.Context, upstream.dialVia, localAddrs, dialNetwork, hostPort)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -335,7 +335,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tlsDialWithLocalAddrs(down.Context, upstream.DialVia, localAddrs, dialNetwork, hostPort, tlsCfg)
+			up, err = tlsDialWithLocalAddrs(down.Context, upstream.dialVia, localAddrs, dialNetwork, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -575,7 +575,7 @@ func (h *Handler) Cleanup() error {
 			_, _ = peers.Delete(dialAddr)
 		}
 
-		if c, ok := upstream.DialVia.(caddy.CleanerUpper); ok {
+		if c, ok := upstream.dialVia.(caddy.CleanerUpper); ok {
 			c.Cleanup()
 		}
 

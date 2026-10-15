@@ -7,6 +7,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"go.uber.org/zap"
 	"golang.org/x/net/proxy"
 )
 
@@ -18,7 +19,9 @@ var (
 )
 
 type SOCKS5Dialer struct {
-	dialer proxy.ContextDialer
+	logger        *zap.Logger
+	dialer        proxy.ContextDialer
+	ServerAddress string
 }
 
 // CaddyModule returns the Caddy module information.
@@ -31,18 +34,31 @@ func (*SOCKS5Dialer) CaddyModule() caddy.ModuleInfo {
 
 // DialContext implements [ContextDialer].
 func (s *SOCKS5Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	s.logger.Debug("dialing through socks5",
+		zap.String("upstream_network", network),
+		zap.String("upstream", address),
+		zap.String("socks_server", s.ServerAddress))
+
 	return s.dialer.DialContext(ctx, network, address)
 }
 
 // UnmarshalCaddyfile implements [caddyfile.Unmarshaler].
 func (s *SOCKS5Dialer) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	// tbd
+	d.NextArg()
+
+	if !d.NextArg() {
+		return d.ArgErr()
+	}
+
+	s.ServerAddress = d.Val()
+
 	return nil
 }
 
 // Provision implements [caddy.Provisioner].
-func (s *SOCKS5Dialer) Provision(caddy.Context) error {
-	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:1080", nil, &net.Dialer{Timeout: 10 * time.Second})
+func (s *SOCKS5Dialer) Provision(c caddy.Context) error {
+	s.logger = c.Logger(s)
+	dialer, err := proxy.SOCKS5("tcp", s.ServerAddress, nil, &net.Dialer{Timeout: 10 * time.Second})
 
 	if err != nil {
 		return err
