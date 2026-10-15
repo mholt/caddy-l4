@@ -133,6 +133,22 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 	// packetConn, which allows us to remove stale connections (whose
 	// proxy handlers have completed) from the udpConns map.
 	closeCh := make(chan string, 10)
+	// serverDone is closed when this loop exits, so that packetConns whose
+	// handlers are still running (for example after a config reload replaced
+	// this server) never block sending on closeCh, which nobody drains any
+	// more. Their readCh is closed below so that pending Read() calls return
+	// EOF and the handlers finish; pending packets are released to the pool.
+	serverDone := make(chan struct{})
+	defer func() {
+		close(serverDone)
+		for addr, conn := range udpConns {
+			close(conn.readCh)
+			for pkt := range conn.readCh {
+				udpBufPool.Put(pkt.pooledBuf)
+			}
+			delete(udpConns, addr)
+		}
+	}()
 	for {
 		select {
 		case addr := <-closeCh:
@@ -162,6 +178,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 					readCh:      make(chan *packet, 5),
 					addr:        pkt.addr,
 					closeCh:     closeCh,
+					serverDone:  serverDone,
 					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
@@ -270,6 +287,9 @@ type packetConn struct {
 	addr    net.Addr
 	readCh  chan *packet
 	closeCh chan string
+	// serverDone is closed when the server loop that owns closeCh has exited.
+	// Notifications sent after that would block forever, so they are dropped.
+	serverDone <-chan struct{}
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
@@ -364,10 +384,20 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	// Although Close() also does this, we inform the server loop early about
 	// the closure to ensure that if any new packets are received from this
 	// connection in the meantime, a new handler will be started.
-	pc.closeCh <- pc.addr.String()
+	pc.notifyClosed()
 	// Returning EOF here ensures that io.Copy() waiting on the downstream for
 	// reads will terminate.
 	return 0, io.EOF
+}
+
+// notifyClosed tells the server loop that this connection is closed. If the
+// loop has already exited, nobody will ever receive the notification, so it
+// is dropped instead of blocking this goroutine forever.
+func (pc *packetConn) notifyClosed() {
+	select {
+	case pc.closeCh <- pc.addr.String():
+	case <-pc.serverDone:
+	}
 }
 
 func (pc *packetConn) Write(b []byte) (n int, err error) {
@@ -382,7 +412,7 @@ func (pc *packetConn) Close() error {
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
 	// Server loop is responsible to close readCh to abort Read() to avoid race.
-	pc.closeCh <- pc.addr.String()
+	pc.notifyClosed()
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
 	return nil
