@@ -364,7 +364,15 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	// Although Close() also does this, we inform the server loop early about
 	// the closure to ensure that if any new packets are received from this
 	// connection in the meantime, a new handler will be started.
-	pc.closeCh <- pc.addr.String()
+	//
+	// The send must not block: the server loop is the only receiver and it
+	// exits when the packet conn reports an error, which App.Stop causes by
+	// closing the conns. A blocking send after that point parks this
+	// goroutine forever, Read never returns, and the handler never unwinds.
+	select {
+	case pc.closeCh <- pc.addr.String():
+	default:
+	}
 	// Returning EOF here ensures that io.Copy() waiting on the downstream for
 	// reads will terminate.
 	return 0, io.EOF
@@ -382,7 +390,14 @@ func (pc *packetConn) Close() error {
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
 	// Server loop is responsible to close readCh to abort Read() to avoid race.
-	pc.closeCh <- pc.addr.String()
+	//
+	// Non-blocking for the same reason as in Read(): the server loop is the
+	// only receiver and it is gone once the packet conn reports an error, so a
+	// blocking send here would park the closing goroutine permanently.
+	select {
+	case pc.closeCh <- pc.addr.String():
+	default:
+	}
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
 	return nil
