@@ -340,6 +340,20 @@ const prefetchChunkSize = 2048
 // 16 KiB should cover most use-cases and is similar to popular webservers.
 const MaxMatchingBytes = 16 * 1024
 
+// MaxBufLen is a safe rounded-up upper bound on Connection.buf length after
+// all prefetch operations. prefetch() checks `len(cx.buf) < MaxMatchingBytes`
+// before reading, and a single read can append up to prefetchChunkSize
+// bytes on top — so cx.buf can end up at MaxMatchingBytes - 1 +
+// prefetchChunkSize bytes. MaxBufLen intentionally rounds that exact bound
+// up by one byte. Handlers that wrap cx in a buffered reader (e.g.
+// proxyproto.Conn via WithBufferSize) should size that buffer to at least
+// this value to guarantee a single Read drains cx.buf in one call, firing
+// cx.Read's reset branch and leaving cx.buf cleanly empty for the wrapped
+// chain. Sizing only to MaxMatchingBytes leaves a 2 KiB-wide hole where
+// cx.buf can outrun the wrapper's internal buffer and produce a misaligned
+// post-wrap byte stream.
+const MaxBufLen = MaxMatchingBytes + prefetchChunkSize
+
 var bufPool = sync.Pool{
 	New: func() any {
 		return make([]byte, 0, prefetchChunkSize)

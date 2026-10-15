@@ -15,9 +15,11 @@
 package l4regexp
 
 import (
+	"encoding/hex"
 	"io"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -32,6 +34,7 @@ func init() {
 // MatchRegexp is able to match any connections with regular expressions.
 type MatchRegexp struct {
 	Count   uint16 `json:"count,omitempty"`
+	Hex     bool   `json:"hex,omitempty"`
 	Pattern string `json:"pattern,omitempty"`
 
 	compiled *regexp.Regexp
@@ -54,6 +57,14 @@ func (m *MatchRegexp) Match(cx *layer4.Connection) (bool, error) {
 		return false, err
 	}
 
+	// When the hex option is enabled, match the regular expression against an
+	// uppercase hexadecimal representation of the bytes. This makes it possible
+	// to match byte sequences that aren't valid UTF-8, at the cost of the extra
+	// conversion. Otherwise, match the raw bytes as-is.
+	if m.Hex {
+		return m.compiled.MatchString(strings.ToUpper(hex.EncodeToString(buf))), nil
+	}
+
 	// Match these bytes against the regular expression
 	return m.compiled.Match(buf), nil
 }
@@ -73,22 +84,38 @@ func (m *MatchRegexp) Provision(_ caddy.Context) (err error) {
 
 // UnmarshalCaddyfile sets up the MatchRegexp from Caddyfile tokens. Syntax:
 //
-//	regexp <pattern> [<count>]
+//	regexp <pattern> [<count>] [hex]
+//
+// The optional count and hex arguments may appear in any order. When hex is
+// present, the pattern is matched against an uppercase hexadecimal
+// representation of the bytes instead of the raw bytes.
 func (m *MatchRegexp) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
-	// One or two same-line argument must be provided
-	if d.CountRemainingArgs() == 0 || d.CountRemainingArgs() > 2 {
+	// One to three same-line arguments must be provided
+	if d.CountRemainingArgs() == 0 || d.CountRemainingArgs() > 3 {
 		return d.ArgErr()
 	}
 
 	_, m.Pattern = d.NextArg(), d.Val()
-	if d.NextArg() {
-		val, err := strconv.ParseUint(d.Val(), 10, 16)
+	hasCount := false
+	for d.NextArg() {
+		val := d.Val()
+		if val == hexOption {
+			if m.Hex {
+				return d.Errf("duplicate %s %s option", wrapper, hexOption)
+			}
+			m.Hex = true
+			continue
+		}
+		if hasCount {
+			return d.Errf("malformed %s option: unexpected argument %q", wrapper, val)
+		}
+		count, err := strconv.ParseUint(val, 10, 16)
 		if err != nil {
 			return d.Errf("parsing %s count: %v", wrapper, err)
 		}
-		m.Count = uint16(val)
+		m.Count, hasCount = uint16(count), true
 	}
 
 	// No blocks are supported
@@ -107,5 +134,7 @@ var (
 )
 
 const (
+	hexOption = "hex" // enables matching against a hexadecimal representation of the bytes
+
 	minCount uint16 = 4 // by default, read this many bytes to match against
 )

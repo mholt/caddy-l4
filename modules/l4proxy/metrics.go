@@ -36,8 +36,7 @@ type proxyMetrics struct {
 // registration (see issue #445).
 func registerOrExisting[C prometheus.Collector](reg *prometheus.Registry, c C) C {
 	if err := reg.Register(c); err != nil {
-		var are prometheus.AlreadyRegisteredError
-		if errors.As(err, &are) {
+		if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
 			if existing, ok := are.ExistingCollector.(C); ok {
 				return existing
 			}

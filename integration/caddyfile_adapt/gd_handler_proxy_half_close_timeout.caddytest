@@ -1,0 +1,46 @@
+{
+	layer4 {
+		:8443 {
+			route {
+				tls
+				proxy upstream.local:8080 {
+					half_close_timeout 30s
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":8443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "tls"
+								},
+								{
+									"half_close_timeout": 30000000000,
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:8080"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
