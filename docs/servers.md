@@ -157,3 +157,40 @@ JSON equivalent to the caddyfile config provided above:
     }
 }
 ```
+
+## HTTP/2 connection coalescing
+
+Wrappers route whole connections, not individual requests. When a listener wrapper passes TLS traffic through
+to an upstream based on SNI, the routing decision is made once, from the ClientHello. Connections it doesn't match
+are decrypted and served by the HTTP app, and the Layer 4 app can't see or reroute any requests sent over them later.
+
+HTTP/2 clients may reuse an existing connection for another hostname if the certificate presented on that connection
+also covers that hostname (e.g. a wildcard certificate) and both hostnames resolve to the same IP address
+(see [RFC 9113, Section 9.1.1](https://www.rfc-editor.org/rfc/rfc9113.html#section-9.1.1)). As a result, requests
+for a hostname meant to be passed through may reach the HTTP app instead. If no HTTP route matches them, Caddy
+responds with an empty `200`, which browsers display as a blank page.
+
+To make clients retry such requests over a new connection with the correct SNI, enable `strict_sni_host` in the
+`servers` global directive. Caddy then responds with `421 Misdirected Request` whenever the HTTP `Host` header
+differs from the TLS SNI:
+```caddyfile
+{
+    servers {
+        strict_sni_host on
+        listener_wrappers {
+            layer4 {
+                @app tls sni app.example.com
+                route @app {
+                    proxy app.internal:443
+                }
+            }
+            tls
+        }
+    }
+}
+```
+
+Note that `strict_sni_host` applies to all hostnames served by the HTTP app, so clients will also have to open
+separate connections for those, and requests without SNI (e.g. by IP address) will be rejected. Alternatively,
+respond with `421` only for the passed through hostnames in the HTTP app, e.g. `respond @passthrough 421` where
+`@passthrough` is a `host` matcher, or avoid presenting certificates covering those hostnames in the HTTP app.
