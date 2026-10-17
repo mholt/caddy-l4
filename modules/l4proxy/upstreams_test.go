@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -379,39 +378,66 @@ func TestAGracePeriodServesStale(t *testing.T) {
 	}
 }
 
-func TestNewDynamicUpstreamInvalid(t *testing.T) {
-	// a non-numeric port makes ParseNetworkAddress fail
-	if _, err := newDynamicUpstream("host:notaport"); err == nil {
-		t.Fatal("expected an error for an invalid dial address")
+func TestIPSkipsInvalidAddress(t *testing.T) {
+	// a non-numeric port makes the dial address unparseable; it must be skipped
+	// rather than added to the pool
+	au := ipSourceWith("ip4", "skip.test", "notaport", []string{"10.0.0.1"}, nil, nil)
+	pool, err := au.GetUpstreams(caddy.NewReplacer())
+	if err != nil {
+		t.Fatalf("GetUpstreams: %v", err)
+	}
+	if len(pool) != 0 {
+		t.Fatalf("pool length = %d, want 0 (invalid address must be skipped)", len(pool))
 	}
 }
 
-func TestSRVCacheBound(t *testing.T) {
-	for i := 0; i < 101; i++ {
-		su := srvWith(fmt.Sprintf("srv-bound-%d.test", i), []*net.SRV{{Target: "a.example.", Port: 1}}, nil, nil)
-		if _, err := su.GetUpstreams(caddy.NewReplacer()); err != nil {
-			t.Fatalf("insert %d: %v", i, err)
-		}
+// TestSRVReleasesDroppedPeerReferences guards the fix for the peer-pool
+// reference leak: a stable address keeps exactly one reference across
+// refreshes (no per-refresh increment), an address that drops out of the
+// results has its reference released, and Cleanup releases what remains.
+func TestSRVReleasesDroppedPeerReferences(t *testing.T) {
+	stable := &net.SRV{Target: "stable.ref-test.", Port: 7101}
+	gone := &net.SRV{Target: "gone.ref-test.", Port: 7102}
+	records := []*net.SRV{stable, gone}
+	su := &SRVUpstreams{
+		Name:    "ref-test.svc",
+		Refresh: caddy.Duration(time.Nanosecond), // never fresh: every call re-resolves
+		logger:  zap.NewNop(),
+		lookupSRV: func(context.Context, string, string, string) (string, []*net.SRV, error) {
+			return "", records, nil
+		},
 	}
-	srvCacheMu.RLock()
-	n := len(srvCache)
-	srvCacheMu.RUnlock()
-	if n > 100 {
-		t.Errorf("srv cache not bounded: %d entries", n)
-	}
-}
+	repl := caddy.NewReplacer()
 
-func TestACacheBound(t *testing.T) {
-	for i := 0; i < 101; i++ {
-		au := aWith(fmt.Sprintf("a-bound-%d.test", i), "5432", []string{"10.0.0.1"}, nil, nil)
-		if _, err := au.GetUpstreams(caddy.NewReplacer()); err != nil {
-			t.Fatalf("insert %d: %v", i, err)
-		}
+	const stableAddr, goneAddr = "stable.ref-test.:7101", "gone.ref-test.:7102"
+
+	if _, err := su.GetUpstreams(repl); err != nil {
+		t.Fatalf("first resolve: %v", err)
 	}
-	aCacheMu.RLock()
-	n := len(aCache)
-	aCacheMu.RUnlock()
-	if n > 100 {
-		t.Errorf("a cache not bounded: %d entries", n)
+	if n, ok := peers.References(stableAddr); !ok || n != 1 {
+		t.Fatalf("stable refs = %d (present=%v), want 1", n, ok)
+	}
+	if n, ok := peers.References(goneAddr); !ok || n != 1 {
+		t.Fatalf("gone refs = %d (present=%v), want 1", n, ok)
+	}
+
+	// second target drops out of the results
+	records = []*net.SRV{stable}
+	if _, err := su.GetUpstreams(repl); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if n, ok := peers.References(stableAddr); !ok || n != 1 {
+		t.Fatalf("stable refs after refresh = %d (present=%v), want 1 (no per-refresh leak)", n, ok)
+	}
+	if n, ok := peers.References(goneAddr); ok {
+		t.Fatalf("dropped target still referenced after refresh: refs=%d", n)
+	}
+
+	// cleanup releases the remaining reference
+	if err := su.Cleanup(); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if n, ok := peers.References(stableAddr); ok {
+		t.Fatalf("stable target still referenced after cleanup: refs=%d", n)
 	}
 }

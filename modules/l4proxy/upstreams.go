@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,9 +45,17 @@ type UpstreamSource interface {
 
 // SRVUpstreams discovers upstreams from DNS SRV records, so the upstream set
 // does not have to be restated in config when DNS already publishes it. Results
-// are cached and refreshed periodically. Note: active health checks only run on
+// are cached and refreshed periodically.
+//
+// Each configured source owns its cache and the peer-pool references for the
+// addresses it currently resolves to: a reference is taken when an address
+// first appears and released when it drops out of the results or when the
+// source is cleaned up (on config reload), so peers do not accumulate as the
+// backend set churns. Note: active health checks only run on
 // statically-configured upstreams; passive health checking and connection
-// counting still apply to dynamically-discovered ones.
+// counting still apply to dynamically-discovered ones. Because the lookup runs
+// while the source's lock is held, a slow resolver delays the connections
+// served by this source while a refresh is in flight.
 type SRVUpstreams struct {
 	// The service label of the SRV record (the "_service" part).
 	Service string `json:"service,omitempty"`
@@ -62,8 +71,11 @@ type SRVUpstreams struct {
 	// between lookups. Default: 1m.
 	Refresh caddy.Duration `json:"refresh,omitempty"`
 
-	// If > 0 and a lookup fails, keep using the cached results for up to this
-	// long (even though they are stale) instead of returning an error. Default: 0.
+	// If > 0 and a lookup fails, keep using the cached results instead of
+	// returning an error. Note that each failed refresh pushes the window
+	// forward, so while the lookup keeps failing the last good results are
+	// served for as long as the failures continue, not just for one grace
+	// period after they were fetched. Default: 0.
 	GracePeriod caddy.Duration `json:"grace_period,omitempty"`
 
 	// Specific network to dial the discovered upstreams on (e.g. "tcp4"); the
@@ -72,6 +84,8 @@ type SRVUpstreams struct {
 
 	logger    *zap.Logger
 	lookupSRV func(ctx context.Context, service, proto, name string) (string, []*net.SRV, error)
+
+	resolved dnsResolved
 }
 
 // CaddyModule returns the Caddy module information.
@@ -88,6 +102,15 @@ func (su *SRVUpstreams) Provision(ctx caddy.Context) error {
 	if su.Refresh == 0 {
 		su.Refresh = caddy.Duration(time.Minute)
 	}
+	// Validate proto early so a typo is caught at provision rather than at the
+	// first lookup. A placeholder is left for per-connection expansion.
+	if su.Proto != "" && !strings.Contains(su.Proto, "{") {
+		switch su.Proto {
+		case "tcp", "udp":
+		default:
+			return fmt.Errorf("srv upstreams: proto must be tcp or udp, got %q", su.Proto)
+		}
+	}
 	if su.lookupSRV == nil {
 		su.lookupSRV = net.DefaultResolver.LookupSRV
 	}
@@ -99,63 +122,38 @@ func (su *SRVUpstreams) Provision(ctx caddy.Context) error {
 func (su *SRVUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 	addr, service, proto, name := su.expandedAddr(repl)
 
-	// fast path: a fresh cached result under a read lock
-	srvCacheMu.RLock()
-	cached := srvCache[addr]
-	srvCacheMu.RUnlock()
-	if cached.isFresh() {
-		return cached.upstreams, nil
+	if pool, ok := su.resolved.fresh(time.Duration(su.Refresh)); ok {
+		return pool, nil
 	}
 
-	srvCacheMu.Lock()
-	defer srvCacheMu.Unlock()
-
-	// re-check under the write lock in case another goroutine refreshed it
-	cached = srvCache[addr]
-	if cached.isFresh() {
-		return cached.upstreams, nil
+	su.resolved.mu.Lock()
+	defer su.resolved.mu.Unlock()
+	if pool, ok := su.resolved.freshLocked(time.Duration(su.Refresh)); ok {
+		return pool, nil
 	}
 
 	_, records, err := su.lookupSRV(context.Background(), service, proto, name)
 	if err != nil && len(records) == 0 {
 		// LookupSRV may return some records plus an error for invalid names;
 		// only treat it as fatal when nothing usable came back.
-		if su.GracePeriod > 0 && cached.upstreams != nil {
+		if pool, ok := su.resolved.serveStale(su.GracePeriod, su.Refresh); ok {
 			if c := su.logger.Check(zap.ErrorLevel, "SRV lookup failed; using stale cache"); c != nil {
 				c.Write(zap.String("addr", addr), zap.Error(err))
 			}
-			cached.freshness = time.Now().Add(time.Duration(su.GracePeriod) - time.Duration(su.Refresh))
-			srvCache[addr] = cached
-			return cached.upstreams, nil
+			return pool, nil
 		}
 		return nil, fmt.Errorf("looking up SRV %s: %v", addr, err)
 	}
 
-	pool := make(UpstreamPool, 0, len(records))
+	dialAddrs := make([]string, 0, len(records))
 	for _, rec := range records {
 		dialAddr := net.JoinHostPort(rec.Target, strconv.Itoa(int(rec.Port)))
 		if su.DialNetwork != "" {
 			dialAddr = su.DialNetwork + "/" + dialAddr
 		}
-		up, err := newDynamicUpstream(dialAddr)
-		if err != nil {
-			if c := su.logger.Check(zap.WarnLevel, "skipping invalid SRV target"); c != nil {
-				c.Write(zap.String("target", dialAddr), zap.Error(err))
-			}
-			continue
-		}
-		pool = append(pool, up)
+		dialAddrs = append(dialAddrs, dialAddr)
 	}
-
-	// bound the cache when inserting a brand-new entry
-	if cached.freshness.IsZero() && len(srvCache) >= 100 {
-		for k := range srvCache {
-			delete(srvCache, k)
-			break
-		}
-	}
-	srvCache[addr] = dnsCacheEntry{refresh: time.Duration(su.Refresh), freshness: time.Now(), upstreams: pool}
-	return pool, nil
+	return su.resolved.refreshLocked(dialAddrs, su.logger), nil
 }
 
 // expandedAddr expands placeholders in the SRV labels and returns the RFC 2782
@@ -169,6 +167,13 @@ func (su *SRVUpstreams) expandedAddr(repl *caddy.Replacer) (addr, service, proto
 	service = repl.ReplaceAll(su.Service, "")
 	proto = repl.ReplaceAll(su.Proto, "")
 	return fmt.Sprintf("_%s._%s.%s", service, proto, name), service, proto, name
+}
+
+// Cleanup releases the peer-pool references this source holds. It is called by
+// Caddy when the config is unloaded.
+func (su *SRVUpstreams) Cleanup() error {
+	su.resolved.cleanup()
+	return nil
 }
 
 // UnmarshalCaddyfile sets up the SRVUpstreams from Caddyfile tokens. Syntax:
@@ -239,36 +244,102 @@ func (su *SRVUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// newDynamicUpstream builds an Upstream (with a peer drawn from the shared peer
-// pool, so health and connection state persist across refreshes) for a single
-// dynamically-discovered dial address.
-func newDynamicUpstream(dialAddr string) (*Upstream, error) {
-	address, err := parseAddress(dialAddr)
-	if err != nil {
-		return nil, err
-	}
-	p := &peer{dialAddr: dialAddr, address: address}
-	existingPeer, loaded := peers.LoadOrStore(dialAddr, p)
-	if loaded {
-		p = existingPeer.(*peer)
-	}
-	return &Upstream{Dial: []string{dialAddr}, peers: []*peer{p}}, nil
-}
-
-type dnsCacheEntry struct {
-	refresh   time.Duration
+// dnsResolved is the per-source cache for a DNS-based upstream source. It holds
+// the last resolved pool with its freshness and the peer-pool references the
+// source currently owns (one per dial address in the pool). Keeping this
+// per-source rather than in a package-global map means two sources looking up
+// the same name with different options (e.g. dial_network) cannot collide, and
+// the references can be released deterministically on cleanup.
+type dnsResolved struct {
+	mu        sync.RWMutex
 	freshness time.Time
-	upstreams UpstreamPool
+	pool      UpstreamPool
+	refs      map[string]*peer // dial address -> referenced peer
 }
 
-func (e dnsCacheEntry) isFresh() bool {
-	return !e.freshness.IsZero() && time.Since(e.freshness) < e.refresh
+// fresh returns the cached pool if it is still fresh, taking only a read lock.
+func (r *dnsResolved) fresh(refresh time.Duration) (UpstreamPool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.freshLocked(refresh)
 }
 
-var (
-	srvCacheMu sync.RWMutex
-	srvCache   = make(map[string]dnsCacheEntry)
-)
+func (r *dnsResolved) freshLocked(refresh time.Duration) (UpstreamPool, bool) {
+	if !r.freshness.IsZero() && time.Since(r.freshness) < refresh {
+		return r.pool, true
+	}
+	return nil, false
+}
+
+// serveStale extends the freshness window by the grace period and returns the
+// last good pool, if there is one and grace is enabled. The caller holds the
+// write lock.
+func (r *dnsResolved) serveStale(grace, refresh caddy.Duration) (UpstreamPool, bool) {
+	if grace > 0 && r.pool != nil {
+		r.freshness = time.Now().Add(time.Duration(grace) - time.Duration(refresh))
+		return r.pool, true
+	}
+	return nil, false
+}
+
+// refreshLocked reconciles the held references to dialAddrs (taking a reference
+// for each newly-appearing address and releasing it for each one that dropped
+// out), caches the resulting pool as fresh, and returns it. The caller holds
+// the write lock.
+func (r *dnsResolved) refreshLocked(dialAddrs []string, logger *zap.Logger) UpstreamPool {
+	if r.refs == nil {
+		r.refs = make(map[string]*peer, len(dialAddrs))
+	}
+
+	want := make(map[string]struct{}, len(dialAddrs))
+	pool := make(UpstreamPool, 0, len(dialAddrs))
+	for _, dialAddr := range dialAddrs {
+		p, ok := r.refs[dialAddr]
+		if !ok {
+			address, err := parseAddress(dialAddr)
+			if err != nil {
+				if c := logger.Check(zap.WarnLevel, "skipping invalid upstream address"); c != nil {
+					c.Write(zap.String("target", dialAddr), zap.Error(err))
+				}
+				continue
+			}
+			np := &peer{dialAddr: dialAddr, address: address}
+			existing, loaded := peers.LoadOrStore(dialAddr, np)
+			if loaded {
+				np = existing.(*peer)
+			}
+			p = np
+			r.refs[dialAddr] = p
+		}
+		want[dialAddr] = struct{}{}
+		pool = append(pool, &Upstream{Dial: []string{dialAddr}, peers: []*peer{p}})
+	}
+
+	// release references for addresses that are no longer in the results
+	for dialAddr := range r.refs {
+		if _, ok := want[dialAddr]; !ok {
+			_, _ = peers.Delete(dialAddr)
+			delete(r.refs, dialAddr)
+		}
+	}
+
+	r.pool = pool
+	r.freshness = time.Now()
+	return pool
+}
+
+// cleanup releases every peer-pool reference the source holds and resets the
+// cache. It is idempotent.
+func (r *dnsResolved) cleanup() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for dialAddr := range r.refs {
+		_, _ = peers.Delete(dialAddr)
+	}
+	r.refs = nil
+	r.pool = nil
+	r.freshness = time.Time{}
+}
 
 // ipUpstreams is the shared implementation behind the `a` and `aaaa` dynamic
 // upstream sources, which differ only in the DNS record type they resolve:
@@ -276,7 +347,8 @@ var (
 // plain address records carry no port, every discovered address uses the
 // configured Port. This fits clusters where all members share a port (e.g. a
 // Postgres cluster on 5432 published behind a single name). Results are cached
-// and refreshed; see SRVUpstreams for the same active-health-check caveat.
+// and refreshed; see SRVUpstreams for the per-source caching, reference
+// tracking and active-health-check caveats.
 type ipUpstreams struct {
 	// The domain name to look up.
 	Name string `json:"name,omitempty"`
@@ -288,8 +360,10 @@ type ipUpstreams struct {
 	// lookups. Default: 1m.
 	Refresh caddy.Duration `json:"refresh,omitempty"`
 
-	// If > 0 and a lookup fails, keep using the cached results for up to this
-	// long (even though they are stale) instead of returning an error. Default: 0.
+	// If > 0 and a lookup fails, keep using the cached results instead of
+	// returning an error. As with the srv source, each failed refresh pushes
+	// the window forward, so the last good results are served for as long as
+	// the failures continue. Default: 0.
 	GracePeriod caddy.Duration `json:"grace_period,omitempty"`
 
 	// Specific network to dial the discovered upstreams on (e.g. "tcp4").
@@ -302,6 +376,8 @@ type ipUpstreams struct {
 	network  string
 	logger   *zap.Logger
 	lookupIP func(ctx context.Context, network, host string) ([]net.IP, error)
+
+	resolved dnsResolved
 }
 
 // provision validates the source and records which IP network (A vs AAAA) it
@@ -327,63 +403,44 @@ func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
 func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 	name := repl.ReplaceAll(u.Name, "")
 	port := repl.ReplaceAll(u.Port, "")
-	// The cache is shared between the a and aaaa sources, so the record type is
-	// part of the key: the same name:port resolves to a different set of
-	// addresses for A than for AAAA.
-	key := u.network + "|" + net.JoinHostPort(name, port)
 
-	aCacheMu.RLock()
-	cached := aCache[key]
-	aCacheMu.RUnlock()
-	if cached.isFresh() {
-		return cached.upstreams, nil
+	if pool, ok := u.resolved.fresh(time.Duration(u.Refresh)); ok {
+		return pool, nil
 	}
 
-	aCacheMu.Lock()
-	defer aCacheMu.Unlock()
-
-	cached = aCache[key]
-	if cached.isFresh() {
-		return cached.upstreams, nil
+	u.resolved.mu.Lock()
+	defer u.resolved.mu.Unlock()
+	if pool, ok := u.resolved.freshLocked(time.Duration(u.Refresh)); ok {
+		return pool, nil
 	}
 
 	ips, err := u.lookupIP(context.Background(), u.network, name)
 	if err != nil {
-		if u.GracePeriod > 0 && cached.upstreams != nil {
+		if pool, ok := u.resolved.serveStale(u.GracePeriod, u.Refresh); ok {
 			if c := u.logger.Check(zap.ErrorLevel, "lookup failed; using stale cache"); c != nil {
 				c.Write(zap.String("record", recordLabel(u.network)), zap.String("name", name), zap.Error(err))
 			}
-			cached.freshness = time.Now().Add(time.Duration(u.GracePeriod) - time.Duration(u.Refresh))
-			aCache[key] = cached
-			return cached.upstreams, nil
+			return pool, nil
 		}
 		return nil, fmt.Errorf("looking up %s %s: %v", recordLabel(u.network), name, err)
 	}
 
-	pool := make(UpstreamPool, 0, len(ips))
+	dialAddrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
 		dialAddr := net.JoinHostPort(ip.String(), port)
 		if u.DialNetwork != "" {
 			dialAddr = u.DialNetwork + "/" + dialAddr
 		}
-		up, err := newDynamicUpstream(dialAddr)
-		if err != nil {
-			if c := u.logger.Check(zap.WarnLevel, "skipping invalid address"); c != nil {
-				c.Write(zap.String("target", dialAddr), zap.Error(err))
-			}
-			continue
-		}
-		pool = append(pool, up)
+		dialAddrs = append(dialAddrs, dialAddr)
 	}
+	return u.resolved.refreshLocked(dialAddrs, u.logger), nil
+}
 
-	if cached.freshness.IsZero() && len(aCache) >= 100 {
-		for k := range aCache {
-			delete(aCache, k)
-			break
-		}
-	}
-	aCache[key] = dnsCacheEntry{refresh: time.Duration(u.Refresh), freshness: time.Now(), upstreams: pool}
-	return pool, nil
+// Cleanup releases the peer-pool references this source holds. It is called by
+// Caddy when the config is unloaded.
+func (u *ipUpstreams) Cleanup() error {
+	u.resolved.cleanup()
+	return nil
 }
 
 // UnmarshalCaddyfile sets up the source from Caddyfile tokens. Syntax:
@@ -494,22 +551,20 @@ func (au *AAAAUpstreams) Provision(ctx caddy.Context) error {
 	return au.provision(ctx, "ip6")
 }
 
-var (
-	aCacheMu sync.RWMutex
-	aCache   = make(map[string]dnsCacheEntry)
-)
-
 // Interface guards
 var (
 	_ UpstreamSource        = (*SRVUpstreams)(nil)
 	_ caddy.Provisioner     = (*SRVUpstreams)(nil)
+	_ caddy.CleanerUpper    = (*SRVUpstreams)(nil)
 	_ caddyfile.Unmarshaler = (*SRVUpstreams)(nil)
 
 	_ UpstreamSource        = (*AUpstreams)(nil)
 	_ caddy.Provisioner     = (*AUpstreams)(nil)
+	_ caddy.CleanerUpper    = (*AUpstreams)(nil)
 	_ caddyfile.Unmarshaler = (*AUpstreams)(nil)
 
 	_ UpstreamSource        = (*AAAAUpstreams)(nil)
 	_ caddy.Provisioner     = (*AAAAUpstreams)(nil)
+	_ caddy.CleanerUpper    = (*AAAAUpstreams)(nil)
 	_ caddyfile.Unmarshaler = (*AAAAUpstreams)(nil)
 )
