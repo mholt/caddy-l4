@@ -30,6 +30,7 @@ import (
 func init() {
 	caddy.RegisterModule(&SRVUpstreams{})
 	caddy.RegisterModule(&AUpstreams{})
+	caddy.RegisterModule(&AAAAUpstreams{})
 }
 
 // UpstreamSource gets the list of upstreams to proxy to dynamically, instead of
@@ -269,12 +270,14 @@ var (
 	srvCache   = make(map[string]dnsCacheEntry)
 )
 
-// AUpstreams discovers upstreams from a name's DNS A/AAAA records. Since plain
-// address records carry no port, every discovered address uses the configured
-// Port. This fits clusters where all members share a port (e.g. a Postgres
-// cluster on 5432 published behind a single name). Results are cached and
-// refreshed; see SRVUpstreams for the same active-health-check caveat.
-type AUpstreams struct {
+// ipUpstreams is the shared implementation behind the `a` and `aaaa` dynamic
+// upstream sources, which differ only in the DNS record type they resolve:
+// `a` yields IPv4 (A) addresses and `aaaa` yields IPv6 (AAAA) addresses. Since
+// plain address records carry no port, every discovered address uses the
+// configured Port. This fits clusters where all members share a port (e.g. a
+// Postgres cluster on 5432 published behind a single name). Results are cached
+// and refreshed; see SRVUpstreams for the same active-health-check caveat.
+type ipUpstreams struct {
 	// The domain name to look up.
 	Name string `json:"name,omitempty"`
 
@@ -293,39 +296,41 @@ type AUpstreams struct {
 	// Defaults to "tcp".
 	DialNetwork string `json:"dial_network,omitempty"`
 
-	logger     *zap.Logger
-	lookupHost func(ctx context.Context, host string) ([]string, error)
+	// network is the IP network passed to the resolver: "ip4" for A records or
+	// "ip6" for AAAA records. The concrete source sets it in Provision; it is
+	// not part of the JSON config.
+	network  string
+	logger   *zap.Logger
+	lookupIP func(ctx context.Context, network, host string) ([]net.IP, error)
 }
 
-// CaddyModule returns the Caddy module information.
-func (*AUpstreams) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{
-		ID:  "layer4.proxy.upstreams.a",
-		New: func() caddy.Module { return new(AUpstreams) },
+// provision validates the source and records which IP network (A vs AAAA) it
+// resolves. network must be "ip4" or "ip6".
+func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
+	u.network = network
+	u.logger = ctx.Logger()
+	if u.Refresh == 0 {
+		u.Refresh = caddy.Duration(time.Minute)
 	}
-}
-
-// Provision sets up the A upstream source.
-func (au *AUpstreams) Provision(ctx caddy.Context) error {
-	au.logger = ctx.Logger()
-	if au.Refresh == 0 {
-		au.Refresh = caddy.Duration(time.Minute)
+	if u.Port == "" {
+		return fmt.Errorf("%s upstreams: port is required", recordLabel(network))
 	}
-	if au.Port == "" {
-		return fmt.Errorf("a upstreams: port is required")
-	}
-	if au.lookupHost == nil {
-		au.lookupHost = net.DefaultResolver.LookupHost
+	if u.lookupIP == nil {
+		u.lookupIP = net.DefaultResolver.LookupIP
 	}
 	return nil
 }
 
-// GetUpstreams resolves the name's addresses (using cached results when fresh)
-// and returns one upstream per address, all on the configured port.
-func (au *AUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
-	name := repl.ReplaceAll(au.Name, "")
-	port := repl.ReplaceAll(au.Port, "")
-	key := net.JoinHostPort(name, port)
+// GetUpstreams resolves the name's addresses for this source's record type
+// (using cached results when fresh) and returns one upstream per address, all
+// on the configured port.
+func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
+	name := repl.ReplaceAll(u.Name, "")
+	port := repl.ReplaceAll(u.Port, "")
+	// The cache is shared between the a and aaaa sources, so the record type is
+	// part of the key: the same name:port resolves to a different set of
+	// addresses for A than for AAAA.
+	key := u.network + "|" + net.JoinHostPort(name, port)
 
 	aCacheMu.RLock()
 	cached := aCache[key]
@@ -342,28 +347,28 @@ func (au *AUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 		return cached.upstreams, nil
 	}
 
-	addrs, err := au.lookupHost(context.Background(), name)
+	ips, err := u.lookupIP(context.Background(), u.network, name)
 	if err != nil {
-		if au.GracePeriod > 0 && cached.upstreams != nil {
-			if c := au.logger.Check(zap.ErrorLevel, "A lookup failed; using stale cache"); c != nil {
-				c.Write(zap.String("name", name), zap.Error(err))
+		if u.GracePeriod > 0 && cached.upstreams != nil {
+			if c := u.logger.Check(zap.ErrorLevel, "lookup failed; using stale cache"); c != nil {
+				c.Write(zap.String("record", recordLabel(u.network)), zap.String("name", name), zap.Error(err))
 			}
-			cached.freshness = time.Now().Add(time.Duration(au.GracePeriod) - time.Duration(au.Refresh))
+			cached.freshness = time.Now().Add(time.Duration(u.GracePeriod) - time.Duration(u.Refresh))
 			aCache[key] = cached
 			return cached.upstreams, nil
 		}
-		return nil, fmt.Errorf("looking up A/AAAA %s: %v", name, err)
+		return nil, fmt.Errorf("looking up %s %s: %v", recordLabel(u.network), name, err)
 	}
 
-	pool := make(UpstreamPool, 0, len(addrs))
-	for _, ip := range addrs {
-		dialAddr := net.JoinHostPort(ip, port)
-		if au.DialNetwork != "" {
-			dialAddr = au.DialNetwork + "/" + dialAddr
+	pool := make(UpstreamPool, 0, len(ips))
+	for _, ip := range ips {
+		dialAddr := net.JoinHostPort(ip.String(), port)
+		if u.DialNetwork != "" {
+			dialAddr = u.DialNetwork + "/" + dialAddr
 		}
 		up, err := newDynamicUpstream(dialAddr)
 		if err != nil {
-			if c := au.logger.Check(zap.WarnLevel, "skipping invalid A/AAAA address"); c != nil {
+			if c := u.logger.Check(zap.WarnLevel, "skipping invalid address"); c != nil {
 				c.Write(zap.String("target", dialAddr), zap.Error(err))
 			}
 			continue
@@ -377,24 +382,24 @@ func (au *AUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 			break
 		}
 	}
-	aCache[key] = dnsCacheEntry{refresh: time.Duration(au.Refresh), freshness: time.Now(), upstreams: pool}
+	aCache[key] = dnsCacheEntry{refresh: time.Duration(u.Refresh), freshness: time.Now(), upstreams: pool}
 	return pool, nil
 }
 
-// UnmarshalCaddyfile sets up the AUpstreams from Caddyfile tokens. Syntax:
+// UnmarshalCaddyfile sets up the source from Caddyfile tokens. Syntax:
 //
-//	a [<name>] {
+//	<a|aaaa> [<name>] {
 //		name <name>
 //		port <port>
 //		refresh <duration>
 //		grace_period <duration>
 //		dial_network <network>
 //	}
-func (au *AUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (u *ipUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	_, wrapper := d.Next(), d.Val() // consume wrapper name
 
 	if d.NextArg() {
-		au.Name = d.Val()
+		u.Name = d.Val()
 	}
 	if d.CountRemainingArgs() > 0 {
 		return d.ArgErr()
@@ -407,12 +412,12 @@ func (au *AUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			au.Name = d.Val()
+			u.Name = d.Val()
 		case "port":
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			au.Port = d.Val()
+			u.Port = d.Val()
 		case "refresh":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -421,7 +426,7 @@ func (au *AUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if err != nil {
 				return d.Errf("parsing %s option '%s': %v", wrapper, option, err)
 			}
-			au.Refresh = caddy.Duration(dur)
+			u.Refresh = caddy.Duration(dur)
 		case "grace_period":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -430,17 +435,63 @@ func (au *AUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if err != nil {
 				return d.Errf("parsing %s option '%s': %v", wrapper, option, err)
 			}
-			au.GracePeriod = caddy.Duration(dur)
+			u.GracePeriod = caddy.Duration(dur)
 		case "dial_network":
 			if !d.NextArg() {
 				return d.ArgErr()
 			}
-			au.DialNetwork = d.Val()
+			u.DialNetwork = d.Val()
 		default:
 			return d.Errf("unrecognized %s option '%s'", wrapper, option)
 		}
 	}
 	return nil
+}
+
+// recordLabel maps an IP network ("ip4"/"ip6") to its DNS record / source name.
+func recordLabel(network string) string {
+	if network == "ip6" {
+		return "aaaa"
+	}
+	return "a"
+}
+
+// AUpstreams discovers upstreams from a name's DNS A records (IPv4). For AAAA
+// (IPv6) records, use the sibling aaaa source.
+type AUpstreams struct {
+	ipUpstreams
+}
+
+// CaddyModule returns the Caddy module information.
+func (*AUpstreams) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.proxy.upstreams.a",
+		New: func() caddy.Module { return new(AUpstreams) },
+	}
+}
+
+// Provision sets up the A (IPv4) upstream source.
+func (au *AUpstreams) Provision(ctx caddy.Context) error {
+	return au.provision(ctx, "ip4")
+}
+
+// AAAAUpstreams discovers upstreams from a name's DNS AAAA records (IPv6). For
+// A (IPv4) records, use the sibling a source.
+type AAAAUpstreams struct {
+	ipUpstreams
+}
+
+// CaddyModule returns the Caddy module information.
+func (*AAAAUpstreams) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "layer4.proxy.upstreams.aaaa",
+		New: func() caddy.Module { return new(AAAAUpstreams) },
+	}
+}
+
+// Provision sets up the AAAA (IPv6) upstream source.
+func (au *AAAAUpstreams) Provision(ctx caddy.Context) error {
+	return au.provision(ctx, "ip6")
 }
 
 var (
@@ -457,4 +508,8 @@ var (
 	_ UpstreamSource        = (*AUpstreams)(nil)
 	_ caddy.Provisioner     = (*AUpstreams)(nil)
 	_ caddyfile.Unmarshaler = (*AUpstreams)(nil)
+
+	_ UpstreamSource        = (*AAAAUpstreams)(nil)
+	_ caddy.Provisioner     = (*AAAAUpstreams)(nil)
+	_ caddyfile.Unmarshaler = (*AAAAUpstreams)(nil)
 )

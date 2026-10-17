@@ -158,19 +158,34 @@ func TestUnmarshalCaddyfileDynamicErrors(t *testing.T) {
 	}
 }
 
-func aWith(name, port string, addrs []string, err error, calls *int) *AUpstreams {
-	return &AUpstreams{
+func ipsFromStrings(addrs []string) []net.IP {
+	ips := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		ips = append(ips, net.ParseIP(a))
+	}
+	return ips
+}
+
+// ipSourceWith builds an A (network "ip4") or AAAA (network "ip6") source whose
+// resolver returns the given addresses.
+func ipSourceWith(network, name, port string, addrs []string, err error, calls *int) *ipUpstreams {
+	return &ipUpstreams{
 		Name:    name,
 		Port:    port,
 		Refresh: caddy.Duration(time.Minute),
+		network: network,
 		logger:  zap.NewNop(),
-		lookupHost: func(context.Context, string) ([]string, error) {
+		lookupIP: func(context.Context, string, string) ([]net.IP, error) {
 			if calls != nil {
 				*calls++
 			}
-			return addrs, err
+			return ipsFromStrings(addrs), err
 		},
 	}
+}
+
+func aWith(name, port string, addrs []string, err error, calls *int) *ipUpstreams {
+	return ipSourceWith("ip4", name, port, addrs, err, calls)
 }
 
 func TestAGetUpstreamsDiscoversAddresses(t *testing.T) {
@@ -211,6 +226,53 @@ func TestAGetUpstreamsCaches(t *testing.T) {
 	}
 }
 
+func TestAAAAGetUpstreamsDiscoversAddresses(t *testing.T) {
+	calls := 0
+	au := ipSourceWith("ip6", "db.aaaa-discover.test", "5432", []string{"2001:db8::1", "2001:db8::2"}, nil, &calls)
+
+	pool, err := au.GetUpstreams(caddy.NewReplacer())
+	if err != nil {
+		t.Fatalf("GetUpstreams: %v", err)
+	}
+	if len(pool) != 2 {
+		t.Fatalf("pool length = %d, want 2", len(pool))
+	}
+	want := []string{"[2001:db8::1]:5432", "[2001:db8::2]:5432"}
+	for i, w := range want {
+		if pool[i].Dial[0] != w {
+			t.Errorf("dial[%d] = %q, want %q", i, pool[i].Dial[0], w)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("lookup calls = %d, want 1", calls)
+	}
+}
+
+// TestAAndAAAADoNotShareCacheEntries guards the record type being part of the
+// cache key: the a and aaaa sources share one cache, so the same name:port must
+// not let one serve the other's addresses.
+func TestAAndAAAADoNotShareCacheEntries(t *testing.T) {
+	const name, port = "db.ab-collide.test", "5432"
+	a := ipSourceWith("ip4", name, port, []string{"10.0.0.1"}, nil, nil)
+	aaaa := ipSourceWith("ip6", name, port, []string{"2001:db8::1"}, nil, nil)
+	repl := caddy.NewReplacer()
+
+	aPool, err := a.GetUpstreams(repl)
+	if err != nil {
+		t.Fatalf("a GetUpstreams: %v", err)
+	}
+	aaaaPool, err := aaaa.GetUpstreams(repl)
+	if err != nil {
+		t.Fatalf("aaaa GetUpstreams: %v", err)
+	}
+	if aPool[0].Dial[0] != "10.0.0.1:5432" {
+		t.Errorf("a dial = %q, want 10.0.0.1:5432", aPool[0].Dial[0])
+	}
+	if aaaaPool[0].Dial[0] != "[2001:db8::1]:5432" {
+		t.Errorf("aaaa dial = %q, want [2001:db8::1]:5432 (a's cached entry leaked)", aaaaPool[0].Dial[0])
+	}
+}
+
 func TestUnmarshalCaddyfileDynamicA(t *testing.T) {
 	d := caddyfile.NewTestDispenser("proxy {\n" +
 		"\tdynamic a {\n" +
@@ -229,6 +291,30 @@ func TestUnmarshalCaddyfileDynamicA(t *testing.T) {
 	}
 	if m["source"] != "a" {
 		t.Errorf("source = %v, want a", m["source"])
+	}
+	if m["name"] != "db.local" || m["port"] != "5432" {
+		t.Errorf("parsed fields wrong: %v", m)
+	}
+}
+
+func TestUnmarshalCaddyfileDynamicAAAA(t *testing.T) {
+	d := caddyfile.NewTestDispenser("proxy {\n" +
+		"\tdynamic aaaa {\n" +
+		"\t\tname db.local\n" +
+		"\t\tport 5432\n" +
+		"\t\trefresh 15s\n" +
+		"\t}\n" +
+		"}")
+	h := new(Handler)
+	if err := h.UnmarshalCaddyfile(d); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(h.DynamicUpstreamsRaw, &m); err != nil {
+		t.Fatalf("decoding DynamicUpstreamsRaw: %v", err)
+	}
+	if m["source"] != "aaaa" {
+		t.Errorf("source = %v, want aaaa", m["source"])
 	}
 	if m["name"] != "db.local" || m["port"] != "5432" {
 		t.Errorf("parsed fields wrong: %v", m)
@@ -265,17 +351,18 @@ func TestSRVGracePeriodServesStale(t *testing.T) {
 
 func TestAGracePeriodServesStale(t *testing.T) {
 	failing := false
-	au := &AUpstreams{
+	au := &ipUpstreams{
 		Name:        "a-grace-cov.test",
 		Port:        "5432",
 		Refresh:     caddy.Duration(time.Nanosecond),
 		GracePeriod: caddy.Duration(time.Hour),
+		network:     "ip4",
 		logger:      zap.NewNop(),
-		lookupHost: func(context.Context, string) ([]string, error) {
+		lookupIP: func(context.Context, string, string) ([]net.IP, error) {
 			if failing {
 				return nil, errors.New("dns boom")
 			}
-			return []string{"10.0.0.1"}, nil
+			return []net.IP{net.ParseIP("10.0.0.1")}, nil
 		},
 	}
 	repl := caddy.NewReplacer()

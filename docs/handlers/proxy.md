@@ -44,11 +44,13 @@ The handler has the following optional fields:
 
 - `dynamic_upstreams` may contain an upstream-source module that discovers the upstreams at runtime instead of listing
   them statically, so the backend set need not be restated in config when DNS already publishes it. In a Caddyfile it
-  is `dynamic <source> { ... }`. Two DNS sources are provided:
+  is `dynamic <source> { ... }`. Three DNS sources are provided:
   - `srv` resolves SRV records. Options: `service`, `proto`, `name` (or just `name` for the full domain), `refresh`
     (default `1m`), `grace_period` (serve stale results for this long on lookup failure), `dial_network`.
-  - `a` resolves A/AAAA records for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
+  - `a` resolves A records (IPv4) for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
     `grace_period`, `dial_network`.
+  - `aaaa` resolves AAAA records (IPv6); same options as `a`. The two are separate sources named after the DNS
+    record type, so `a` returns only IPv4 and `aaaa` only IPv6; configure both to use a dual-stack name.
 
   When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. Note: active health checks run on
   statically-configured upstreams only.
