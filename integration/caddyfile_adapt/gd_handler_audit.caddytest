@@ -1,0 +1,76 @@
+{
+	layer4 {
+		0.0.0.0:8443 {
+			@ok tls sni allowed.example.com
+			route @ok {
+				audit allowed
+				proxy 127.0.0.1:9
+			}
+			route {
+				audit denied
+				proxy 127.0.0.1:9
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8443"
+					],
+					"routes": [
+						{
+							"match": [
+								{
+									"tls": {
+										"sni": [
+											"allowed.example.com"
+										]
+									}
+								}
+							],
+							"handle": [
+								{
+									"handler": "audit",
+									"verdict": "allowed"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"127.0.0.1:9"
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"handle": [
+								{
+									"handler": "audit",
+									"verdict": "denied"
+								},
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"127.0.0.1:9"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
