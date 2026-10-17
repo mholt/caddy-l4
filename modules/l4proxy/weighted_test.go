@@ -84,6 +84,34 @@ func TestWeightedRoundRobinAllDownReturnsNil(t *testing.T) {
 	}
 }
 
+// TestWeightedRoundRobinKeysStateByIdentity guards against the smooth-WRR
+// counter being carried over to a different backend when a dynamic pool
+// changes membership but keeps its length: state is keyed by the upstream's
+// peer, and a departed upstream's counter is pruned rather than inherited by
+// whatever takes its slot.
+func TestWeightedRoundRobinKeysStateByIdentity(t *testing.T) {
+	w := new(WeightedRoundRobinSelection)
+	a := healthyUpstream(1)
+	b := healthyUpstream(1)
+	for range 10 {
+		w.Select(UpstreamPool{a, b}, nil)
+	}
+	if _, ok := w.current[b.peers[0]]; !ok {
+		t.Fatal("expected b to have a counter after selections")
+	}
+
+	// b leaves; c takes its slot (same length, same index)
+	c := healthyUpstream(1)
+	w.Select(UpstreamPool{a, c}, nil)
+
+	if _, ok := w.current[b.peers[0]]; ok {
+		t.Error("counter for departed upstream b was not pruned")
+	}
+	if _, ok := w.current[c.peers[0]]; !ok {
+		t.Error("counter for new upstream c was not created by its own identity")
+	}
+}
+
 func TestUnmarshalCaddyfileWeighted(t *testing.T) {
 	d := caddyfile.NewTestDispenser("proxy {\n" +
 		"\tlb_policy weighted_round_robin\n" +
