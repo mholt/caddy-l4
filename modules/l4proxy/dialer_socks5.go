@@ -11,12 +11,9 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-var (
-	_ ContextDialer         = (*SOCKS5Dialer)(nil)
-	_ caddy.CleanerUpper    = (*SOCKS5Dialer)(nil)
-	_ caddy.Provisioner     = (*SOCKS5Dialer)(nil)
-	_ caddyfile.Unmarshaler = (*SOCKS5Dialer)(nil)
-)
+func init() {
+	caddy.RegisterModule(&SOCKS5Dialer{})
+}
 
 type SOCKS5Dialer struct {
 	logger        *zap.Logger
@@ -27,7 +24,7 @@ type SOCKS5Dialer struct {
 // CaddyModule returns the Caddy module information.
 func (*SOCKS5Dialer) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "layer4.proxy.upstream.dial_via.socks5",
+		ID:  "layer4.proxy.upstream.transport.socks5",
 		New: func() caddy.Module { return new(SOCKS5Dialer) },
 	}
 }
@@ -73,3 +70,10 @@ func (s *SOCKS5Dialer) Provision(c caddy.Context) error {
 func (s *SOCKS5Dialer) Cleanup() error {
 	return nil
 }
+
+var (
+	_ ContextDialer         = (*SOCKS5Dialer)(nil)
+	_ caddy.CleanerUpper    = (*SOCKS5Dialer)(nil)
+	_ caddy.Provisioner     = (*SOCKS5Dialer)(nil)
+	_ caddyfile.Unmarshaler = (*SOCKS5Dialer)(nil)
+)

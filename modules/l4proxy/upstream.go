@@ -92,9 +92,9 @@ type Upstream struct {
 	// policies (e.g. weighted_round_robin). A value <= 0 is treated as 1.
 	Weight int `json:"weight,omitempty"`
 
-	// DialVia is this upstream's custom dialer
+	// Transport is this upstream's custom dialer
 	// If set it will connect to the upstream through the custom dialer
-	DialVia json.RawMessage `json:"dial_via,omitempty" caddy:"namespace=layer4.proxy.upstream.dial_via inline_key=provider"`
+	Transport json.RawMessage `json:"transport,omitempty" caddy:"namespace=layer4.proxy.upstream.transport inline_key=provider"`
 
 	peers             []*peer
 	tlsConfig         *tls.Config
@@ -104,7 +104,7 @@ type Upstream struct {
 	// provision time. Unknown placeholders remain and are expanded per-connection.
 	localAddrs []string
 
-	dialVia ContextDialer
+	transport ContextDialer
 }
 
 func (u *Upstream) String() string {
@@ -158,14 +158,14 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		}
 	}
 
-	if u.DialVia != nil && len(u.LocalAddrs) > 0 {
-		return fmt.Errorf("local_address is not supported in combination with dial_via")
+	if u.Transport != nil && len(u.LocalAddrs) > 0 {
+		return fmt.Errorf("local_address is not supported in combination with transport")
 	}
 
-	if u.DialVia == nil {
-		u.dialVia = DefaultDialer()
+	if u.Transport == nil {
+		u.transport = DefaultDialer()
 	} else {
-		mod, err := ctx.LoadModule(u, "DialVia")
+		mod, err := ctx.LoadModule(u, "Transport")
 		if err != nil {
 			return err
 		}
@@ -173,8 +173,8 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 		if dialer, ok := mod.(ContextDialer); !ok {
 			return fmt.Errorf("wat")
 		} else {
-			u.dialVia = dialer
-			if p, ok := u.dialVia.(caddy.Provisioner); ok {
+			u.transport = dialer
+			if p, ok := u.transport.(caddy.Provisioner); ok {
 				if err := p.Provision(ctx); err != nil {
 					return err
 				}
@@ -327,7 +327,7 @@ func (u *Upstream) totalConns() int {
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //		weight <int>
-//		dial_via <module>
+//		transport <module>
 //
 //		tls
 //		tls_client_auth <automate_name> | <cert_file> <key_file>
@@ -533,7 +533,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
-		case "dial_via":
+		case "transport":
 			if hasDialer {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
 			}
@@ -542,13 +542,13 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			_, moduleName := d.NextArg(), d.Val()
 
-			unm, err := caddyfile.UnmarshalModule(d, "layer4.proxy.upstream.dial_via."+moduleName)
+			unm, err := caddyfile.UnmarshalModule(d, "layer4.proxy.upstream.transport."+moduleName)
 			if err != nil {
 				return err
 			}
 			dialer, ok := unm.(ContextDialer)
 			if !ok {
-				return d.Errf("dial_via module '%s' is not a l4proxy.ContextDialer", moduleName)
+				return d.Errf("transport module '%s' is not a l4proxy.ContextDialer", moduleName)
 			}
 
 			moduleRaw := caddyconfig.JSON(dialer, nil)
@@ -558,7 +558,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return err
 			}
 
-			u.DialVia = moduleRaw
+			u.Transport = moduleRaw
 			hasDialer = true
 		default:
 			return d.ArgErr()
