@@ -112,6 +112,21 @@ func TestWeightedRoundRobinKeysStateByIdentity(t *testing.T) {
 	}
 }
 
+// TestWeightedRoundRobinSkipsPeerlessUpstream covers the guard that an upstream
+// with no peers is skipped rather than dereferenced (it has no stable identity
+// to key the counter by).
+func TestWeightedRoundRobinSkipsPeerlessUpstream(t *testing.T) {
+	w := new(WeightedRoundRobinSelection)
+	withPeer := healthyUpstream(1)
+	peerless := &Upstream{Weight: 1} // no peers
+
+	for range 5 {
+		if got := w.Select(UpstreamPool{peerless, withPeer}, nil); got != withPeer {
+			t.Fatalf("expected the upstream with a peer, got %v", got)
+		}
+	}
+}
+
 func TestUnmarshalCaddyfileWeighted(t *testing.T) {
 	d := caddyfile.NewTestDispenser("proxy {\n" +
 		"\tlb_policy weighted_round_robin\n" +
