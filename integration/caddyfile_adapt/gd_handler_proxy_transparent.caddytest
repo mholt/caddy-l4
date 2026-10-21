@@ -1,0 +1,44 @@
+{
+	layer4 {
+		0.0.0.0:8443 {
+			route {
+				proxy {
+					upstream 10.0.0.2:443 {
+						transparent
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"0.0.0.0:8443"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.0.2:443"
+											],
+											"transparent": true
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
