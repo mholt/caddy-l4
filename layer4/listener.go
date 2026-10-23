@@ -163,16 +163,20 @@ var errHijacked = errors.New("hijacked connection")
 
 func (l *listener) handle(conn net.Conn) {
 	var err error
-	defer func() {
-		l.wg.Done()
-		if !errors.Is(err, errHijacked) {
-			_ = conn.Close()
-		}
-	}()
 
 	buf := bufPool.Get().([]byte)
 	buf = buf[:0]
-	defer bufPool.Put(buf)
+
+	defer func() {
+		l.wg.Done()
+		// A hijacked connection keeps referencing buf after handle returns (e.g. it may still
+		// hold prefetched bytes not yet read by the consumer of the wrapped listener), so buf
+		// must not go back to the pool; the garbage collector reclaims it with the connection.
+		if !errors.Is(err, errHijacked) {
+			_ = conn.Close()
+			bufPool.Put(buf)
+		}
+	}()
 
 	cx := WrapConnection(conn, buf, l.logger)
 	cx.Context = context.WithValue(cx.Context, listenerCtxKey, l)
