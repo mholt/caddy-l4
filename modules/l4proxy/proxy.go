@@ -300,7 +300,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort)
+			up, err = dialWithLocalAddrs(down.Context, upstream.transport, localAddrs, dialNetwork, hostPort)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -332,7 +332,19 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg)
+
+			rawConn, dialErr := dialWithLocalAddrs(down.Context, upstream.transport, localAddrs, dialNetwork, hostPort)
+			if dialErr == nil {
+				conn := tls.Client(rawConn, tlsCfg)
+				if tlsErr := conn.HandshakeContext(down.Context); tlsErr == nil {
+					up = conn
+				} else {
+					err = tlsErr
+					rawConn.Close()
+				}
+			} else {
+				err = dialErr
+			}
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -571,6 +583,11 @@ func (h *Handler) Cleanup() error {
 		for _, dialAddr := range upstream.Dial {
 			_, _ = peers.Delete(dialAddr)
 		}
+
+		if c, ok := upstream.transport.(caddy.CleanerUpper); ok {
+			c.Cleanup()
+		}
+
 	}
 	return nil
 }
@@ -1080,40 +1097,6 @@ func narrowNetworkForFamily(netw string, destFam int) string {
 	default:
 		return netw
 	}
-}
-
-func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, error) {
-	if len(localAddrs) == 0 {
-		return net.Dial(network, addr)
-	}
-
-	var lastErr error
-	for _, la := range localAddrs {
-		d := &net.Dialer{LocalAddr: la}
-		conn, err := d.Dial(network, addr)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
-}
-
-func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
-	if len(localAddrs) == 0 {
-		return tls.Dial(network, addr, cfg)
-	}
-
-	var lastErr error
-	for _, la := range localAddrs {
-		d := &net.Dialer{LocalAddr: la}
-		conn, err := tls.DialWithDialer(d, network, addr, cfg)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-	}
-	return nil, lastErr
 }
 
 // Used to properly shutdown half-closed connections (see PR #73).
