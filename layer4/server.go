@@ -337,8 +337,9 @@ func (pc *packetConn) lastFrameStat() (int, bool) {
 func (pc *packetConn) Read(b []byte) (n int, err error) {
 	if pc.lastPacket != nil {
 		// There is a partial buffer to continue reading from the previous
-		// packet.
-		n, err = pc.lastBuf.Read(b)
+		// packet. Its io.EOF is ignored, as the packet may be empty, e.g. if
+		// it's been kept by WaitForMore.
+		n, _ = pc.lastBuf.Read(b)
 		if pc.lastBuf.Len() == 0 {
 			udpBufPool.Put(pc.lastPacket.pooledBuf)
 			pc.lastPacket = nil
@@ -365,8 +366,10 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				done = true
 				break
 			}
+			// An empty packet, which UDP allows, reads as 0, nil, rather than
+			// with the io.EOF of an empty buffer, as the flow goes on
 			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
-			n, err = buf.Read(b)
+			n, _ = buf.Read(b)
 			if buf.Len() == 0 {
 				// Buffer fully consumed, release it.
 				udpBufPool.Put(pkt.pooledBuf)

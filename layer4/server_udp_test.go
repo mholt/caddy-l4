@@ -89,8 +89,8 @@ func dialPacketServer(t *testing.T, addr string) net.Conn {
 	return c
 }
 
-// exchange writes a packet to c and reads a reply, retrying as UDP may drop either of them,
-// e.g. while a flow is ending.
+// exchange writes a packet to c and reads its echo, retrying as UDP may drop either of them, e.g. while
+// a flow is ending. It skips other replies, e.g. late echoes of the retries of a previous exchange.
 func exchange(c net.Conn, b []byte) ([]byte, error) {
 	reply := make([]byte, 64<<10)
 	for range 20 {
@@ -98,16 +98,22 @@ func exchange(c net.Conn, b []byte) ([]byte, error) {
 			return nil, fmt.Errorf("failed to write | %w", err)
 		}
 		_ = c.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
-		n, err := c.Read(reply)
-		if err == nil {
-			return reply[:n], nil
-		}
-		var nerr net.Error
-		if !errors.As(err, &nerr) || !nerr.Timeout() {
-			return nil, fmt.Errorf("failed to read | %w", err)
+		for {
+			n, err := c.Read(reply)
+			if err == nil {
+				if bytes.Equal(reply[:n], b) {
+					return reply[:n], nil
+				}
+				continue
+			}
+			var nerr net.Error
+			if !errors.As(err, &nerr) || !nerr.Timeout() {
+				return nil, fmt.Errorf("failed to read | %w", err)
+			}
+			break
 		}
 	}
-	return nil, fmt.Errorf("no reply to %d bytes", len(b))
+	return nil, fmt.Errorf("no echo of %d bytes", len(b))
 }
 
 // mustExchange is exchange failing the test on an error.
@@ -231,7 +237,8 @@ func TestServePacketLargePacket(t *testing.T) {
 }
 
 // TestServePacketMatchingAcrossPackets asserts that a matcher reading past a short packet into one prefetched
-// in part, as it's larger than a prefetch chunk, reads it rather than spin, so that the flow is matched.
+// in part, as it's larger than a prefetch chunk, reads it rather than spin, and that both packets reach the handler
+// whole once matched.
 func TestServePacketMatchingAcrossPackets(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
@@ -254,13 +261,15 @@ func TestServePacketMatchingAcrossPackets(t *testing.T) {
 		}
 	}
 	buf := make([]byte, 64<<10)
-	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-	n, err := c.Read(buf)
-	if err != nil {
-		t.Fatalf("no reply, as the matching phase hasn't completed | %s", err)
-	}
-	if !bytes.Equal(buf[:n], want[0]) {
-		t.Fatalf("got reply %q, want %q", buf[:n], want[0])
+	for i, w := range want {
+		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		n, err := c.Read(buf)
+		if err != nil {
+			t.Fatalf("packet %d: failed to read | %s", i, err)
+		}
+		if !bytes.Equal(buf[:n], w) {
+			t.Fatalf("packet %d: got a reply of %d bytes, want the %d bytes sent", i, n, len(w))
+		}
 	}
 }
 
@@ -300,6 +309,49 @@ func TestServePacketShortMatchingTimeout(t *testing.T) {
 		if string(buf[:n]) != "hello" {
 			t.Fatalf("flow %d: got reply %q, want %q", i, buf[:n], "hello")
 		}
+	}
+}
+
+// TestServePacketLargeFirstPacket asserts that the first packet of a flow, prefetched in part while matching
+// as it's larger than a prefetch chunk, reaches the handler whole rather than split in two reads.
+func TestServePacketLargeFirstPacket(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	routes := RouteList{&Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"testReadLengthMatcher": json.RawMessage(`{"length":5}`)},
+		},
+	}}
+	if err := routes.Provision(ctx); err != nil {
+		t.Fatalf("provision failed | %s", err)
+	}
+	addr := startPacketServer(t, routes.Compile(zap.NewNop(), time.Second, HandlerFunc(echoHandler)), 30*time.Second)
+
+	c := dialPacketServer(t, addr)
+	want := bytes.Repeat([]byte{'a'}, 4*prefetchChunkSize)
+	if got := mustExchange(t, c, want); !bytes.Equal(got, want) {
+		t.Fatalf("got a reply of %d bytes, want the %d bytes sent", len(got), len(want))
+	}
+}
+
+// TestServePacketEmptyPacket asserts that an empty packet, which UDP allows, reaches the handler
+// as such rather than ending the flow.
+func TestServePacketEmptyPacket(t *testing.T) {
+	var handlers atomic.Int64
+	addr := startPacketServer(t, HandlerFunc(func(cx *Connection) error {
+		handlers.Add(1)
+		return echoHandler(cx)
+	}), 30*time.Second)
+
+	c := dialPacketServer(t, addr)
+	for _, want := range []string{"first", "", "last"} {
+		if got := mustExchange(t, c, []byte(want)); string(got) != want {
+			t.Fatalf("got reply %q, want %q", got, want)
+		}
+	}
+	if got := handlers.Load(); got != 1 {
+		t.Errorf("got %d handlers, want 1", got)
 	}
 }
 
