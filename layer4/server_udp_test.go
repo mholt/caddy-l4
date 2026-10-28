@@ -230,6 +230,79 @@ func TestServePacketLargePacket(t *testing.T) {
 	}
 }
 
+// TestServePacketMatchingAcrossPackets asserts that a matcher reading past a short packet into one prefetched
+// in part, as it's larger than a prefetch chunk, reads it rather than spin, so that the flow is matched.
+func TestServePacketMatchingAcrossPackets(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	routes := RouteList{&Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"testReadLengthMatcher": json.RawMessage(`{"length":9}`)},
+		},
+	}}
+	if err := routes.Provision(ctx); err != nil {
+		t.Fatalf("provision failed | %s", err)
+	}
+	addr := startPacketServer(t, routes.Compile(zap.NewNop(), 3*time.Second, HandlerFunc(echoHandler)), 30*time.Second)
+
+	c := dialPacketServer(t, addr)
+	want := [][]byte{[]byte("EC"), bytes.Repeat([]byte{'a'}, 2*prefetchChunkSize+1)}
+	for _, pkt := range want {
+		if _, err := c.Write(pkt); err != nil {
+			t.Fatalf("failed to write | %s", err)
+		}
+	}
+	buf := make([]byte, 64<<10)
+	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, err := c.Read(buf)
+	if err != nil {
+		t.Fatalf("no reply, as the matching phase hasn't completed | %s", err)
+	}
+	if !bytes.Equal(buf[:n], want[0]) {
+		t.Fatalf("got reply %q, want %q", buf[:n], want[0])
+	}
+}
+
+// TestServePacketShortMatchingTimeout asserts that a matching timeout shorter than a second leaves a flow
+// the time to complete the matching phase, rather than expire at once.
+func TestServePacketShortMatchingTimeout(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	routes := RouteList{&Route{
+		MatcherSetsRaw: caddyhttp.RawMatcherSets{
+			caddy.ModuleMap{"testReadLengthMatcher": json.RawMessage(`{"length":10}`)},
+		},
+	}}
+	if err := routes.Provision(ctx); err != nil {
+		t.Fatalf("provision failed | %s", err)
+	}
+	addr := startPacketServer(t, routes.Compile(zap.NewNop(), 200*time.Millisecond, HandlerFunc(echoHandler)),
+		30*time.Second)
+
+	// A deadline kept in whole seconds would expire at once in most cases, so try several flows
+	for i := range 5 {
+		c := dialPacketServer(t, addr)
+		if _, err := c.Write([]byte("hello")); err != nil {
+			t.Fatalf("flow %d: failed to write | %s", i, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if _, err := c.Write([]byte("world")); err != nil {
+			t.Fatalf("flow %d: failed to write | %s", i, err)
+		}
+		buf := make([]byte, 1024)
+		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		n, err := c.Read(buf)
+		if err != nil {
+			t.Fatalf("flow %d: no reply, as the matching phase hasn't completed | %s", i, err)
+		}
+		if string(buf[:n]) != "hello" {
+			t.Fatalf("flow %d: got reply %q, want %q", i, buf[:n], "hello")
+		}
+	}
+}
+
 // TestServePacketCloseEndsFlow asserts that once a handler closes its connection,
 // the next packet of the client starts a new handler.
 func TestServePacketCloseEndsFlow(t *testing.T) {

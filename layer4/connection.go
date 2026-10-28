@@ -133,16 +133,19 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 		// for packet conns, do not read past frame boundaries
 		// TODO: if a frame is read in several ops, some handlers may not work correctly
 		if cx.isPacketConn {
+			// find the end of the frame that should be read from, the rest of the buffer
+			// being a frame prefetched in part, whose size isn't recorded yet
+			frameEnd := len(cx.buf)
 			var frameOffset int
-			// find the frame that should be read from
 			for _, size := range cx.frameSizes {
-				if frameOffset <= cx.offset && cx.offset < frameOffset+size {
-					n = copy(p, cx.buf[cx.offset:min(frameOffset+size, len(cx.buf))])
-					cx.offset += n
+				frameOffset += size
+				if cx.offset < frameOffset {
+					frameEnd = min(frameOffset, len(cx.buf))
 					break
 				}
-				frameOffset += size
 			}
+			n = copy(p, cx.buf[cx.offset:frameEnd])
+			cx.offset += n
 		} else {
 			n = copy(p, cx.buf[cx.offset:])
 			cx.offset += n
