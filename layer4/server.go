@@ -299,7 +299,8 @@ type packetConn struct {
 	lastBuf     *bytes.Reader
 	lastBufSize int
 
-	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
+	// stores time.Time as Unix nanoseconds, or zero for no deadline, as Read may be
+	// called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
 	idleTimeout   time.Duration
@@ -308,7 +309,11 @@ type packetConn struct {
 
 // SetReadDeadline sets the deadline to wait for data from the underlying net.PacketConn.
 func (pc *packetConn) SetReadDeadline(t time.Time) error {
-	pc.deadline.Store(t.Unix())
+	var ns int64
+	if !t.IsZero() {
+		ns = t.UnixNano()
+	}
+	pc.deadline.Store(ns)
 	if pc.deadlineTimer != nil {
 		pc.deadlineTimer.Reset(time.Until(t))
 	} else {
@@ -317,8 +322,10 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func isDeadlineExceeded(t time.Time) bool {
-	return !t.IsZero() && t.Before(time.Now())
+// deadlineExceeded reports whether the read deadline has passed.
+func (pc *packetConn) deadlineExceeded() bool {
+	ns := pc.deadline.Load()
+	return ns != 0 && ns < time.Now().UnixNano()
 }
 
 // lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
@@ -330,8 +337,9 @@ func (pc *packetConn) lastFrameStat() (int, bool) {
 func (pc *packetConn) Read(b []byte) (n int, err error) {
 	if pc.lastPacket != nil {
 		// There is a partial buffer to continue reading from the previous
-		// packet.
-		n, err = pc.lastBuf.Read(b)
+		// packet. Its io.EOF is ignored, as the packet may be empty, e.g. if
+		// it's been kept by WaitForMore.
+		n, _ = pc.lastBuf.Read(b)
 		if pc.lastBuf.Len() == 0 {
 			udpBufPool.Put(pc.lastPacket.pooledBuf)
 			pc.lastPacket = nil
@@ -340,7 +348,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 		return
 	}
 	// check deadline
-	if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+	if pc.deadlineExceeded() {
 		return 0, os.ErrDeadlineExceeded
 	}
 	// set or refresh idle timeout
@@ -358,8 +366,10 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				done = true
 				break
 			}
+			// An empty packet, which UDP allows, reads as 0, nil, rather than
+			// with the io.EOF of an empty buffer, as the flow goes on
 			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
-			n, err = buf.Read(b)
+			n, _ = buf.Read(b)
 			if buf.Len() == 0 {
 				// Buffer fully consumed, release it.
 				udpBufPool.Put(pkt.pooledBuf)
@@ -373,7 +383,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck
-			if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+			if pc.deadlineExceeded() {
 				return 0, os.ErrDeadlineExceeded
 			}
 			// next loop will run. Don't call Read as that will reset the idle timer.

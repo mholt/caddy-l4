@@ -15,6 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func init() {
+	caddy.RegisterModule(&testReadByteMatcher{})
+}
+
 // testReadByteMatcher consumes one byte and matches, which is enough to drive a
 // UDP datagram through matching and into a handler that then parks reading for
 // more (a live UDP "session").
@@ -42,8 +46,6 @@ func (m *testReadByteMatcher) Match(cx *Connection) (bool, error) {
 func TestServePacketNoGoroutineLeakOnShutdown(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-
-	caddy.RegisterModule(&testReadByteMatcher{})
 
 	routes := RouteList{&Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -127,16 +129,4 @@ func TestServePacketNoGoroutineLeakOnShutdown(t *testing.T) {
 			return fmt.Sprintf("leaked handler goroutines: %d of %d still parked after shutdown",
 				int64(sessions)-finished.Load(), sessions)
 		})
-}
-
-func waitFor(t *testing.T, d time.Duration, cond func() bool, msg func() string) {
-	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal(msg())
 }
