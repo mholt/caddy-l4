@@ -30,13 +30,13 @@ import (
 
 const (
 	testPCWHostname = "localhost"           // Hostname that clients connect to
-	testPCWAddress  = "localhost:443"       // Address served by HTTP/3 and the packet conn wrapper
+	testPCWAddress  = "localhost:9443"      // Address served by HTTP/3 and the packet conn wrapper
 	testPCWUpdated  = "updated:"            // Response body prefix of an updated config
 	testPCWNoReply  = 1 * time.Second       // How long to wait for a reply that shouldn't come
 	testPCWTrunk    = "trunk"               // Network of the trunks Caddy listens on in place of UDP sockets
 	testPCWDelay    = 20 * time.Millisecond // How much time to wait between spawning clients
 
-	testPCWPortMultiplex = 443  // Port serving multiple services
+	testPCWPortMultiplex = 9443 // Port serving multiple services, unprivileged so that tests may run as non-root
 	testPCWPortEchoOnly  = 2000 // Port serving echo only
 	testPCWPortDNSOnly   = 5300 // Port serving DNS only
 	testPCWPortHTTP3Only = 8443 // Port serving HTTP/3 only
@@ -59,11 +59,15 @@ var (
 	} // List of domains requested by DNS client. Its length determines the number of tests (adjusted by the multiplier).
 )
 
-// testPCWCaddyfile returns a config serving HTTP/3, DNS and echo on port 443, HTTP/3 only on port 8443, DNS only
-// on port 5300, and echo only on port 2000, with DNS proxied to the upstream given.
+// testPCWCaddyfile returns a config serving HTTP/3, DNS and echo on port 9443, HTTP/3 only on port 8443, DNS only
+// on port 5300, and echo only on port 2000, with DNS proxied to the upstream given. HTTP to HTTPS redirects are
+// disabled, so as not to listen on port 80, which needs privileges on Linux. The root certificate of the internal CA
+// isn't installed, as it may need a confirmation, e.g. on Windows, and clients skip verifying certificates anyway.
 func testPCWCaddyfile(dnsUpstream string) string {
 	return fmt.Sprintf(`{
 	debug
+	auto_https disable_redirects
+	skip_install_trust
 	layer4 {
 		udp/:2000 {
 			@e regexp ^ECHO\d\d\d\d$ 8
@@ -78,7 +82,7 @@ func testPCWCaddyfile(dnsUpstream string) string {
 			}
 		}
 	}
-	servers :443 {
+	servers :9443 {
 		packet_conn_wrappers {
 			layer4 {
 				@d dns
@@ -97,22 +101,26 @@ func testPCWCaddyfile(dnsUpstream string) string {
 		protocols h3
 	}
 }
-https://localhost, https://localhost:8443 {
+
+https://localhost:9443, https://localhost:8443 {
 	tls {
 		issuer internal
 	}
 	respond "{http.request.uri.query}" 200
-}`, dnsUpstream)
+}
+`, dnsUpstream)
 }
 
-// testPCWEchoCaddyfile returns a config serving HTTP/3 on port 443, wrapped with a packet conn wrapper echoing
+// testPCWEchoCaddyfile returns a config serving HTTP/3 on port 9443, wrapped with a packet conn wrapper echoing
 // the flows matching echoRegexp, and proxying those matching ^PROXY\d{4}$ to a layer 4 echo server on port 2000.
 // HTTP/3 responses are prefixed with body. HTTP to HTTPS redirects are disabled, so as not to listen on port 80,
-// which Caddy may not have released yet once the config of the previous test has been stopped.
+// which Caddy may not have released yet once the config of the previous test has been stopped. The root certificate
+// of the internal CA isn't installed, as testPCWCaddyfile explains.
 func testPCWEchoCaddyfile(echoRegexp string, echoLength int, body string) string {
 	return fmt.Sprintf(`{
 	debug
 	auto_https disable_redirects
+	skip_install_trust
 	layer4 {
 		udp/:2000 {
 			route {
@@ -120,7 +128,7 @@ func testPCWEchoCaddyfile(echoRegexp string, echoLength int, body string) string
 			}
 		}
 	}
-	servers :443 {
+	servers :9443 {
 		packet_conn_wrappers {
 			layer4 {
 				@e regexp %s %d
@@ -136,22 +144,24 @@ func testPCWEchoCaddyfile(echoRegexp string, echoLength int, body string) string
 		protocols h3
 	}
 }
-https://localhost {
+
+https://localhost:9443 {
 	tls {
 		issuer internal
 	}
 	respond "%s{http.request.uri.query}" 200
-}`, echoRegexp, echoLength, body)
+}
+`, echoRegexp, echoLength, body)
 }
 
-// stopPCWCaddy stops Caddy, and waits until UDP ports 443 and 2000, and the other UDP addresses given, are released,
+// stopPCWCaddy stops Caddy, and waits until UDP ports 9443 and 2000, and the other UDP addresses given, are released,
 // as Caddy shuts its HTTP/3 servers down in the background, so that the next test can listen on them.
 func stopPCWCaddy(t *testing.T, addrs ...string) {
 	t.Helper()
 
 	stopCaddy(t)
 	deadline := time.Now().Add(10 * time.Second)
-	for _, addr := range append([]string{":443", ":2000"}, addrs...) {
+	for _, addr := range append([]string{":9443", ":2000"}, addrs...) {
 		for {
 			pc, err := net.ListenPacket("udp", addr)
 			if err == nil {
@@ -470,6 +480,9 @@ func TestPCWTrunk(t *testing.T) {
 						}]
 					}
 				}
+			},
+			"pki": {
+				"certificate_authorities": {"local": {"install_trust": false}}
 			},
 			"tls": {
 				"automation": {
