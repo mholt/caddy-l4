@@ -178,6 +178,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 						continue
 					}
 					routesStatus[i] = routeMatched
+					cx.routed = true
 					lastMatchedRouteIdx = i
 					lastNeedsMoreIdx = i + 1
 					// remove deadline after we matched

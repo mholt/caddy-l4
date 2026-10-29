@@ -100,6 +100,9 @@ type Connection struct {
 	isPacketConn bool
 	frameSizes   []int
 
+	// set once a route has matched, before its handlers are executed
+	routed bool
+
 	// shortcuts for key elements of the context
 	repl *caddy.Replacer
 	vars map[string]any
@@ -246,6 +249,18 @@ func (cx *Connection) prefetch() (err error) {
 	}
 
 	return ErrMatchingBufferFull
+}
+
+// prefetchedPackets returns the packets prefetched in full, as views of the buffer, which must be intact,
+// i.e. not consumed by any handler. A packet prefetched in part isn't returned. Only for packet conns.
+func (cx *Connection) prefetchedPackets() [][]byte {
+	pkts := make([][]byte, 0, len(cx.frameSizes))
+	var offset int
+	for _, size := range cx.frameSizes {
+		pkts = append(pkts, cx.buf[offset:offset+size])
+		offset += size
+	}
+	return pkts
 }
 
 // HasMore means there is more data available for reading. Only for packet conns.

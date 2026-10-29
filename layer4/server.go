@@ -376,6 +376,37 @@ func (pc *packetConn) Close() error {
 
 func (pc *packetConn) RemoteAddr() net.Addr { return pc.addr }
 
+// release hands the flow over to the fallback connection of the splitter, so
+// that it misses none of the packets read: the packets given first, e.g. those
+// prefetched in full while matching, then the packet read in part, if any, and
+// the packets moved to readCh, but not read yet. The packets queued on the split
+// connection and the later packets of the flow follow. It closes the split
+// connection, so Close only releases what's left afterwards.
+func (pc *packetConn) release(pkts [][]byte) error {
+	// Make the goroutine moving the packets close readCh without taking another
+	// packet from the split connection, as an exceeded deadline prevails over
+	// the packets queued on it
+	_ = pc.PacketConn.SetReadDeadline(time.Unix(1, 0))
+
+	var bufs [][]byte
+	if pc.lastPacket != nil {
+		pkts = append(pkts, pc.lastPacket.pooledBuf[:pc.lastPacket.n])
+		bufs = append(bufs, pc.lastPacket.pooledBuf)
+		pc.lastPacket, pc.lastBuf = nil, nil
+	}
+	for pkt := range pc.readCh {
+		pkts = append(pkts, pkt.pooledBuf[:pkt.n])
+		bufs = append(bufs, pkt.pooledBuf)
+	}
+
+	// Release copies the packets, so their buffers can be reused right away
+	err := pc.PacketConn.(hybrid.SplitConn).Release(pkts...)
+	for _, buf := range bufs {
+		udpBufPool.Put(buf)
+	}
+	return err
+}
+
 var udpBufPool = sync.Pool{
 	New: func() any {
 		// Buffers need to be as large as the largest datagram we'll consume, because
