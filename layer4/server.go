@@ -27,6 +27,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/vnxme/hybrid"
 	"go.uber.org/zap"
 )
 
@@ -103,97 +104,39 @@ func (s *Server) serve(ln net.Listener) error {
 }
 
 func (s *Server) servePacket(pc net.PacketConn) error {
-	// Spawn a goroutine whose only job is to consume packets from the socket
-	// and send to the packets channel.
-	packets := make(chan packet, 10)
-	go func(packets chan packet) {
-		for {
-			buf := udpBufPool.Get().([]byte)
-			n, addr, err := pc.ReadFrom(buf)
-			if err != nil {
-				var netErr net.Error
-				if errors.As(err, &netErr) && netErr.Timeout() {
-					continue
-				}
-				packets <- packet{err: err}
-				return
-			}
-			packets <- packet{
-				pooledBuf: buf,
-				n:         n,
-				addr:      addr,
-			}
-		}
-	}(packets)
-
-	// udpConns tracks active packetConns by downstream address:port. They will
-	// be removed from this map after being closed.
-	udpConns := make(map[string]*packetConn)
-	// closeCh is used to receive notifications of socket closures from
-	// packetConn, which allows us to remove stale connections (whose
-	// proxy handlers have completed) from the udpConns map.
-	closeCh := make(chan string, 10)
-	// doneCh signals packetConns that this server loop is exiting, so their
-	// closeCh notifications (from Read() idle-timeout and Close()) stop
-	// blocking on a channel nobody drains any more. On exit we also close and
-	// drain each surviving connection's readCh to release pooled buffers and
-	// unblock any handler still parked in Read().
-	doneCh := make(chan struct{})
-	defer func() {
-		close(doneCh)
-		for addr, conn := range udpConns {
-			close(conn.readCh)
-			for pkt := range conn.readCh {
-				udpBufPool.Put(pkt.pooledBuf)
-			}
-			delete(udpConns, addr)
-		}
-	}()
+	// The splitter sorts the packets of the socket into flows by downstream
+	// address:port, and serves each flow as a split connection until it's
+	// closed or idle. It stops once the socket is closed. As it drops the
+	// first packet of a new flow if the accept queue is full, the queue is
+	// long enough to absorb a burst of new downstreams while this loop waits
+	// to be scheduled.
+	// The splitter never closes the socket, which Caddy may not expect closed
+	// more than once, while closing it makes the splitter stop on its own.
+	ln := hybrid.Split(hybrid.FakeClosePacketConn(pc, nil), &hybrid.SplitConfig{
+		AcceptQueueSize: udpAcceptQueueSize,
+		IdleTimeout:     time.Duration(s.IdleTimeout),
+		ReadBufferSize:  udpBufSize,
+		// Caddy closes the socket on every shutdown and reload, and a client
+		// gone makes a write fail, so these errors aren't worth an error log
+		ErrorFunc: func(err error) {
+			s.logger.Debug("packet connection error",
+				zap.String("network", pc.LocalAddr().Network()),
+				zap.String("address", pc.LocalAddr().String()),
+				zap.Error(err),
+			)
+		},
+	})
 	for {
-		select {
-		case addr := <-closeCh:
-			conn, ok := udpConns[addr]
-			if ok {
-				// This will abort any active Read() from another goroutine and return EOF
-				close(conn.readCh)
-				// Drain pending packets to ensure we release buffers back to the pool
-				for pkt := range conn.readCh {
-					udpBufPool.Put(pkt.pooledBuf)
-				}
-			}
-			// UDP connection is closed (either implicitly through timeout or by
-			// explicit call to Close()).
-			delete(udpConns, addr)
-
-		case pkt := <-packets:
-			if pkt.err != nil {
-				return pkt.err
-			}
-			conn, ok := udpConns[pkt.addr.String()]
-			if !ok {
-				// No existing proxy handler is running for this downstream.
-				// Create one now.
-				conn = &packetConn{
-					PacketConn:  pc,
-					readCh:      make(chan *packet, 5),
-					addr:        pkt.addr,
-					closeCh:     closeCh,
-					doneCh:      doneCh,
-					idleTimeout: time.Duration(s.IdleTimeout),
-				}
-				udpConns[pkt.addr.String()] = conn
-				go func(conn *packetConn) {
-					s.handle(conn)
-					// It might seem cleaner to send to closeCh here rather than
-					// in packetConn, but doing it earlier in packetConn closes
-					// the gap between the proxy handler shutting down and new
-					// packets coming in from the same downstream.  Should that
-					// happen, we'll just spin up a new handler concurrent to
-					// the old one shutting down.
-				}(conn)
-			}
-			conn.readCh <- &pkt
+		sc, err := ln.AcceptSplit()
+		if err != nil {
+			s.logger.Debug("packet connection drops",
+				zap.String("network", ln.Addr().Network()),
+				zap.String("address", ln.Addr().String()),
+				zap.Any("drops", ln.Stats()),
+			)
+			return err
 		}
+		go s.handle(newPacketConn(sc))
 	}
 }
 
@@ -276,22 +219,14 @@ type packet struct {
 	pooledBuf []byte
 	// Number of bytes read from socket
 	n int
-	// Error that occurred while reading from socket
-	err error
-	// Address of downstream
-	addr net.Addr
 }
 
 type packetConn struct {
+	// The split connection of the flow, which the packets are read from by
+	// the goroutine started by newPacketConn, and written to directly.
 	net.PacketConn
-	addr    net.Addr
-	readCh  chan *packet
-	closeCh chan string
-	// doneCh is closed by the server loop when it exits (server shutdown).
-	// It lets closeCh sends below fall through instead of blocking forever
-	// on a loop that is no longer receiving, which previously leaked a
-	// goroutine per live UDP session on every shutdown/reload.
-	doneCh <-chan struct{}
+	addr   net.Addr
+	readCh chan *packet
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
@@ -303,8 +238,41 @@ type packetConn struct {
 	// called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
-	idleTimeout   time.Duration
-	idleTimer     *time.Timer
+}
+
+// newPacketConn returns a packetConn serving the flow of sc. Its goroutine
+// moves the packets from sc to readCh, and closes readCh once sc is closed,
+// by Close or by the splitter, as the flow is idle or the socket is closed.
+func newPacketConn(sc hybrid.SplitConn) *packetConn {
+	pc := &packetConn{
+		PacketConn: sc,
+		addr:       sc.RemoteAddr(),
+		readCh:     make(chan *packet, 5),
+	}
+	go func() {
+		defer close(pc.readCh)
+		for {
+			buf := udpBufPool.Get().([]byte)
+			n, err := sc.Read(buf)
+			if err != nil {
+				udpBufPool.Put(buf)
+				return
+			}
+			pc.readCh <- &packet{
+				pooledBuf: buf,
+				n:         n,
+			}
+		}
+	}()
+	return pc
+}
+
+// SetDeadline sets the read deadline of the connection and the write deadline
+// of the split connection, whose read deadline must stay clear, so as not to
+// interrupt the goroutine moving its packets to readCh.
+func (pc *packetConn) SetDeadline(t time.Time) error {
+	_ = pc.SetReadDeadline(t)
+	return pc.SetWriteDeadline(t)
 }
 
 // SetReadDeadline sets the deadline to wait for data from the underlying net.PacketConn.
@@ -351,20 +319,14 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	if pc.deadlineExceeded() {
 		return 0, os.ErrDeadlineExceeded
 	}
-	// set or refresh idle timeout
-	if pc.idleTimer == nil {
-		pc.idleTimer = time.NewTimer(pc.idleTimeout)
-	} else {
-		pc.idleTimer.Reset(pc.idleTimeout)
-	}
-	var done bool
-	for !done {
+	for {
 		select {
 		case pkt := <-pc.readCh:
 			if pkt == nil {
-				// Channel is closed. Return EOF below.
-				done = true
-				break
+				// Channel is closed, as the flow has ended, e.g. as it's been
+				// idle. Returning EOF here ensures that io.Copy() waiting on
+				// the downstream for reads will terminate.
+				return 0, io.EOF
 			}
 			// An empty packet, which UDP allows, reads as 0, nil, rather than
 			// with the io.EOF of an empty buffer, as the flow goes on
@@ -386,24 +348,9 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			if pc.deadlineExceeded() {
 				return 0, os.ErrDeadlineExceeded
 			}
-			// next loop will run. Don't call Read as that will reset the idle timer.
-		case <-pc.idleTimer.C:
-			done = true
+			// next loop will run.
 		}
 	}
-	// Idle timeout simulates socket closure.
-	//
-	// Although Close() also does this, we inform the server loop early about
-	// the closure to ensure that if any new packets are received from this
-	// connection in the meantime, a new handler will be started.
-	select {
-	case pc.closeCh <- pc.addr.String():
-	case <-pc.doneCh:
-		// Server loop has exited; nobody is draining closeCh.
-	}
-	// Returning EOF here ensures that io.Copy() waiting on the downstream for
-	// reads will terminate.
-	return 0, io.EOF
 }
 
 func (pc *packetConn) Write(b []byte) (n int, err error) {
@@ -415,16 +362,15 @@ func (pc *packetConn) Close() error {
 		udpBufPool.Put(pc.lastPacket.pooledBuf)
 		pc.lastPacket = nil
 	}
-	// We may have already done this earlier in Read(), but just in case
-	// Read() wasn't being called, (re-)notify server loop we're closed.
-	// Server loop is responsible to close readCh to abort Read() to avoid race.
-	select {
-	case pc.closeCh <- pc.addr.String():
-	case <-pc.doneCh:
-		// Server loop has exited; nobody is draining closeCh.
+	// Closing the split connection ends the flow, so that the next packet
+	// from the downstream starts a new one, and makes the goroutine moving
+	// its packets close readCh, which aborts any active Read(). It doesn't
+	// close the UDP socket.
+	_ = pc.PacketConn.Close()
+	// Drain pending packets to ensure we release buffers back to the pool
+	for pkt := range pc.readCh {
+		udpBufPool.Put(pkt.pooledBuf)
 	}
-	// We don't call net.PacketConn.Close() here as we would stop the UDP
-	// server.
 	return nil
 }
 
@@ -436,9 +382,17 @@ var udpBufPool = sync.Pool{
 		// ReadFrom() can't resume partial reads.  (This is standard for UDP
 		// sockets on *nix.)  So our buffer sizes are 9000 bytes to accommodate
 		// networks with jumbo frames.  See also https://github.com/golang/go/issues/18056
-		return make([]byte, 9000)
+		return make([]byte, udpBufSize)
 	},
 }
+
+// udpBufSize is the size of the buffers of udpBufPool, and the largest packet
+// read from a UDP socket. The splitter drops a larger one.
+const udpBufSize = 9000
+
+// udpAcceptQueueSize is the number of new flows of a UDP socket waiting to be
+// handled, beyond which the splitter drops their first packets.
+const udpAcceptQueueSize = 1024
 
 // Interface guard
 var _ caddyfile.Unmarshaler = (*Server)(nil)
