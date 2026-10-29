@@ -5,9 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// nilAddrPacketConn reads nothing, with no address and no error, first, as Caddy's packet conns do once closed
+// on some platforms, then reads from the underlying PacketConn.
+type nilAddrPacketConn struct {
+	net.PacketConn
+	once atomic.Bool
+}
+
+func (c *nilAddrPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	if c.once.CompareAndSwap(false, true) {
+		return 0, nil, nil
+	}
+	return c.PacketConn.ReadFrom(p)
+}
 
 // dialPacketServer dials the given address over UDP until the test ends.
 func dialPacketServer(t *testing.T, addr string) net.Conn {

@@ -21,13 +21,15 @@ a static website while also forwarding traffic to certain backends with or witho
         # see also: https://github.com/mholt/caddy-l4/blob/master/docs/servers.md
 
         # the following block will cause issues and won't work correctly,
-        # if the HTTP app listens to port 443 which is the default HTTPS port
+        # if the HTTP app listens to port 443 which is the default HTTPS port;
+        # handle TCP traffic on port 443 with listener wrappers below instead
         # tcp/:443 {
         #     ...
         # }
 
         # the following block will cause issues and won't work correctly,
-        # unless HTTP/3 is disabled for the HTTP app listening to port 443
+        # unless HTTP/3 is disabled for the HTTP app listening to port 443;
+        # handle UDP traffic on port 443 with packet connection wrappers below instead
         # udp/:443 {
         #     ...
         # }
@@ -114,8 +116,18 @@ a static website while also forwarding traffic to certain backends with or witho
 
         # packet connection wrappers defined below can only handle UDP traffic, e.g. DNS, QUIC, etc.
         packet_conn_wrappers {
-            # WIP, to be updated once the Layer 4 app becomes capable of wrapping packet connections;
-            # by default any UDP traffic received on port 443 is consumed and handled by the HTTP app
+            layer4 {
+                # proxy DNS traffic from local subnets to Cloudflare
+                @dns {
+                    dns
+                    remote_ip 10.0.0.0/8 fd00:1122:3344:5566::/64
+                }
+                route @dns {
+                    proxy udp/1.1.1.1:53
+                }
+
+                # any other UDP traffic received on port 443, e.g. QUIC, is consumed and handled by the HTTP app
+            }
         }
     }
 }
@@ -294,6 +306,38 @@ a static website while also forwarding traffic to certain backends with or witho
                         },
                         {
                             "wrapper": "tls"
+                        }
+                    ],
+                    "packet_conn_wrappers": [
+                        {
+                            "routes": [
+                                {
+                                    "handle": [
+                                        {
+                                            "handler": "proxy",
+                                            "upstreams": [
+                                                {
+                                                    "dial": [
+                                                        "udp/1.1.1.1:53"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "match": [
+                                        {
+                                            "dns": {},
+                                            "remote_ip": {
+                                                "ranges": [
+                                                    "10.0.0.0/8",
+                                                    "fd00:1122:3344:5566::/64"
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            "wrapper": "layer4"
                         }
                     ],
                     "routes": [
