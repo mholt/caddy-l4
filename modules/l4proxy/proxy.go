@@ -350,7 +350,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				// for packet connection, prepend each message with pp
 				// unix connections always implement this interface while not necessarily in datagram mode
 				// ignore it unless the unix socket is in datagram mode
-				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(p.address.Network) || p.address.Network == "unixgram") {
+				if _, ok := up.(net.PacketConn); ok && (!caddy.IsUnixNetwork(addr.Network) || addr.Network == "unixgram") {
 					// only v2 supports UDP addresses
 					if header.Version == 2 {
 						la, _ := header.DestinationAddr.(*net.UDPAddr)
