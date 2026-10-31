@@ -1,10 +1,12 @@
 package l4proxy
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -675,5 +677,66 @@ func TestHandleProxiesDataToUpstream(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Handle did not return after the downstream connection was closed")
+	}
+}
+
+func TestDialPeersWritesProxyProtocolToDynamicUnixUpstream(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "up.sock")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("listening on unix upstream: %v", err)
+	}
+	defer ln.Close()
+	received := make(chan string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			received <- ""
+			return
+		}
+		defer conn.Close()
+		line, _ := bufio.NewReader(conn).ReadString('\n')
+		received <- line
+	}()
+
+	downLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening for downstream: %v", err)
+	}
+	defer downLn.Close()
+	client, err := net.Dial("tcp", downLn.Addr().String())
+	if err != nil {
+		t.Fatalf("dialing downstream: %v", err)
+	}
+	defer client.Close()
+	server, err := downLn.Accept()
+	if err != nil {
+		t.Fatalf("accepting downstream: %v", err)
+	}
+	defer server.Close()
+
+	h := &Handler{logger: zap.NewNop(), proxyProtocolVersion: 1}
+	upstream := &Upstream{peers: []*peer{{dialAddr: "unix/{l4.test.socket}"}}}
+	down := layer4.WrapConnection(server, nil, h.logger)
+	repl := down.Context.Value(layer4.ReplacerCtxKey).(*caddy.Replacer)
+	repl.Set("l4.test.socket", path)
+
+	upConns, err := h.dialPeers(upstream, repl, down)
+	if err != nil {
+		t.Fatalf("dialPeers: %v", err)
+	}
+	defer func() {
+		for _, c := range upConns {
+			c.Close()
+		}
+	}()
+
+	select {
+	case line := <-received:
+		if !strings.HasPrefix(line, "PROXY TCP4 127.0.0.1 127.0.0.1 ") {
+			t.Fatalf("expected a PROXY v1 header, got %q", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream received nothing")
 	}
 }
