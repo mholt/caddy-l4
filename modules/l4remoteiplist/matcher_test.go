@@ -299,3 +299,41 @@ func TestCleanup(t *testing.T) {
 		t.Errorf("Matcher is running although it was stopped")
 	}
 }
+
+// Test if cleanup returns when Caddy has already cancelled the context.
+// Caddy cancels a config's context before it calls Cleanup on its modules,
+// so the monitoring goroutine may have returned before Cleanup is called.
+func TestCleanupAfterContextCancel(t *testing.T) {
+	tempDir, ipFile := createIPFile(t)
+	defer cleanupIPFile(t, tempDir)
+
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+
+	matcher := RemoteIPList{
+		RemoteIPFile: ipFile,
+	}
+
+	err := matcher.Provision(ctx)
+	assertNoError(t, err)
+	wait()
+
+	// Cancel the context first, as Caddy does on a config reload
+	cancel()
+	wait()
+
+	if matcher.remoteIPList.isRunning.Load() {
+		t.Fatalf("Matcher is running although the context was cancelled")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- matcher.Cleanup()
+	}()
+
+	select {
+	case err = <-done:
+		assertNoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Cleanup did not return after the context was cancelled")
+	}
+}
