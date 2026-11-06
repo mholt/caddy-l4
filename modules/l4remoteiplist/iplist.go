@@ -34,10 +34,11 @@ type IPList struct {
 	cidrs             []netip.Prefix // List of currently loaded CIDRs
 	ctx               caddy.Context  // Caddy context, used to detect when to shut down
 	logger            *zap.Logger
-	reloadNeededMutex sync.Mutex  // Mutex to ensure proper concurrent handling of reloads
-	reloadNeeded      bool        // Flag indicating whether a reload of the IPs is needed
-	isRunning         atomic.Bool // Flag indicating whether monitoring is currently active
-	stop              chan bool   // Channel to indicate that monitoring shall be stopped
+	reloadNeededMutex sync.Mutex    // Mutex to ensure proper concurrent handling of reloads
+	reloadNeeded      bool          // Flag indicating whether a reload of the IPs is needed
+	isRunning         atomic.Bool   // Flag indicating whether monitoring is currently active
+	stop              chan struct{} // Channel to indicate that monitoring shall be stopped, closed by StopMonitoring
+	stopOnce          sync.Once     // Ensures the stop channel is closed only once
 }
 
 // NewIPList creates a new IPList, creating the ipFile if it is not present
@@ -47,7 +48,7 @@ func NewIPList(ipFile string, ctx caddy.Context, logger *zap.Logger) (*IPList, e
 		ctx:          ctx,
 		logger:       logger,
 		reloadNeeded: true,
-		stop:         make(chan bool),
+		stop:         make(chan struct{}),
 	}
 
 	// make sure the directory containing the ipFile exists
@@ -93,8 +94,12 @@ func (b *IPList) StartMonitoring() {
 
 // StopMonitoring stops monitoring the IP list
 func (b *IPList) StopMonitoring() {
-	// stop goroutine
-	b.stop <- true
+	// stop goroutine; closing (instead of sending on) the channel does not
+	// block if the goroutine has already returned, e.g. because Caddy
+	// cancelled the context before calling Cleanup
+	b.stopOnce.Do(func() {
+		close(b.stop)
+	})
 }
 
 func (b *IPList) ipFileDirectoryExists() bool {

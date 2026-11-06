@@ -1,12 +1,11 @@
 {
 	layer4 {
 		:8080 {
-			@night_m clock before 05:00:00
 			@morning clock 05:00:00 12:00:00
 			@afternoon clock 12:00:00 17:00:00
 			@evening clock 17:00:00 21:00:00
-			@night_e clock after 21:00:00
-			route @night_m @night_e {
+			@night clock 21:00:00 05:00:00
+			route @night {
 				proxy 00.upstream.local:8080
 			}
 			route @morning {
@@ -24,7 +23,7 @@
 			route @la_is_awake {
 				proxy existing.machine.local:8888
 			}
-			@la_is_asleep not clock 08:00:00 20:00:00 America/Los_Angeles
+			@la_is_asleep clock 20:00:00 08:00:00 America/Los_Angeles
 			route @la_is_asleep {
 				proxy non-existing.machine.local:8888
 			}
@@ -45,14 +44,8 @@
 							"match": [
 								{
 									"clock": {
-										"after": "00:00:00",
-										"before": "05:00:00"
-									}
-								},
-								{
-									"clock": {
 										"after": "21:00:00",
-										"before": "00:00:00"
+										"before": "05:00:00"
 									}
 								}
 							],
@@ -188,15 +181,11 @@
 						{
 							"match": [
 								{
-									"not": [
-										{
-											"clock": {
-												"after": "08:00:00",
-												"before": "20:00:00",
-												"timezone": "America/Los_Angeles"
-											}
-										}
-									]
+									"clock": {
+										"after": "20:00:00",
+										"before": "08:00:00",
+										"timezone": "America/Los_Angeles"
+									}
 								}
 							],
 							"handle": [

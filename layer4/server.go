@@ -133,6 +133,22 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 	// packetConn, which allows us to remove stale connections (whose
 	// proxy handlers have completed) from the udpConns map.
 	closeCh := make(chan string, 10)
+	// doneCh signals packetConns that this server loop is exiting, so their
+	// closeCh notifications (from Read() idle-timeout and Close()) stop
+	// blocking on a channel nobody drains any more. On exit we also close and
+	// drain each surviving connection's readCh to release pooled buffers and
+	// unblock any handler still parked in Read().
+	doneCh := make(chan struct{})
+	defer func() {
+		close(doneCh)
+		for addr, conn := range udpConns {
+			close(conn.readCh)
+			for pkt := range conn.readCh {
+				udpBufPool.Put(pkt.pooledBuf)
+			}
+			delete(udpConns, addr)
+		}
+	}()
 	for {
 		select {
 		case addr := <-closeCh:
@@ -162,6 +178,7 @@ func (s *Server) servePacket(pc net.PacketConn) error {
 					readCh:      make(chan *packet, 5),
 					addr:        pkt.addr,
 					closeCh:     closeCh,
+					doneCh:      doneCh,
 					idleTimeout: time.Duration(s.IdleTimeout),
 				}
 				udpConns[pkt.addr.String()] = conn
@@ -270,6 +287,11 @@ type packetConn struct {
 	addr    net.Addr
 	readCh  chan *packet
 	closeCh chan string
+	// doneCh is closed by the server loop when it exits (server shutdown).
+	// It lets closeCh sends below fall through instead of blocking forever
+	// on a loop that is no longer receiving, which previously leaked a
+	// goroutine per live UDP session on every shutdown/reload.
+	doneCh <-chan struct{}
 	// If not nil, then the previous Read() call didn't consume all the data
 	// from the buffer, and this packet will be reused in the next Read()
 	// without waiting for readCh.
@@ -277,7 +299,8 @@ type packetConn struct {
 	lastBuf     *bytes.Reader
 	lastBufSize int
 
-	// stores time.Time as Unix as Read maybe called concurrently with SetReadDeadline
+	// stores time.Time as Unix nanoseconds, or zero for no deadline, as Read may be
+	// called concurrently with SetReadDeadline
 	deadline      atomic.Int64
 	deadlineTimer *time.Timer
 	idleTimeout   time.Duration
@@ -286,7 +309,11 @@ type packetConn struct {
 
 // SetReadDeadline sets the deadline to wait for data from the underlying net.PacketConn.
 func (pc *packetConn) SetReadDeadline(t time.Time) error {
-	pc.deadline.Store(t.Unix())
+	var ns int64
+	if !t.IsZero() {
+		ns = t.UnixNano()
+	}
+	pc.deadline.Store(ns)
 	if pc.deadlineTimer != nil {
 		pc.deadlineTimer.Reset(time.Until(t))
 	} else {
@@ -295,8 +322,10 @@ func (pc *packetConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
-func isDeadlineExceeded(t time.Time) bool {
-	return !t.IsZero() && t.Before(time.Now())
+// deadlineExceeded reports whether the read deadline has passed.
+func (pc *packetConn) deadlineExceeded() bool {
+	ns := pc.deadline.Load()
+	return ns != 0 && ns < time.Now().UnixNano()
 }
 
 // lastFrameSize returns the size of the last packet read from the connection and whether it's depleted.
@@ -308,8 +337,9 @@ func (pc *packetConn) lastFrameStat() (int, bool) {
 func (pc *packetConn) Read(b []byte) (n int, err error) {
 	if pc.lastPacket != nil {
 		// There is a partial buffer to continue reading from the previous
-		// packet.
-		n, err = pc.lastBuf.Read(b)
+		// packet. Its io.EOF is ignored, as the packet may be empty, e.g. if
+		// it's been kept by WaitForMore.
+		n, _ = pc.lastBuf.Read(b)
 		if pc.lastBuf.Len() == 0 {
 			udpBufPool.Put(pc.lastPacket.pooledBuf)
 			pc.lastPacket = nil
@@ -318,7 +348,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 		return
 	}
 	// check deadline
-	if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+	if pc.deadlineExceeded() {
 		return 0, os.ErrDeadlineExceeded
 	}
 	// set or refresh idle timeout
@@ -336,8 +366,10 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 				done = true
 				break
 			}
+			// An empty packet, which UDP allows, reads as 0, nil, rather than
+			// with the io.EOF of an empty buffer, as the flow goes on
 			buf := bytes.NewReader(pkt.pooledBuf[:pkt.n])
-			n, err = buf.Read(b)
+			n, _ = buf.Read(b)
 			if buf.Len() == 0 {
 				// Buffer fully consumed, release it.
 				udpBufPool.Put(pkt.pooledBuf)
@@ -351,7 +383,7 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 			return
 		case <-pc.deadlineTimer.C:
 			// deadline may change during the wait, recheck
-			if isDeadlineExceeded(time.Unix(pc.deadline.Load(), 0)) {
+			if pc.deadlineExceeded() {
 				return 0, os.ErrDeadlineExceeded
 			}
 			// next loop will run. Don't call Read as that will reset the idle timer.
@@ -364,7 +396,11 @@ func (pc *packetConn) Read(b []byte) (n int, err error) {
 	// Although Close() also does this, we inform the server loop early about
 	// the closure to ensure that if any new packets are received from this
 	// connection in the meantime, a new handler will be started.
-	pc.closeCh <- pc.addr.String()
+	select {
+	case pc.closeCh <- pc.addr.String():
+	case <-pc.doneCh:
+		// Server loop has exited; nobody is draining closeCh.
+	}
 	// Returning EOF here ensures that io.Copy() waiting on the downstream for
 	// reads will terminate.
 	return 0, io.EOF
@@ -382,7 +418,11 @@ func (pc *packetConn) Close() error {
 	// We may have already done this earlier in Read(), but just in case
 	// Read() wasn't being called, (re-)notify server loop we're closed.
 	// Server loop is responsible to close readCh to abort Read() to avoid race.
-	pc.closeCh <- pc.addr.String()
+	select {
+	case pc.closeCh <- pc.addr.String():
+	case <-pc.doneCh:
+		// Server loop has exited; nobody is draining closeCh.
+	}
 	// We don't call net.PacketConn.Close() here as we would stop the UDP
 	// server.
 	return nil

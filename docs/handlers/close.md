@@ -8,6 +8,10 @@ title: Close Handler
 
 The Close handler closes connections.
 
+It's a *terminal* handler: once it runs, routing stops and any handlers listed after `close` in the
+same `route` block are never invoked. For example, in `route { close` followed by `proxy … }`, the
+`proxy` handler never runs.
+
 Note that it's primarily relevant to *connection-oriented* protocols, i.e. `net.Conn` implementations (e.g. TCP).
 When it comes to *connectionless* protocols, i.e. `net.PacketConn` implementations (e.g. UDP), the handler closes
 a virtual connection which is created when the first packet is received on the socket from some address:port
