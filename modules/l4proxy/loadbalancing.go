@@ -332,8 +332,15 @@ func (r *RoundRobinSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // smooth weighted round-robin order, proportional to each upstream's Weight
 // (an unset or non-positive weight is treated as 1).
 type WeightedRoundRobinSelection struct {
-	mu      sync.Mutex
-	current []int
+	mu sync.Mutex
+	// current holds each upstream's smooth-WRR counter, keyed by the upstream's
+	// peer rather than by its position in the pool. With dynamic upstreams the
+	// pool's membership can change while its length stays the same; keying by
+	// position would then carry a counter over to a different backend. The peer
+	// is the stable per-backend identity: a refresh builds fresh Upstream values
+	// but reuses the same peer for an address that is still present. Counters
+	// for peers no longer in the pool are pruned on each call.
+	current map[*peer]int
 }
 
 // CaddyModule returns the Caddy module information.
@@ -352,29 +359,49 @@ func (w *WeightedRoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connec
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if len(w.current) != len(pool) {
-		w.current = make([]int, len(pool))
+	if w.current == nil {
+		w.current = make(map[*peer]int, len(pool))
 	}
 
+	// the peer identity of every upstream currently in the pool, so counters
+	// for ones that have gone away can be pruned afterwards (keeps the map
+	// bounded for dynamic pools)
+	seen := make(map[*peer]struct{}, len(pool))
+
 	total, best := 0, -1
+	var bestKey *peer
 	for i, up := range pool {
+		if len(up.peers) == 0 {
+			continue
+		}
+		key := up.peers[0]
+		seen[key] = struct{}{}
 		if !up.available() {
+			// keep an unavailable-but-present host's counter frozen; it may
+			// become available again
 			continue
 		}
 		weight := up.Weight
 		if weight <= 0 {
 			weight = 1
 		}
-		w.current[i] += weight
+		w.current[key] += weight
 		total += weight
-		if best == -1 || w.current[i] > w.current[best] {
-			best = i
+		if best == -1 || w.current[key] > w.current[bestKey] {
+			best, bestKey = i, key
 		}
 	}
+
+	for key := range w.current {
+		if _, ok := seen[key]; !ok {
+			delete(w.current, key)
+		}
+	}
+
 	if best == -1 {
 		return nil
 	}
-	w.current[best] -= total
+	w.current[bestKey] -= total
 	return pool[best]
 }
 

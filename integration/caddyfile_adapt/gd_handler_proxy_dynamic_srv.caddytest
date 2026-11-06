@@ -1,0 +1,46 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy {
+					dynamic srv {
+						service postgres
+						proto tcp
+						name db.internal
+						refresh 30s
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"dynamic_upstreams": {
+										"name": "db.internal",
+										"proto": "tcp",
+										"refresh": 30000000000,
+										"service": "postgres",
+										"source": "srv"
+									},
+									"handler": "proxy"
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
