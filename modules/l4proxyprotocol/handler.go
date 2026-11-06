@@ -200,6 +200,13 @@ func (h *Handler) newConn(cx *layer4.Connection) *proxyproto.Conn {
 
 // Handle handles the connections.
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
+	// Packet (e.g. UDP) connections carry a PROXY header on every datagram, so
+	// they need per-datagram handling rather than go-proxyproto's stream reader,
+	// which only strips a single header for the whole connection.
+	if cx.IsPacketConn() {
+		return h.handlePacket(cx, next)
+	}
+
 	conn := h.newConn(cx)
 	if conn == nil {
 		h.logger.Debug("untrusted party not allowed",
@@ -236,6 +243,51 @@ func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	cx.SetVar(connReplKey, conn)
 
 	return next.Handle(cx.Wrap(conn))
+}
+
+// handlePacket handles packet (e.g. UDP) connections, where a PROXY header
+// precedes every datagram rather than just the first bytes of a stream.
+func (h *Handler) handlePacket(cx *layer4.Connection, next layer4.Handler) error {
+	// Determine the policy from the immediate peer, mirroring the stream path.
+	policy, err := h.policy(proxyproto.ConnPolicyOptions{Upstream: cx.RemoteAddr()})
+	if err != nil {
+		h.logger.Debug("policy check failed", zap.Error(err))
+		return next.Handle(cx)
+	}
+	// REJECT and SKIP both mean "do not consume PROXY headers here"; pass the
+	// datagrams through untouched, just as the stream path does.
+	if policy == proxyproto.REJECT {
+		h.logger.Debug("untrusted party not allowed",
+			zap.String("remote", cx.RemoteAddr().String()),
+			zap.Strings("allow", h.Allow),
+		)
+		return next.Handle(cx)
+	}
+	if policy == proxyproto.SKIP {
+		return next.Handle(cx)
+	}
+
+	conn := newPacketConn(cx, policy == proxyproto.REQUIRE)
+
+	// Read the first datagram so that the PROXY header addresses are available
+	// to downstream handlers (e.g. for logging or re-emitting the header).
+	if err := conn.prime(time.Duration(h.Timeout)); err != nil {
+		h.logger.Debug("reading PROXY header failed", zap.Error(err))
+		return err
+	}
+
+	h.logger.Debug("connection established",
+		zap.String("remote", conn.RemoteAddr().String()),
+		zap.String("local", conn.LocalAddr().String()),
+	)
+
+	// Set conn as a custom variable on cx.
+	cx.SetVar(connReplKey, conn)
+
+	// conn reads through cx, so hand next a Connection with an empty prefetch
+	// buffer; otherwise the prefetched datagrams would be served raw (with their
+	// PROXY headers still attached), bypassing conn.
+	return next.Handle(cx.WrapWithEmptyBuffer(conn))
 }
 
 // UnmarshalCaddyfile sets up the Handler from Caddyfile tokens. Syntax:
