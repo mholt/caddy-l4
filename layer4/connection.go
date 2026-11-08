@@ -31,7 +31,10 @@ import (
 // supports recording and rewinding, as well as adding context with a replacer
 // and variable table. This function is intended for use at the start of a
 // connection handler chain where the underlying connection is not yet a layer4
-// Connection value.
+// Connection value. It also caches the connection's addresses while the
+// connection is guaranteed to still be open, because some net.Conn
+// implementations (e.g. gVisor's gonet, used by Tailscale's tsnet) may return
+// nil from RemoteAddr or LocalAddr after the connection has been closed.
 func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connection {
 	repl := caddy.NewReplacer()
 	repl.Set(connRemoteAddrReplKey, underlying.RemoteAddr())
@@ -46,6 +49,19 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 
 	_, isPacketConn := underlying.(*packetConn)
 
+	// cache the addresses now, while the connection is still alive; some
+	// implementations (e.g. gVisor's gonet, used by Tailscale's tsnet) return
+	// nil once the connection has been torn down
+	remoteAddr := underlying.RemoteAddr()
+	if remoteAddr == nil {
+		// never return nil, so callers can always call String() safely
+		remoteAddr = &net.TCPAddr{}
+	}
+	localAddr := underlying.LocalAddr()
+	if localAddr == nil {
+		localAddr = &net.TCPAddr{}
+	}
+
 	cx := &Connection{
 		Conn:         underlying,
 		Context:      ctx,
@@ -54,6 +70,8 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 		isPacketConn: isPacketConn,
 		repl:         repl,
 		vars:         vars,
+		remoteAddr:   remoteAddr,
+		localAddr:    localAddr,
 	}
 
 	repl.Map(func(key string) (any, bool) {
@@ -100,6 +118,10 @@ type Connection struct {
 	isPacketConn bool
 	frameSizes   []int
 
+	// addresses cached at wrap time; may be an empty *net.TCPAddr if the
+	// underlying connection already returned nil, but never nil themselves
+	remoteAddr, localAddr net.Addr
+
 	// shortcuts for key elements of the context
 	repl *caddy.Replacer
 	vars map[string]any
@@ -115,6 +137,16 @@ var (
 func (cx *Connection) GetContext() context.Context {
 	return cx.Context
 }
+
+// RemoteAddr returns the remote address cached when the connection was
+// wrapped; it is never nil, even if the underlying connection's RemoteAddr
+// starts returning nil after the connection has been torn down.
+func (cx *Connection) RemoteAddr() net.Addr { return cx.remoteAddr }
+
+// LocalAddr returns the local address cached when the connection was
+// wrapped; it is never nil, even if the underlying connection's LocalAddr
+// starts returning nil after the connection has been torn down.
+func (cx *Connection) LocalAddr() net.Addr { return cx.localAddr }
 
 // Read implements io.Reader in such a way that reads first
 // deplete any associated buffer from the prior recording,
@@ -198,6 +230,9 @@ func (cx *Connection) Wrap(conn net.Conn) *Connection {
 		bytesWritten: cx.bytesWritten,
 		repl:         cx.repl,
 		vars:         cx.vars,
+		// keep using the addresses cached at wrap time
+		remoteAddr: cx.remoteAddr,
+		localAddr:  cx.localAddr,
 	}
 }
 
