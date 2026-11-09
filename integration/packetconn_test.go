@@ -35,6 +35,7 @@ const (
 	testPCWNoReply  = 1 * time.Second       // How long to wait for a reply that shouldn't come
 	testPCWTrunk    = "trunk"               // Network of the trunks Caddy listens on in place of UDP sockets
 	testPCWDelay    = 20 * time.Millisecond // How much time to wait between spawning clients
+	testPCWCertWait = 30 * time.Second      // How long to wait for Caddy to have a certificate to serve
 
 	testPCWPortMultiplex = 9443 // Port serving multiple services, unprivileged so that tests may run as non-root
 	testPCWPortEchoOnly  = 2000 // Port serving echo only
@@ -210,6 +211,41 @@ func startDNSServer(t *testing.T) string {
 	return pc.LocalAddr().String()
 }
 
+// waitForPCWCert waits until Caddy completes a QUIC handshake on each of the addresses given. Caddy obtains and loads
+// its certificates in the background, so it may fail handshakes for a while once a config is loaded, for how long
+// depending on the machine, and the clients of a test don't retry.
+func waitForPCWCert(t *testing.T, addresses ...string) {
+	t.Helper()
+
+	for _, address := range addresses {
+		waitForPCWHandshake(t, func(ctx context.Context, tlsCfg *tls.Config) (*quic.Conn, error) {
+			return quic.DialAddr(ctx, address, tlsCfg, nil)
+		})
+	}
+}
+
+// waitForPCWHandshake dials until a QUIC handshake completes, failing the test if none does within testPCWCertWait.
+func waitForPCWHandshake(t *testing.T, dial func(context.Context, *tls.Config) (*quic.Conn, error)) {
+	t.Helper()
+
+	tlsCfg := provideTLSConfig(true, testPCWHostname)
+	tlsCfg.NextProtos = []string{http3.NextProtoH3}
+	deadline := time.Now().Add(testPCWCertWait)
+	for {
+		ctx, cancel := context.WithTimeout(t.Context(), waitForHTTP3Request)
+		conn, err := dial(ctx, tlsCfg)
+		cancel()
+		if err == nil {
+			_ = conn.CloseWithError(0, "")
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no QUIC handshake completed within %s: %v", testPCWCertWait, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // checkPCWHTTP3 requests the given payload over HTTP/3, expecting it back prefixed with body.
 func checkPCWHTTP3(t *testing.T, address, payload, body string) {
 	t.Helper()
@@ -287,6 +323,7 @@ func checkPCWNoEcho(t *testing.T, m string) {
 // along with ports serving each of them alone.
 func TestPCW(t *testing.T) {
 	loadCaddyWithCaddyfile(t, testPCWCaddyfile(startDNSServer(t)))
+	waitForPCWCert(t, fmt.Sprintf("%s:%d", testPCWHostname, testPCWPortHTTP3Only), testPCWAddress)
 
 	// Run clients of each service concurrently, as the helpers report failures without stopping the test
 	var wg sync.WaitGroup
@@ -326,6 +363,7 @@ func TestPCW(t *testing.T) {
 func TestPCWProxy(t *testing.T) {
 	loadCaddyWithCaddyfile(t, testPCWEchoCaddyfile(`^ECHO\d\d\d\d$`, 8, ""))
 	defer stopPCWCaddy(t)
+	waitForPCWCert(t, testPCWAddress)
 
 	for i := range 5 {
 		checkPCWEcho(t, testPCWAddress, 0, fmt.Sprintf("PROXY%04d", i))
@@ -339,6 +377,7 @@ func TestPCWProxy(t *testing.T) {
 func TestPCWJunk(t *testing.T) {
 	loadCaddyWithCaddyfile(t, testPCWEchoCaddyfile(`^ECHO\d\d\d\d$`, 8, ""))
 	defer stopPCWCaddy(t)
+	waitForPCWCert(t, testPCWAddress)
 
 	done := make(chan struct{})
 	var wg sync.WaitGroup
@@ -382,11 +421,13 @@ func TestPCWJunk(t *testing.T) {
 func TestPCWReload(t *testing.T) {
 	loadCaddyWithCaddyfile(t, testPCWEchoCaddyfile(`^ECHO\d\d\d\d$`, 8, ""))
 	defer stopPCWCaddy(t)
+	waitForPCWCert(t, testPCWAddress)
 	checkPCWHTTP3(t, testPCWAddress, "before", "")
 	checkPCWEcho(t, testPCWAddress, 0, "ECHO0000")
 	checkPCWEcho(t, testPCWAddress, 0, "PROXY0000")
 
 	loadCaddyWithCaddyfile(t, testPCWEchoCaddyfile(`^PING\d\d\d\d$`, 8, testPCWUpdated))
+	waitForPCWCert(t, testPCWAddress)
 	checkPCWHTTP3(t, testPCWAddress, "after", testPCWUpdated)
 	checkPCWEcho(t, testPCWAddress, 0, "ECHO0001") // The routes of the first config are still in place
 	checkPCWEcho(t, testPCWAddress, 0, "PROXY0001")
@@ -398,6 +439,7 @@ func TestPCWReload(t *testing.T) {
 func TestPCWRestart(t *testing.T) {
 	for i := range 3 {
 		loadCaddyWithCaddyfile(t, testPCWEchoCaddyfile(`^ECHO\d\d\d\d$`, 8, ""))
+		waitForPCWCert(t, testPCWAddress)
 		checkPCWHTTP3(t, testPCWAddress, strconv.Itoa(i), "")
 		checkPCWEcho(t, testPCWAddress, 0, fmt.Sprintf("ECHO%04d", i))
 		checkPCWEcho(t, testPCWAddress, 0, fmt.Sprintf("PROXY%04d", i))
@@ -500,6 +542,9 @@ func TestPCWTrunk(t *testing.T) {
 	}
 	tr := &quic.Transport{Conn: client}
 	defer func() { _ = tr.Close() }()
+	waitForPCWHandshake(t, func(ctx context.Context, tlsCfg *tls.Config) (*quic.Conn, error) {
+		return tr.Dial(ctx, serverAddr, tlsCfg, nil)
+	})
 
 	// HTTP/3 over the trunk
 	for i := range 5 {
