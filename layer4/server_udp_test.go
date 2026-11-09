@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -290,6 +291,154 @@ func TestServePacketEmptyPacket(t *testing.T) {
 	}
 }
 
+// TestServePacketNilAddr asserts that a read with no address and no error doesn't start a flow.
+func TestServePacketNilAddr(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen | %s", err)
+	}
+	defer func() { _ = pc.Close() }()
+
+	var handlers atomic.Int64
+	server := new(Server)
+	server.compiledRoute = HandlerFunc(func(cx *Connection) error {
+		handlers.Add(1)
+		return echoHandler(cx)
+	})
+	server.logger = zap.NewNop()
+	server.IdleTimeout = caddy.Duration(30 * time.Second)
+	go func() { _ = server.servePacket(&nilAddrPacketConn{PacketConn: pc}) }()
+
+	c := dialPacketServer(t, pc.LocalAddr().String())
+	if got := mustExchange(t, c, []byte("hello")); string(got) != "hello" {
+		t.Fatalf("got reply %q, want %q", got, "hello")
+	}
+	if got := handlers.Load(); got != 1 {
+		t.Errorf("got %d handlers, want 1", got)
+	}
+}
+
+// TestServePacketStopError asserts that once its socket is closed, as Caddy does, a server returns
+// an error that is net.ErrClosed, as a closed socket would make it.
+func TestServePacketStopError(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen | %s", err)
+	}
+	server := new(Server)
+	server.compiledRoute = HandlerFunc(echoHandler)
+	server.logger = zap.NewNop()
+	server.IdleTimeout = caddy.Duration(30 * time.Second)
+	result := make(chan error, 1)
+	go func() { result <- server.servePacket(pc) }()
+
+	_ = pc.Close()
+	select {
+	case err = <-result:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Errorf("servePacket returned %v, want %v", err, net.ErrClosed)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("servePacket didn't return once the socket was closed")
+	}
+}
+
+// TestServePacketForeignDeadline asserts that a read deadline passed, set by another server sharing the socket
+// once closed, as Caddy's packet conns do on some platforms on a reload, doesn't make every read time out.
+func TestServePacketForeignDeadline(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen | %s", err)
+	}
+	defer func() { _ = pc.Close() }()
+
+	server := new(Server)
+	server.compiledRoute = HandlerFunc(echoHandler)
+	server.logger = zap.NewNop()
+	server.IdleTimeout = caddy.Duration(30 * time.Second)
+	go func() { _ = server.servePacket(pc) }()
+
+	c := dialPacketServer(t, pc.LocalAddr().String())
+	if got := mustExchange(t, c, []byte("before")); string(got) != "before" {
+		t.Fatalf("got reply %q, want %q", got, "before")
+	}
+	_ = pc.SetReadDeadline(time.Now())
+	if got := mustExchange(t, c, []byte("after")); string(got) != "after" {
+		t.Fatalf("got reply %q, want %q", got, "after")
+	}
+}
+
+// caddyPacketConn emulates the packet conns Caddy shares between the servers of the old and the new config
+// on some platforms, e.g. Windows: once closed, it sets a read deadline passed on the socket, so as to make
+// its pending read return, which then clears the deadline and returns no packet, no address and no error.
+type caddyPacketConn struct {
+	net.PacketConn
+	closed atomic.Bool
+}
+
+func (c *caddyPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	if c.closed.Load() {
+		return 0, nil, net.ErrClosed
+	}
+	n, addr, err := c.PacketConn.ReadFrom(p)
+	var nerr net.Error
+	if err != nil && c.closed.Load() && errors.As(err, &nerr) && nerr.Timeout() {
+		err = c.SetReadDeadline(time.Time{})
+	}
+	return n, addr, err
+}
+
+func (c *caddyPacketConn) Close() error {
+	if c.closed.CompareAndSwap(false, true) {
+		_ = c.SetReadDeadline(time.Now())
+	}
+	return nil
+}
+
+// TestServePacketReload asserts that once a server shares its socket with the server of a new config, as Caddy's
+// packet conns do on some platforms on a reload, the old server stops as soon as its packet conn is closed, rather
+// than once it takes a packet of the new server, which it would drop, and the new server serves the socket.
+func TestServePacketReload(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen | %s", err)
+	}
+	defer func() { _ = pc.Close() }()
+
+	serve := func() (*caddyPacketConn, chan struct{}) {
+		server := new(Server)
+		server.compiledRoute = HandlerFunc(echoHandler)
+		server.logger = zap.NewNop()
+		server.IdleTimeout = caddy.Duration(30 * time.Second)
+		conn, done := &caddyPacketConn{PacketConn: pc}, make(chan struct{})
+		go func() {
+			_ = server.servePacket(conn)
+			close(done)
+		}()
+		return conn, done
+	}
+
+	c := dialPacketServer(t, pc.LocalAddr().String())
+	old, oldDone := serve()
+	for i := range 20 {
+		// Caddy starts the servers of the new config before stopping those of the old one
+		conn, done := serve()
+		_ = old.Close()
+		select {
+		case <-oldDone:
+		case <-time.After(time.Second):
+			t.Fatalf("reload %d: the old server didn't stop once its packet conn was closed", i)
+		}
+		want := fmt.Sprintf("reload-%d", i)
+		if got := mustExchange(t, c, []byte(want)); string(got) != want {
+			t.Fatalf("reload %d: got reply %q, want %q", i, got, want)
+		}
+		old, oldDone = conn, done
+	}
+	_ = old.Close()
+	<-oldDone
+}
+
 // TestServePacketCloseEndsFlow asserts that once a handler closes its connection,
 // the next packet of the client starts a new handler.
 func TestServePacketCloseEndsFlow(t *testing.T) {
@@ -442,5 +591,46 @@ func TestServePacketWaitForMore(t *testing.T) {
 	}
 	if err := <-result; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestServePacketSetDeadline asserts that a deadline passed, e.g. of a TLS handshake,
+// fails reading and writing a connection, and that its flow goes on once the deadline is cleared.
+func TestServePacketSetDeadline(t *testing.T) {
+	result := make(chan error, 1)
+	addr := startPacketServer(t, HandlerFunc(func(cx *Connection) error {
+		result <- func() error {
+			_ = cx.SetReadDeadline(time.Time{})
+			buf := make([]byte, 1024)
+			if _, err := cx.Read(buf); err != nil {
+				return fmt.Errorf("reading the first packet: %w", err)
+			}
+
+			if err := cx.SetDeadline(time.Now().Add(-time.Second)); err != nil {
+				return fmt.Errorf("setting a deadline: %w", err)
+			}
+			if _, err := cx.Read(buf); !errors.Is(err, os.ErrDeadlineExceeded) {
+				return fmt.Errorf("reading past the deadline returned %v, want %v", err, os.ErrDeadlineExceeded)
+			}
+			if _, err := cx.Write([]byte("late")); !errors.Is(err, os.ErrDeadlineExceeded) {
+				return fmt.Errorf("writing past the deadline returned %v, want %v", err, os.ErrDeadlineExceeded)
+			}
+			if err := cx.SetDeadline(time.Time{}); err != nil {
+				return fmt.Errorf("clearing the deadline: %w", err)
+			}
+			return nil
+		}()
+		return echoHandler(cx)
+	}), 30*time.Second)
+
+	c := dialPacketServer(t, addr)
+	if _, err := c.Write([]byte("first")); err != nil {
+		t.Fatalf("failed to write | %s", err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if got := mustExchange(t, c, []byte("second")); string(got) != "second" {
+		t.Fatalf("got reply %q, want %q", got, "second")
 	}
 }
