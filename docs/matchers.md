@@ -59,6 +59,7 @@ Matchers are categorized into different types based on their function:
 | IP matchers      | [**local_ip**](/docs/matchers/local_ip.md)             | Based on *local* IP (or CIDR range)                                                                                        |
 |                  | [**remote_ip**](/docs/matchers/remote_ip.md)           | Based on *remote* IP (or CIDR range)                                                                                       |
 |                  | [**remote_ip_list**](/docs/matchers/remote_ip_list.md) | Based on *remote* IP (or CIDR range)                                                                                       |
+|                  | [**remote_host**](/docs/matchers/remote_host.md)       | Based on the *remote* host name (reverse DNS)                                                                              |
 | Special matchers | [**clock**](/docs/matchers/clock.md)                   | Based on *time of matching*                                                                                                |
 |                  | [**not**](/docs/matchers/not.md)                       | *Not* matched by inner matcher sets                                                                                        |
 |                  | [**vars**](/docs/matchers/vars.md)                     | Based on variables in the context or placeholder values                                                                    |
