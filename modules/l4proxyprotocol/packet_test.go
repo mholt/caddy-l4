@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,5 +207,73 @@ func TestPacketConnAddrsFollowPolicy(t *testing.T) {
 			}
 			assertString(t, "payload", string(b[:n]))
 		})
+	}
+}
+
+// malformedDatagram starts with the PROXY v2 signature, but carries an
+// unsupported address family, so its header fails to parse.
+var malformedDatagram = []byte("\r\n\r\n\x00\r\nQUIT\n\x21\x99\x00\x00payload")
+
+// TestPacketConnDropsBadDatagrams verifies that a datagram whose PROXY header
+// is malformed, or missing while required, is dropped once the connection has
+// been primed, rather than failing the Read and ending the whole session.
+func TestPacketConnDropsBadDatagrams(t *testing.T) {
+	src := &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4), Port: 12345}
+	dst := &net.UDPAddr{IP: net.IPv4(5, 6, 7, 8), Port: 443}
+
+	for _, tc := range []struct {
+		name   string
+		policy proxyproto.Policy
+		want   []string
+	}{
+		// a datagram without a header is dropped only if one is required
+		{"REQUIRE", proxyproto.REQUIRE, []string{"first", "last"}},
+		{"USE", proxyproto.USE, []string{"first", "plain", "last"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := newPacketConn(&fakeDatagramConn{
+				datagrams: [][]byte{
+					buildDatagram(src, dst, []byte("first")),
+					malformedDatagram,
+					[]byte("plain"),
+					buildDatagram(src, dst, []byte("last")),
+				},
+				local:  dst,
+				remote: src,
+			}, tc.policy)
+			if err := conn.prime(0); err != nil {
+				t.Fatalf("prime failed: %v", err)
+			}
+
+			var got []string
+			for {
+				b := make([]byte, maxDatagramSize)
+				n, err := conn.Read(b)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("Read error after %q: %v", got, err)
+				}
+				got = append(got, string(b[:n]))
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPacketConnPrimeRejectsMalformedHeader verifies that a malformed PROXY
+// header on the first datagram still fails priming, as the stream path rejects
+// such a connection.
+func TestPacketConnPrimeRejectsMalformedHeader(t *testing.T) {
+	conn := newPacketConn(&fakeDatagramConn{
+		datagrams: [][]byte{malformedDatagram},
+		local:     &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5000},
+		remote:    &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 6000},
+	}, proxyproto.USE)
+	if err := conn.prime(0); err == nil {
+		t.Fatal("expected prime to fail on a malformed PROXY header")
 	}
 }

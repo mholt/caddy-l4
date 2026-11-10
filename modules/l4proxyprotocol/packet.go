@@ -30,8 +30,9 @@ import (
 // jumbo frames), so a whole datagram is always returned by a single Read.
 const maxDatagramSize = 9000
 
-// ErrPacketHeaderRequired is returned while reading from a packet connection
-// when a PROXY header is required by policy but a datagram arrives without one.
+// ErrPacketHeaderRequired is returned while priming a packet connection when a
+// PROXY header is required by policy but the first datagram arrives without
+// one. Later datagrams without one are dropped instead.
 var ErrPacketHeaderRequired = errors.New("PROXY header required but not received")
 
 // packetConn wraps a packet (e.g. UDP) connection whose datagrams are each
@@ -85,12 +86,14 @@ func newPacketConn(conn net.Conn, policy proxyproto.Policy) *packetConn {
 // (if any) is buffered for the next Read. A non-zero timeout bounds the wait;
 // if it elapses before a datagram arrives, priming is a no-op unless a header
 // is required (nothing has been consumed, so later datagrams are still read).
+// Unlike Read, it fails on a first datagram whose PROXY header is malformed, or
+// missing while required, as the stream path rejects such a connection.
 func (c *packetConn) prime(timeout time.Duration) error {
 	if timeout > 0 {
 		_ = c.Conn.SetReadDeadline(time.Now().Add(timeout))
 		defer func() { _ = c.Conn.SetReadDeadline(time.Time{}) }()
 	}
-	payload, err := c.readDatagram()
+	payload, herr, err := c.readDatagram()
 	if len(payload) > 0 {
 		c.payload = append(c.payload[:0], payload...)
 	}
@@ -101,24 +104,26 @@ func (c *packetConn) prime(timeout time.Duration) error {
 		}
 		return err
 	}
-	return nil
+	return herr
 }
 
 // readDatagram reads a single datagram and returns its payload with the PROXY
 // header (if any) stripped off. The returned slice is safe to retain: it does
-// not alias the reusable read buffer.
-func (c *packetConn) readDatagram() ([]byte, error) {
+// not alias the reusable read buffer. A datagram whose PROXY header is
+// malformed, or missing while required, yields no payload and a header error
+// herr, which concerns that datagram only, unlike the read error err.
+func (c *packetConn) readDatagram() (payload []byte, herr, err error) {
 	n, err := c.Conn.Read(c.readBuf)
 	if n == 0 {
-		return nil, err
+		return nil, nil, err
 	}
-	payload, herr := c.stripHeader(c.readBuf[:n])
+	payload, herr = c.stripHeader(c.readBuf[:n])
 	if herr != nil {
-		return nil, herr
+		return nil, herr, err
 	}
 	out := make([]byte, len(payload))
 	copy(out, payload)
-	return out, err
+	return out, nil, err
 }
 
 // stripHeader parses and removes a PROXY protocol header from the front of a
@@ -148,7 +153,9 @@ func (c *packetConn) stripHeader(datagram []byte) ([]byte, error) {
 }
 
 // Read returns the header-stripped payload of the packet stream. Each datagram
-// is unwrapped independently.
+// is unwrapped independently, and one whose PROXY header is malformed, or
+// missing while required, is dropped, as a single bad datagram shouldn't end
+// the whole session.
 func (c *packetConn) Read(b []byte) (int, error) {
 	// Serve any leftover payload from the current datagram first.
 	if len(c.payload) > 0 {
@@ -162,7 +169,7 @@ func (c *packetConn) Read(b []byte) (int, error) {
 		return 0, err
 	}
 	for {
-		payload, err := c.readDatagram()
+		payload, _, err := c.readDatagram()
 		if len(payload) > 0 {
 			n := copy(b, payload)
 			if n < len(payload) {
@@ -175,7 +182,7 @@ func (c *packetConn) Read(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		// Header-only datagram (e.g. no payload); move on to the next one.
+		// Header-only or dropped datagram; move on to the next one.
 	}
 }
 
