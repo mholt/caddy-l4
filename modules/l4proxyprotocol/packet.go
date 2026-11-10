@@ -182,7 +182,9 @@ func (c *packetConn) Read(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		// Header-only or dropped datagram; move on to the next one.
+		// Header-only, empty or dropped datagram; move on to the next one. An empty
+		// payload isn't returned as 0, nil, since io.Copy, as in l4proxy, never
+		// forwards one anyway, and it never ends the session as io.EOF would.
 	}
 }
 
