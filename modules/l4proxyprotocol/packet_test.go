@@ -61,7 +61,7 @@ func TestPacketConnStripsHeaderFromEveryDatagram(t *testing.T) {
 		datagrams = append(datagrams, buildDatagram(src, dst, pl))
 	}
 
-	conn := newPacketConn(&fakeDatagramConn{datagrams: datagrams, local: dst, remote: src}, false)
+	conn := newPacketConn(&fakeDatagramConn{datagrams: datagrams, local: dst, remote: src}, proxyproto.USE)
 
 	// Priming reads the first datagram so addresses reflect the PROXY header.
 	if err := conn.prime(0); err != nil {
@@ -97,7 +97,7 @@ func TestPacketConnPassesThroughWhenHeaderNotRequired(t *testing.T) {
 		datagrams: datagrams,
 		local:     &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5000},
 		remote:    &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 6000},
-	}, false)
+	}, proxyproto.USE)
 
 	if err := conn.prime(0); err != nil {
 		t.Fatalf("prime failed: %v", err)
@@ -124,7 +124,7 @@ func TestPacketConnRequiredHeaderMissing(t *testing.T) {
 		datagrams: [][]byte{[]byte("plain datagram")},
 		local:     &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5000},
 		remote:    &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 6000},
-	}, true)
+	}, proxyproto.REQUIRE)
 
 	err := conn.prime(0)
 	if err != ErrPacketHeaderRequired {
@@ -144,7 +144,7 @@ func TestPacketConnPayloadLargerThanReadBuffer(t *testing.T) {
 		datagrams: [][]byte{buildDatagram(src, dst, payload)},
 		local:     dst,
 		remote:    src,
-	}, false)
+	}, proxyproto.USE)
 
 	if err := conn.prime(0); err != nil {
 		t.Fatalf("prime failed: %v", err)
@@ -165,5 +165,46 @@ func TestPacketConnPayloadLargerThanReadBuffer(t *testing.T) {
 	}
 	if !bytes.Equal(got, payload) {
 		t.Fatalf("reassembled payload mismatch: got %d bytes, want %d", len(got), len(payload))
+	}
+}
+
+// TestPacketConnAddrsFollowPolicy verifies that the addresses from the PROXY
+// header are only reported under the policies trusting them, as on the stream
+// path: IGNORE strips the header but keeps the immediate peer's addresses, so
+// an untrusted sender can't spoof them.
+func TestPacketConnAddrsFollowPolicy(t *testing.T) {
+	src := &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4), Port: 12345}
+	dst := &net.UDPAddr{IP: net.IPv4(5, 6, 7, 8), Port: 443}
+	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 6000}
+	local := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 5000}
+
+	for _, tc := range []struct {
+		name                  string
+		policy                proxyproto.Policy
+		wantRemote, wantLocal string
+	}{
+		{"USE", proxyproto.USE, src.String(), dst.String()},
+		{"REQUIRE", proxyproto.REQUIRE, src.String(), dst.String()},
+		{"IGNORE", proxyproto.IGNORE, peer.String(), local.String()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := newPacketConn(&fakeDatagramConn{
+				datagrams: [][]byte{buildDatagram(src, dst, []byte("payload"))},
+				local:     local,
+				remote:    peer,
+			}, tc.policy)
+			if err := conn.prime(0); err != nil {
+				t.Fatalf("prime failed: %v", err)
+			}
+			assertString(t, tc.wantRemote, conn.RemoteAddr().String())
+			assertString(t, tc.wantLocal, conn.LocalAddr().String())
+
+			b := make([]byte, maxDatagramSize)
+			n, err := conn.Read(b)
+			if err != nil {
+				t.Fatalf("Read error: %v", err)
+			}
+			assertString(t, "payload", string(b[:n]))
+		})
 	}
 }

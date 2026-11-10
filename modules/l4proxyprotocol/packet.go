@@ -48,6 +48,10 @@ type packetConn struct {
 
 	// requireHeader rejects datagrams that arrive without a PROXY header.
 	requireHeader bool
+	// useHeaderAddrs reports the addresses from the PROXY header rather than
+	// those of the immediate peer. Under IGNORE the header is stripped but its
+	// addresses aren't trusted, as on the stream path.
+	useHeaderAddrs bool
 
 	// readBuf is a reusable buffer for reading a whole datagram.
 	readBuf []byte
@@ -57,19 +61,22 @@ type packetConn struct {
 	// surfaced only after the buffered payload has been fully consumed.
 	pendingErr error
 
-	// srcAddr and dstAddr are taken from the first PROXY header seen and are
-	// reported by RemoteAddr and LocalAddr respectively, mirroring the stream
-	// handler's behavior.
+	// srcAddr and dstAddr are taken from the first PROXY header seen, if
+	// useHeaderAddrs is set, and are reported by RemoteAddr and LocalAddr
+	// respectively, mirroring the stream handler's behavior.
 	srcAddr, dstAddr net.Addr
 }
 
 // newPacketConn wraps conn, which must deliver exactly one datagram per Read
-// (as a layer4.Connection backed by a packet conn does).
-func newPacketConn(conn net.Conn, requireHeader bool) *packetConn {
+// (as a layer4.Connection backed by a packet conn does), applying policy to
+// its PROXY headers: REQUIRE rejects datagrams without one, and only USE and
+// REQUIRE make the header addresses reported.
+func newPacketConn(conn net.Conn, policy proxyproto.Policy) *packetConn {
 	return &packetConn{
-		Conn:          conn,
-		requireHeader: requireHeader,
-		readBuf:       make([]byte, maxDatagramSize),
+		Conn:           conn,
+		requireHeader:  policy == proxyproto.REQUIRE,
+		useHeaderAddrs: policy == proxyproto.USE || policy == proxyproto.REQUIRE,
+		readBuf:        make([]byte, maxDatagramSize),
 	}
 }
 
@@ -130,8 +137,9 @@ func (c *packetConn) stripHeader(datagram []byte) ([]byte, error) {
 		return nil, err
 	}
 	// Record the addresses from the first PROXY (not LOCAL) header so that
-	// RemoteAddr/LocalAddr stay stable across the connection's datagrams.
-	if header.Command == proxyproto.PROXY && c.srcAddr == nil {
+	// RemoteAddr/LocalAddr stay stable across the connection's datagrams,
+	// unless the policy doesn't trust them.
+	if c.useHeaderAddrs && header.Command == proxyproto.PROXY && c.srcAddr == nil {
 		c.srcAddr, c.dstAddr = header.SourceAddr, header.DestinationAddr
 	}
 	// Everything after the header is the datagram's payload.

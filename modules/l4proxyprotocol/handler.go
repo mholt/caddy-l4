@@ -267,7 +267,7 @@ func (h *Handler) handlePacket(cx *layer4.Connection, next layer4.Handler) error
 		return next.Handle(cx)
 	}
 
-	conn := newPacketConn(cx, policy == proxyproto.REQUIRE)
+	conn := newPacketConn(cx, policy)
 
 	// Read the first datagram so that the PROXY header addresses are available
 	// to downstream handlers (e.g. for logging or re-emitting the header).
