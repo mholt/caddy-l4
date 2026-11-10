@@ -16,6 +16,7 @@ package l4proxy
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -91,6 +92,10 @@ type Upstream struct {
 	// policies (e.g. weighted_round_robin). A value <= 0 is treated as 1.
 	Weight int `json:"weight,omitempty"`
 
+	// Transport is this upstream's custom dialer
+	// If set it will connect to the upstream through the custom dialer
+	Transport json.RawMessage `json:"transport,omitempty" caddy:"namespace=layer4.proxy.upstream.transport inline_key=provider"`
+
 	peers             []*peer
 	tlsConfig         *tls.Config
 	healthCheckPolicy *PassiveHealthChecks
@@ -98,6 +103,8 @@ type Upstream struct {
 	// localAddrs holds LocalAddrs after known placeholders are replaced at
 	// provision time. Unknown placeholders remain and are expanded per-connection.
 	localAddrs []string
+
+	transport ContextDialer
 }
 
 func (u *Upstream) String() string {
@@ -149,6 +156,31 @@ func (u *Upstream) provision(ctx caddy.Context, h *Handler) error {
 				return fmt.Errorf("local_address is not supported for Unix socket upstreams (%s)", p.address.Network)
 			}
 		}
+	}
+
+	if u.Transport != nil && len(u.LocalAddrs) > 0 {
+		return fmt.Errorf("local_address is not supported in combination with transport")
+	}
+
+	if u.Transport == nil {
+		u.transport = DefaultDialer()
+	} else {
+		mod, err := ctx.LoadModule(u, "Transport")
+		if err != nil {
+			return err
+		}
+
+		if dialer, ok := mod.(ContextDialer); !ok {
+			return fmt.Errorf("wat")
+		} else {
+			u.transport = dialer
+			if p, ok := u.transport.(caddy.Provisioner); ok {
+				if err := p.Provision(ctx); err != nil {
+					return err
+				}
+			}
+		}
+
 	}
 
 	// Resolve known placeholders in local_address at provision time; any unknown
@@ -295,6 +327,7 @@ func (u *Upstream) totalConns() int {
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
 //		weight <int>
+//		transport <module>
 //
 //		tls
 //		tls_client_auth <automate_name> | <cert_file> <key_file>
@@ -319,6 +352,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
 		hasResolverPreference, hasWeight        bool
+		hasDialer                               bool
 	)
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		optionName := d.Val()
@@ -499,6 +533,33 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				u.TLS = &reverseproxy.TLSConfig{}
 			}
 			u.TLS.CARaw, hasTLSTrustPool = moduleRaw, true
+		case "transport":
+			if hasDialer {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() == 0 {
+				return d.ArgErr()
+			}
+			_, moduleName := d.NextArg(), d.Val()
+
+			unm, err := caddyfile.UnmarshalModule(d, "layer4.proxy.upstream.transport."+moduleName)
+			if err != nil {
+				return err
+			}
+			dialer, ok := unm.(ContextDialer)
+			if !ok {
+				return d.Errf("transport module '%s' is not a l4proxy.ContextDialer", moduleName)
+			}
+
+			moduleRaw := caddyconfig.JSON(dialer, nil)
+
+			moduleRaw, err = layer4.SetModuleNameInline("provider", moduleName, moduleRaw)
+			if err != nil {
+				return err
+			}
+
+			u.Transport = moduleRaw
+			hasDialer = true
 		default:
 			return d.ArgErr()
 		}
