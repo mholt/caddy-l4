@@ -118,6 +118,16 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 			lastNeedsMoreIdx = -1
 			routesStatus     = make(map[int]int)
 		)
+		// lastNeedsMoreIdx is a watermark, so a conclusively unmatched route can bury an
+		// earlier one that is still waiting for data; consult the statuses directly instead
+		anyRouteNeedsMore := func(before int) bool {
+			for i, s := range routesStatus {
+				if s == routeNeedsMore && i > lastMatchedRouteIdx && i < before {
+					return true
+				}
+			}
+			return false
+		}
 		// this loop should only be done if there are matchers that can't determine the match,
 		// i.e. some of the matchers returned false, ErrConsumedAllPrefetchedBytes. The index which
 		// the loop begins depends upon if there is a matched route.
@@ -174,10 +184,11 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				if matched {
 					// some matchers before the current one still need more data, and this is likely a fallback route
 					// that matches anything
-					if len(route.matcherSets) == 0 && lastNeedsMoreIdx != -1 && i > lastNeedsMoreIdx {
+					if len(route.matcherSets) == 0 && (lastNeedsMoreIdx != -1 && i > lastNeedsMoreIdx || anyRouteNeedsMore(i)) {
 						continue
 					}
 					routesStatus[i] = routeMatched
+					cx.routed = true
 					lastMatchedRouteIdx = i
 					lastNeedsMoreIdx = i + 1
 					// remove deadline after we matched
@@ -224,7 +235,7 @@ func (routes RouteList) Compile(logger *zap.Logger, matchingTimeout time.Duratio
 				return next.Handle(cx)
 			}
 			// some of the matchers can't reach a conclusion
-			if lastNeedsMoreIdx != -1 && lastNeedsMoreIdx < len(routes) {
+			if (lastNeedsMoreIdx != -1 && lastNeedsMoreIdx < len(routes)) || anyRouteNeedsMore(len(routes)) {
 				goto loop
 			}
 			// fallback route, removing deadline

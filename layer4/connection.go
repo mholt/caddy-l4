@@ -100,6 +100,9 @@ type Connection struct {
 	isPacketConn bool
 	frameSizes   []int
 
+	// set once a route has matched, before its handlers are executed
+	routed bool
+
 	// shortcuts for key elements of the context
 	repl *caddy.Replacer
 	vars map[string]any
@@ -131,17 +134,28 @@ func (cx *Connection) Read(p []byte) (n int, err error) {
 	// after the buffer has been "depleted"
 	if len(cx.buf) > 0 && cx.offset < len(cx.buf) {
 		// for packet conns, do not read past frame boundaries
-		// TODO: if a frame is read in several ops, some handlers may not work correctly
 		if cx.isPacketConn {
+			// find the end of the frame that should be read from, the rest of the buffer
+			// being a frame prefetched in part, whose size isn't recorded yet
+			frameEnd, partial := len(cx.buf), true
 			var frameOffset int
-			// find the frame that should be read from
 			for _, size := range cx.frameSizes {
-				if frameOffset <= cx.offset && cx.offset < frameOffset+size {
-					n = copy(p, cx.buf[cx.offset:min(frameOffset+size, len(cx.buf))])
-					cx.offset += n
+				frameOffset += size
+				if cx.offset < frameOffset {
+					frameEnd, partial = min(frameOffset, len(cx.buf)), false
 					break
 				}
-				frameOffset += size
+			}
+			n = copy(p, cx.buf[cx.offset:frameEnd])
+			cx.offset += n
+			// once not matching, read the rest of a frame prefetched in part along with it,
+			// so that the frame is read whole, as a packet conn is expected to read it
+			if partial && !cx.matching && cx.offset == len(cx.buf) && n < len(p) {
+				if pc, ok := cx.Conn.(*packetConn); ok && pc.lastPacket != nil {
+					m, _ := pc.Read(p[n:])
+					n += m
+					cx.bytesRead += uint64(m) //nolint:gosec // disable G115
+				}
 			}
 		} else {
 			n = copy(p, cx.buf[cx.offset:])
@@ -256,6 +270,18 @@ func (cx *Connection) prefetch() (err error) {
 	}
 
 	return ErrMatchingBufferFull
+}
+
+// prefetchedPackets returns the packets prefetched in full, as views of the buffer, which must be intact,
+// i.e. not consumed by any handler. A packet prefetched in part isn't returned. Only for packet conns.
+func (cx *Connection) prefetchedPackets() [][]byte {
+	pkts := make([][]byte, 0, len(cx.frameSizes))
+	var offset int
+	for _, size := range cx.frameSizes {
+		pkts = append(pkts, cx.buf[offset:offset+size])
+		offset += size
+	}
+	return pkts
 }
 
 // HasMore means there is more data available for reading. Only for packet conns.

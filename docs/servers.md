@@ -29,6 +29,23 @@ the Layer 4 app is capable of running as a listener wrapper or a packet connecti
 Note that listener wrappers don't support QUIC since it's essentially UDP traffic, and packet connection wrappers
 should be used instead.
 
+A packet connection wrapper sorts the packets it receives into flows by client address:port, and tries to match each
+new flow with its routes. A matched flow is served by the handlers of its route. A flow no route matches, including
+one that fails to complete the matching phase in time, is passed to Caddy's HTTP app untouched, with every packet
+read while matching, so that HTTP/3 (QUIC) keeps working on the same port. A flow ends once it has been idle for
+`idle_timeout` (30s by default), and its next packet starts a new flow, which is matched again.
+
+Known limitations of packet connection wrappers:
+- Caddy wraps a UDP socket once, when its HTTP/3 server starts, so the routes of a packet connection wrapper aren't
+  updated by a config reload as long as the socket stays open, i.e. until Caddy stops serving HTTP/3 on its address.
+  Restart Caddy to apply changes to these routes.
+- The packets of a flow aren't passed to the HTTP app until no route can match it, so a matcher waiting for more data
+  delays HTTP/3 connections by up to `matching_timeout`. Prefer matchers that recognize a protocol by its first packet,
+  e.g. `dns`, `quic`, `wireguard`, and keep `matching_timeout` short.
+- Caddy's HTTP/3 server gets a generic packet connection rather than the UDP socket, so it can't use socket-specific
+  optimizations. On a host with several IP addresses, replies may be sent from an address other than the one
+  a client has sent to, unless Caddy listens on a specific address.
+
 ## Syntax
 
 A server may have one or many network addresses to bind to. Each network address is parsed with Caddy's
@@ -58,17 +75,20 @@ Below is a list of valid [network address](https://caddyserver.com/docs/conventi
 
 Any server, listener wrapper or packet connection wrapper has `matching_timeout` field which is the maximum time
 connections have to complete the matching phase (the first terminal handler is matched). By default, it equals 3s.
+Any server handling UDP and any packet connection wrapper also has `idle_timeout` field which is the maximum time
+a flow of packets from a client address:port may stay idle before it ends. By default, it equals 30s.
 
 ### Caddyfile
 
 Standard layer 4 server blocks are placed inside `layer4` global directive, and each server block is introduced with
 at least one network address. Wrappers are introduced with `layer4` directive inside `listener_wrappers` or
-`packer_conn_wrappers` blocks of `servers` global directive:
+`packet_conn_wrappers` blocks of `servers` global directive:
 ```caddyfile
 {
     layer4 {
         <network_address> [...] {
-            # optionally adjust the matching timeout
+            # optionally adjust the idle (UDP only) and matching timeouts
+            idle_timeout <duration>
             matching_timeout <duration>
             
             # put routes here
@@ -105,10 +125,12 @@ at least one network address. Wrappers are introduced with `layer4` directive in
             # that the HTTP app is set to receive, e.g. udp/:443
             # (constrained by <listener_address> if present)
             layer4 {
-                # optionally adjust the matching timeout
+                # optionally adjust the idle and matching timeouts
+                idle_timeout <duration>
                 matching_timeout <duration>
                 
-                # put routes here
+                # put routes here, the flows they don't match
+                # go to the HTTP app, i.e. to its HTTP/3 server
             }
             
             # put other packet connection wrappers here
@@ -127,6 +149,31 @@ An example config of the Layer 4 app that echoes everything it gets on TCP4 port
             }
         }
     }
+}
+```
+
+An example config of the Layer 4 app wrapping the HTTP app's packet connections, so that DNS and WireGuard traffic
+received on UDP port 443 is proxied, and any other traffic goes to the HTTP app's HTTP/3 server:
+```caddyfile
+{
+    servers {
+        packet_conn_wrappers {
+            layer4 {
+                @d dns
+                route @d {
+                    proxy udp/one.one.one.one:53
+                }
+                @w wireguard
+                route @w {
+                    proxy udp/192.168.1.1:51820
+                }
+            }
+        }
+    }
+}
+
+example.com {
+    respond "OK" 200
 }
 ```
 
@@ -157,3 +204,130 @@ JSON equivalent to the caddyfile config provided above:
     }
 }
 ```
+
+JSON equivalent to the packet connection wrapper example provided above:
+```json
+{
+    "apps": {
+        "http": {
+            "servers": {
+                "srv0": {
+                    "listen": [
+                        ":443"
+                    ],
+                    "packet_conn_wrappers": [
+                        {
+                            "routes": [
+                                {
+                                    "handle": [
+                                        {
+                                            "handler": "proxy",
+                                            "upstreams": [
+                                                {
+                                                    "dial": [
+                                                        "udp/one.one.one.one:53"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "match": [
+                                        {
+                                            "dns": {}
+                                        }
+                                    ]
+                                },
+                                {
+                                    "handle": [
+                                        {
+                                            "handler": "proxy",
+                                            "upstreams": [
+                                                {
+                                                    "dial": [
+                                                        "udp/192.168.1.1:51820"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "match": [
+                                        {
+                                            "wireguard": {}
+                                        }
+                                    ]
+                                }
+                            ],
+                            "wrapper": "layer4"
+                        }
+                    ],
+                    "routes": [
+                        {
+                            "match": [
+                                {
+                                    "host": [
+                                        "example.com"
+                                    ]
+                                }
+                            ],
+                            "handle": [
+                                {
+                                    "handler": "subroute",
+                                    "routes": [
+                                        {
+                                            "handle": [
+                                                {
+                                                    "body": "OK",
+                                                    "handler": "static_response",
+                                                    "status_code": 200
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ],
+                            "terminal": true
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}
+```
+
+## HTTP/2 connection coalescing
+
+Wrappers route whole connections, not individual requests. When a listener wrapper passes TLS traffic through
+to an upstream based on SNI, the routing decision is made once, from the ClientHello. Connections it doesn't match
+are decrypted and served by the HTTP app, and the Layer 4 app can't see or reroute any requests sent over them later.
+
+HTTP/2 clients may reuse an existing connection for another hostname if the certificate presented on that connection
+also covers that hostname (e.g. a wildcard certificate) and both hostnames resolve to the same IP address
+(see [RFC 9113, Section 9.1.1](https://www.rfc-editor.org/rfc/rfc9113.html#section-9.1.1)). As a result, requests
+for a hostname meant to be passed through may reach the HTTP app instead. If no HTTP route matches them, Caddy
+responds with an empty `200`, which browsers display as a blank page.
+
+To make clients retry such requests over a new connection with the correct SNI, enable `strict_sni_host` in the
+`servers` global directive. Caddy then responds with `421 Misdirected Request` whenever the HTTP `Host` header
+differs from the TLS SNI:
+```caddyfile
+{
+    servers {
+        strict_sni_host on
+        listener_wrappers {
+            layer4 {
+                @app tls sni app.example.com
+                route @app {
+                    proxy app.internal:443
+                }
+            }
+            tls
+        }
+    }
+}
+```
+
+Note that `strict_sni_host` applies to all hostnames served by the HTTP app, so clients will also have to open
+separate connections for those, and requests without SNI (e.g. by IP address) will be rejected. Alternatively,
+respond with `421` only for the passed through hostnames in the HTTP app, e.g. `respond @passthrough 421` where
+`@passthrough` is a `host` matcher, or avoid presenting certificates covering those hostnames in the HTTP app.

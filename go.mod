@@ -1,18 +1,19 @@
 module github.com/mholt/caddy-l4
 
-go 1.26.0
+go 1.26.9
 
 require (
 	github.com/caddyserver/caddy/v2 v2.11.7
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/miekg/dns v1.1.73
-	github.com/pires/go-proxyproto v0.15.0
+	github.com/pires/go-proxyproto v0.16.0
 	github.com/prometheus/client_golang v1.25.0
-	github.com/quic-go/quic-go v0.63.0
-	github.com/things-go/go-socks5 v0.1.3
+	github.com/quic-go/quic-go v0.64.1
+	github.com/things-go/go-socks5 v0.1.4
+	github.com/vnxme/hybrid v0.1.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.58.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
 )
 

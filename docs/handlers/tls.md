@@ -23,6 +23,12 @@ the [relevant Caddy docs](https://caddyserver.com/docs/json/apps/http/servers/tl
 Note: the handler's syntax provides for *one* `connection_policies` in JSON, but *one or many* `connection_policy`
 in Caddyfile.
 
+The handler also has an optional `handshake_timeout` field, which may specify how long to wait for the TLS handshake
+to complete. It bounds clients that open a connection but never finish the handshake (they send no ClientHello, only
+part of it, or stop in the middle of the handshake); when the timeout elapses, the connection is closed. Once the
+handshake completes, the timeout no longer applies. By default, or when set to `0`, it equals `60s`. Negative values
+are rejected.
+
 The handler itself supports no [placeholders](https://caddyserver.com/docs/conventions#placeholders), but they may be supported at Caddy level for some connection policy
 fields.
 
@@ -99,6 +105,8 @@ tls {
     connection_policy {
         # put connection policy options here
     }
+
+    handshake_timeout <duration>
 }
 ```
 
