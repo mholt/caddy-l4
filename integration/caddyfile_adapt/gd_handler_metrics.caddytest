@@ -2,7 +2,7 @@
 	layer4 {
 		:8080 {
 			route {
-				metrics
+				metrics backend
 				proxy backend:8080
 			}
 		}
@@ -21,7 +21,8 @@
 						{
 							"handle": [
 								{
-									"handler": "metrics"
+									"handler": "metrics",
+									"tag": "backend"
 								},
 								{
 									"handler": "proxy",

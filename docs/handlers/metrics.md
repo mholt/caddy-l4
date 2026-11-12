@@ -6,36 +6,53 @@ title: Metrics Handler
 
 ## Summary
 
-The Metrics handler is a passthrough handler that records per-connection traffic
-metrics to Prometheus. It counts every connection that passes through it and,
-once the rest of the handler chain has finished, adds the connection's bytes
-received and sent to counters.
+The Metrics handler is a passthrough handler that records the traffic of the
+rest of its handler chain to Prometheus under a required tag. It counts every
+connection that passes through it and, once the rest of the chain has finished,
+adds the bytes received and sent *since the handler started* to counters.
 
-Place it early in a route so it wraps the whole chain. Because layer4's byte
-accounting is kept on the underlying connection, the counts reflect the raw
-on-the-wire traffic even when a later handler (such as `tls`) terminates the
-connection.
+The handler measures a **delta**: it snapshots the connection's byte counters
+when it starts and subtracts the snapshot from the final values. Bytes that were
+prefetched for matching and are replayed to the handler chain count as received
+by the first handler that reads them. This means that:
+
+- a `metrics` handler placed *before* `tls` measures the raw on-the-wire
+  traffic, handshake included;
+- a `metrics` handler placed *after* `tls` measures only the decrypted traffic.
+
+Place several tagged handlers in a config to compare stages. Using the same tag
+in several places adds their numbers up.
+
+## Long-lived connections
+
+Values are recorded **when the connection ends**. A proxied tunnel that stays
+open for hours reports nothing until it closes, and then appears as a single
+spike. Keep this in mind when graphing or alerting on these counters.
 
 ## Exported metrics
 
 All metrics are registered on Caddy's instance metrics registry (reset across
-config reloads) under the `caddy_layer4` subsystem:
+config reloads), each with a `tag` label holding the handler's tag:
 
-- `caddy_layer4_connections_total` — total number of connections handled through
-  the handler;
-- `caddy_layer4_received_bytes_total` — total number of bytes received from
-  clients;
-- `caddy_layer4_sent_bytes_total` — total number of bytes sent to clients.
+- `caddy_layer4_handler_connections_total` — total number of connections handled
+  through the handler;
+- `caddy_layer4_handler_received_bytes_total` — total number of bytes received
+  from clients;
+- `caddy_layer4_handler_sent_bytes_total` — total number of bytes sent to
+  clients.
+
+The set of tags is limited by the config, so cardinality stays bounded.
 
 ## Syntax
 
-The handler has no configurable fields.
+The tag is required; the handler fails to provision (and the Caddyfile fails to
+parse) without one.
 
 ### Caddyfile
 
 The handler supports the following syntax:
 ```caddyfile
-metrics
+metrics <tag>
 ```
 
 An example config that collects connection metrics for TCP port 5432 proxied to
@@ -45,7 +62,7 @@ a Postgres backend:
     layer4 {
         :5432 {
             route {
-                metrics
+                metrics postgres
                 proxy localhost:5433
             }
         }
@@ -58,7 +75,8 @@ a Postgres backend:
 JSON equivalent to the handler in the config above:
 ```json
 {
-    "handler": "metrics"
+    "handler": "metrics",
+    "tag": "postgres"
 }
 ```
 
@@ -78,16 +96,16 @@ Caddy permanently mounts a `/metrics` endpoint on its admin API (by default
 route, its counters appear there:
 
 ```console
-$ curl -s localhost:2019/metrics | grep caddy_layer4
-# HELP caddy_layer4_connections_total Total number of connections handled through the metrics handler.
-# TYPE caddy_layer4_connections_total counter
-caddy_layer4_connections_total 3
-# HELP caddy_layer4_received_bytes_total Total number of bytes received from clients through the metrics handler.
-# TYPE caddy_layer4_received_bytes_total counter
-caddy_layer4_received_bytes_total 264
-# HELP caddy_layer4_sent_bytes_total Total number of bytes sent to clients through the metrics handler.
-# TYPE caddy_layer4_sent_bytes_total counter
-caddy_layer4_sent_bytes_total 191
+$ curl -s localhost:2019/metrics | grep caddy_layer4_handler
+# HELP caddy_layer4_handler_connections_total Total number of connections handled through the metrics handler, labeled by tag.
+# TYPE caddy_layer4_handler_connections_total counter
+caddy_layer4_handler_connections_total{tag="postgres"} 3
+# HELP caddy_layer4_handler_received_bytes_total Total number of bytes received from clients through the metrics handler, labeled by tag.
+# TYPE caddy_layer4_handler_received_bytes_total counter
+caddy_layer4_handler_received_bytes_total{tag="postgres"} 264
+# HELP caddy_layer4_handler_sent_bytes_total Total number of bytes sent to clients through the metrics handler, labeled by tag.
+# TYPE caddy_layer4_handler_sent_bytes_total counter
+caddy_layer4_handler_sent_bytes_total{tag="postgres"} 191
 ```
 
 ### 2. A dedicated scrape endpoint (HTTP app)
@@ -101,7 +119,7 @@ handler alongside the `layer4` app:
     layer4 {
         :5432 {
             route {
-                metrics
+                metrics postgres
                 proxy localhost:5433
             }
         }
@@ -126,4 +144,4 @@ scrape_configs:
 Because everything registers on the one shared registry, this endpoint also
 carries Caddy's own metrics (and the [`proxy`](proxy.md) handler's
 `caddy_layer4_proxy_*` metrics when that handler is used) next to the
-`caddy_layer4_*` counters above.
+`caddy_layer4_handler_*` counters above.

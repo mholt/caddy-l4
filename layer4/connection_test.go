@@ -114,10 +114,55 @@ func TestConnectionBytesReadWritten(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if got := cx.BytesRead(); got != 5 {
-		t.Errorf("BytesRead() = %d, want 5", got)
+	if read, written := cx.TrafficSnapshot(); read != 5 || written != 3 {
+		t.Errorf("TrafficSnapshot() = (%d, %d), want (5, 3)", read, written)
 	}
-	if got := cx.BytesWritten(); got != 3 {
-		t.Errorf("BytesWritten() = %d, want 3", got)
+}
+
+// TestConnectionTrafficSnapshotPrefetch checks that bytes prefetched for
+// matching but not yet replayed are not counted as read.
+func TestConnectionTrafficSnapshotPrefetch(t *testing.T) {
+	in, out := net.Pipe()
+	defer func() { _ = in.Close() }()
+	defer func() { _ = out.Close() }()
+
+	cx := WrapConnection(out, []byte{}, zap.NewNop())
+
+	go func() { _, _ = in.Write([]byte("foobarz")) }() // 7 bytes
+
+	if err := cx.prefetch(); err != nil {
+		t.Fatal(err)
+	}
+	if cx.bytesRead != 7 {
+		t.Fatalf("raw bytesRead = %d, want 7 (prefetch reads from the socket)", cx.bytesRead)
+	}
+	if read, _ := cx.TrafficSnapshot(); read != 0 {
+		t.Errorf("read after prefetch = %d, want 0 (all 7 still buffered)", read)
+	}
+
+	// matching reads must not move the snapshot either: the buffer is rewound
+	cx.freeze()
+	if _, err := io.ReadFull(cx, make([]byte, 3)); err != nil {
+		t.Fatal(err)
+	}
+	cx.unfreeze()
+	if read, _ := cx.TrafficSnapshot(); read != 0 {
+		t.Errorf("read after matching = %d, want 0", read)
+	}
+
+	// replaying 3 bytes to the handler chain counts them
+	if _, err := io.ReadFull(cx, make([]byte, 3)); err != nil {
+		t.Fatal(err)
+	}
+	if read, _ := cx.TrafficSnapshot(); read != 3 {
+		t.Errorf("read after replaying 3 = %d, want 3", read)
+	}
+
+	// replaying the rest empties the buffer
+	if _, err := io.ReadFull(cx, make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
+	if read, _ := cx.TrafficSnapshot(); read != 7 {
+		t.Errorf("read after replaying all = %d, want 7", read)
 	}
 }
