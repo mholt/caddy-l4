@@ -374,6 +374,10 @@ func (w *WeightedRoundRobinSelection) Select(pool UpstreamPool, _ *layer4.Connec
 		if len(up.peers) == 0 {
 			continue
 		}
+		// Counters are keyed by the first peer (shared per dial address) rather
+		// than by *Upstream, because dynamic pools are rebuilt on refresh and
+		// *Upstream identity is not stable there. Trade-off: two static upstreams
+		// that share a first dial address also share one counter.
 		key := up.peers[0]
 		seen[key] = struct{}{}
 		if !up.available() {

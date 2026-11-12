@@ -50,9 +50,14 @@ The handler has the following optional fields:
   - `a` resolves A records (IPv4) for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
     `grace_period`, `dial_network`.
   - `aaaa` resolves AAAA records (IPv6); same options as `a`. The two are separate sources named after the DNS
-    record type, so `a` returns only IPv4 and `aaaa` only IPv6; configure both to use a dual-stack name.
+    record type, so `a` returns only IPv4 and `aaaa` only IPv6; pick one record type per proxy.
 
   When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. A few behaviours are worth knowing:
+  - **Only one dynamic source is supported per proxy.** To serve both IPv4 and IPv6 backends, use `srv` (or a single
+    `a` or `aaaa` source); `a` and `aaaa` cannot be combined in the same proxy.
+  - **Source fields do not accept placeholders.** `service`, `proto`, `name` and `port` are fixed at provision time
+    (a placeholder is rejected with an error), because results are cached once per source.
+  - **Discovered upstreams use TCP by default.** For a UDP listener, set `dial_network udp` on the source.
   - **Lookup failures fall back to the static list.** If a refresh fails (and `grace_period` is not keeping an earlier
     result alive), the handler proxies to the statically-configured `upstreams` instead. That list is usually empty with
     dynamic upstreams, so the connection fails with `no upstreams available`.

@@ -102,14 +102,19 @@ func (su *SRVUpstreams) Provision(ctx caddy.Context) error {
 	if su.Refresh == 0 {
 		su.Refresh = caddy.Duration(time.Minute)
 	}
-	// Validate proto early so a typo is caught at provision rather than at the
-	// first lookup. A placeholder is left for per-connection expansion.
-	if su.Proto != "" && !strings.Contains(su.Proto, "{") {
-		switch su.Proto {
-		case "tcp", "udp":
-		default:
-			return fmt.Errorf("srv upstreams: proto must be tcp or udp, got %q", su.Proto)
+	// The cache holds one result per source, so the lookup name must not vary
+	// per connection: placeholders are rejected rather than silently ignored.
+	for field, v := range map[string]string{"service": su.Service, "proto": su.Proto, "name": su.Name} {
+		if hasPlaceholder(v) {
+			return fmt.Errorf("srv upstreams: %s does not support placeholders, got %q", field, v)
 		}
+	}
+	// Validate proto early so a typo is caught at provision rather than at the
+	// first lookup.
+	switch su.Proto {
+	case "", "tcp", "udp":
+	default:
+		return fmt.Errorf("srv upstreams: proto must be tcp or udp, got %q", su.Proto)
 	}
 	if su.lookupSRV == nil {
 		su.lookupSRV = net.DefaultResolver.LookupSRV
@@ -132,7 +137,9 @@ func (su *SRVUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error)
 		return pool, nil
 	}
 
-	_, records, err := su.lookupSRV(context.Background(), service, proto, name)
+	ctx, cancel := lookupContext(time.Duration(su.Refresh))
+	defer cancel()
+	_, records, err := su.lookupSRV(ctx, service, proto, name)
 	if err != nil && len(records) == 0 {
 		// LookupSRV may return some records plus an error for invalid names;
 		// only treat it as fatal when nothing usable came back.
@@ -168,6 +175,9 @@ func (su *SRVUpstreams) expandedAddr(repl *caddy.Replacer) (addr, service, proto
 	proto = repl.ReplaceAll(su.Proto, "")
 	return fmt.Sprintf("_%s._%s.%s", service, proto, name), service, proto, name
 }
+
+// setPassivePolicy implements passivePolicyAware.
+func (su *SRVUpstreams) setPassivePolicy(p *PassiveHealthChecks) { su.resolved.setPassivePolicy(p) }
 
 // Cleanup releases the peer-pool references this source holds. It is called by
 // Caddy when the config is unloaded.
@@ -244,6 +254,28 @@ func (su *SRVUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
+// minLookupTimeout is the floor for a single DNS lookup's time bound.
+const minLookupTimeout = 5 * time.Second
+
+// lookupContext bounds one DNS lookup, which runs under the source's lock, so a
+// hung resolver cannot stall the source's connections indefinitely. The bound
+// is the refresh interval (a lookup slower than that is already stale), but
+// never less than minLookupTimeout so short refresh intervals stay usable.
+func lookupContext(refresh time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), max(refresh, minLookupTimeout))
+}
+
+// hasPlaceholder reports whether s contains a placeholder delimiter.
+func hasPlaceholder(s string) bool {
+	return strings.ContainsAny(s, "{}")
+}
+
+// passivePolicyAware is implemented by sources that can hand the proxy's
+// passive health check policy to the upstreams they discover.
+type passivePolicyAware interface {
+	setPassivePolicy(*PassiveHealthChecks)
+}
+
 // dnsResolved is the per-source cache for a DNS-based upstream source. It holds
 // the last resolved pool with its freshness and the peer-pool references the
 // source currently owns (one per dial address in the pool). Keeping this
@@ -255,6 +287,16 @@ type dnsResolved struct {
 	freshness time.Time
 	pool      UpstreamPool
 	refs      map[string]*peer // dial address -> referenced peer
+	passive   *PassiveHealthChecks
+}
+
+// setPassivePolicy sets the passive health check policy given to every
+// upstream built by later refreshes. Set before the source serves connections
+// (in Handler.Provision), so cached pools are never mutated while shared.
+func (r *dnsResolved) setPassivePolicy(p *PassiveHealthChecks) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.passive = p
 }
 
 // fresh returns the cached pool if it is still fresh, taking only a read lock.
@@ -312,7 +354,7 @@ func (r *dnsResolved) refreshLocked(dialAddrs []string, logger *zap.Logger) Upst
 			r.refs[dialAddr] = p
 		}
 		want[dialAddr] = struct{}{}
-		pool = append(pool, &Upstream{Dial: []string{dialAddr}, peers: []*peer{p}})
+		pool = append(pool, &Upstream{Dial: []string{dialAddr}, peers: []*peer{p}, healthCheckPolicy: r.passive})
 	}
 
 	// release references for addresses that are no longer in the results
@@ -391,6 +433,12 @@ func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
 	if u.Port == "" {
 		return fmt.Errorf("%s upstreams: port is required", recordLabel(network))
 	}
+	// One cached result per source: the name and port must not vary per connection.
+	for field, v := range map[string]string{"name": u.Name, "port": u.Port} {
+		if hasPlaceholder(v) {
+			return fmt.Errorf("%s upstreams: %s does not support placeholders, got %q", recordLabel(network), field, v)
+		}
+	}
 	if u.lookupIP == nil {
 		u.lookupIP = net.DefaultResolver.LookupIP
 	}
@@ -414,7 +462,9 @@ func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 		return pool, nil
 	}
 
-	ips, err := u.lookupIP(context.Background(), u.network, name)
+	ctx, cancel := lookupContext(time.Duration(u.Refresh))
+	defer cancel()
+	ips, err := u.lookupIP(ctx, u.network, name)
 	if err != nil {
 		if pool, ok := u.resolved.serveStale(u.GracePeriod, u.Refresh); ok {
 			if c := u.logger.Check(zap.ErrorLevel, "lookup failed; using stale cache"); c != nil {
@@ -435,6 +485,9 @@ func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 	}
 	return u.resolved.refreshLocked(dialAddrs, u.logger), nil
 }
+
+// setPassivePolicy implements passivePolicyAware.
+func (u *ipUpstreams) setPassivePolicy(p *PassiveHealthChecks) { u.resolved.setPassivePolicy(p) }
 
 // Cleanup releases the peer-pool references this source holds. It is called by
 // Caddy when the config is unloaded.

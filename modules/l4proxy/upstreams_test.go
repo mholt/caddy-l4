@@ -482,7 +482,7 @@ func TestSRVProvisionValidatesProto(t *testing.T) {
 		{"tcp", false},
 		{"udp", false},
 		{"", false},
-		{"{env.PROTO}", false}, // placeholder is validated later, not at provision
+		{"{env.PROTO}", true}, // placeholders are rejected
 		{"sctp", true},
 		{"TCP", true}, // case-sensitive
 	}

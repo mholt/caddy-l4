@@ -128,6 +128,11 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			return fmt.Errorf("loading dynamic upstreams source module: %v", err)
 		}
 		h.dynamicUpstreams = mod.(UpstreamSource)
+		// discovered upstreams are built by the source, so it needs the passive
+		// policy for Upstream.healthy() to honour max_fails
+		if pa, ok := h.dynamicUpstreams.(passivePolicyAware); ok && h.HealthChecks != nil {
+			pa.setPassivePolicy(h.HealthChecks.Passive)
+		}
 	}
 
 	// prepare upstreams
