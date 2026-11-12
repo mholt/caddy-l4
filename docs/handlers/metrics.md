@@ -29,6 +29,13 @@ Values are recorded **when the connection ends**. A proxied tunnel that stays
 open for hours reports nothing until it closes, and then appears as a single
 spike. Keep this in mind when graphing or alerting on these counters.
 
+## Known limitation
+
+The totals are read when the handler's downstream returns. A `metrics` handler
+placed in front of a handler that hijacks the connection (for example, some
+`listener_wrappers` that take the connection over) may therefore under-count.
+Place `metrics` after such handlers.
+
 ## Exported metrics
 
 All metrics are registered on Caddy's instance metrics registry (reset across
