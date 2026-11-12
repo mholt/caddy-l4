@@ -95,10 +95,8 @@ func TestSRVGetUpstreamsLookupError(t *testing.T) {
 }
 
 func TestSRVExpandedAddr(t *testing.T) {
-	repl := caddy.NewReplacer()
-
 	su := &SRVUpstreams{Service: "postgres", Proto: "tcp", Name: "db.local"}
-	addr, service, proto, name := su.expandedAddr(repl)
+	addr, service, proto, name := su.lookupAddr()
 	if addr != "_postgres._tcp.db.local" {
 		t.Errorf("addr = %q, want _postgres._tcp.db.local", addr)
 	}
@@ -108,7 +106,7 @@ func TestSRVExpandedAddr(t *testing.T) {
 
 	// service+proto empty: Name is the full domain
 	suName := &SRVUpstreams{Name: "_custom._tcp.svc"}
-	addr2, _, _, name2 := suName.expandedAddr(repl)
+	addr2, _, _, name2 := suName.lookupAddr()
 	if addr2 != "_custom._tcp.svc" || name2 != "_custom._tcp.svc" {
 		t.Errorf("name-only addr = %q, name = %q", addr2, name2)
 	}

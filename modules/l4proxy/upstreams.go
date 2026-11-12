@@ -124,8 +124,8 @@ func (su *SRVUpstreams) Provision(ctx caddy.Context) error {
 
 // GetUpstreams resolves the SRV record (using cached results when fresh) and
 // returns one upstream per record.
-func (su *SRVUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
-	addr, service, proto, name := su.expandedAddr(repl)
+func (su *SRVUpstreams) GetUpstreams(_ *caddy.Replacer) (UpstreamPool, error) {
+	addr, service, proto, name := su.lookupAddr()
 
 	if pool, ok := su.resolved.fresh(time.Duration(su.Refresh)); ok {
 		return pool, nil
@@ -137,7 +137,7 @@ func (su *SRVUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error)
 		return pool, nil
 	}
 
-	ctx, cancel := lookupContext(time.Duration(su.Refresh))
+	ctx, cancel := lookupContext()
 	defer cancel()
 	_, records, err := su.lookupSRV(ctx, service, proto, name)
 	if err != nil && len(records) == 0 {
@@ -163,16 +163,17 @@ func (su *SRVUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error)
 	return su.resolved.refreshLocked(dialAddrs, su.logger), nil
 }
 
-// expandedAddr expands placeholders in the SRV labels and returns the RFC 2782
-// address plus the individual service/proto/name used for the lookup. When both
-// Service and Proto are empty, Name is treated as the full domain to look up.
-func (su *SRVUpstreams) expandedAddr(repl *caddy.Replacer) (addr, service, proto, name string) {
-	name = repl.ReplaceAll(su.Name, "")
+// lookupAddr returns the RFC 2782 address plus the individual service/proto/name
+// used for the lookup (placeholders are rejected at provision, so the fields are
+// used as configured). When both Service and Proto are empty, Name is treated as
+// the full domain to look up.
+func (su *SRVUpstreams) lookupAddr() (addr, service, proto, name string) {
+	name = su.Name
 	if su.Service == "" && su.Proto == "" {
 		return name, "", "", name
 	}
-	service = repl.ReplaceAll(su.Service, "")
-	proto = repl.ReplaceAll(su.Proto, "")
+	service = su.Service
+	proto = su.Proto
 	return fmt.Sprintf("_%s._%s.%s", service, proto, name), service, proto, name
 }
 
@@ -254,15 +255,15 @@ func (su *SRVUpstreams) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// minLookupTimeout is the floor for a single DNS lookup's time bound.
-const minLookupTimeout = 5 * time.Second
+// lookupTimeout caps a single DNS lookup. The lookup is done while holding the
+// source's lock, so this cap is also the longest every connection to the source
+// can be stalled by a hung resolver; it is therefore small and fixed, not tied
+// to the (much longer) refresh interval.
+const lookupTimeout = 5 * time.Second
 
-// lookupContext bounds one DNS lookup, which runs under the source's lock, so a
-// hung resolver cannot stall the source's connections indefinitely. The bound
-// is the refresh interval (a lookup slower than that is already stale), but
-// never less than minLookupTimeout so short refresh intervals stay usable.
-func lookupContext(refresh time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), max(refresh, minLookupTimeout))
+// lookupContext bounds one DNS lookup to lookupTimeout.
+func lookupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), lookupTimeout)
 }
 
 // hasPlaceholder reports whether s contains a placeholder delimiter.
@@ -448,9 +449,9 @@ func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
 // GetUpstreams resolves the name's addresses for this source's record type
 // (using cached results when fresh) and returns one upstream per address, all
 // on the configured port.
-func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
-	name := repl.ReplaceAll(u.Name, "")
-	port := repl.ReplaceAll(u.Port, "")
+func (u *ipUpstreams) GetUpstreams(_ *caddy.Replacer) (UpstreamPool, error) {
+	// placeholders are rejected at provision, so name and port are used as-is
+	name, port := u.Name, u.Port
 
 	if pool, ok := u.resolved.fresh(time.Duration(u.Refresh)); ok {
 		return pool, nil
@@ -462,7 +463,7 @@ func (u *ipUpstreams) GetUpstreams(repl *caddy.Replacer) (UpstreamPool, error) {
 		return pool, nil
 	}
 
-	ctx, cancel := lookupContext(time.Duration(u.Refresh))
+	ctx, cancel := lookupContext()
 	defer cancel()
 	ips, err := u.lookupIP(ctx, u.network, name)
 	if err != nil {

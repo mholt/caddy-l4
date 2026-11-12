@@ -54,21 +54,16 @@ func TestSourcesRejectPlaceholders(t *testing.T) {
 	}
 }
 
+// The cap is fixed (independent of refresh) because the lookup holds the lock.
 func TestLookupContextBound(t *testing.T) {
-	boundFor := func(refresh time.Duration) time.Duration {
-		ctx, cancel := lookupContext(refresh)
-		defer cancel()
-		d, ok := ctx.Deadline()
-		if !ok {
-			t.Fatal("lookup context has no deadline")
-		}
-		return time.Until(d)
+	ctx, cancel := lookupContext()
+	defer cancel()
+	dl, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("lookup context has no deadline")
 	}
-	if d := boundFor(time.Second); d > minLookupTimeout || d < minLookupTimeout-time.Second {
-		t.Errorf("short refresh: bound = %v, want about %v", d, minLookupTimeout)
-	}
-	if d := boundFor(time.Minute); d > time.Minute || d < time.Minute-time.Second {
-		t.Errorf("long refresh: bound = %v, want about 1m", d)
+	if d := time.Until(dl); d > lookupTimeout || d < lookupTimeout-time.Second {
+		t.Errorf("bound = %v, want about %v", d, lookupTimeout)
 	}
 }
 
@@ -143,6 +138,35 @@ func TestSRVPeerHonoursMaxFails(t *testing.T) {
 	pool[0].peers[0].fails.Store(1)
 	if pool[0].available() {
 		t.Error("srv-discovered peer at max_fails should be unavailable")
+	}
+}
+
+// Handler.Provision must hand the passive policy to the loaded dynamic source.
+func TestHandlerProvisionWiresPassivePolicy(t *testing.T) {
+	provision := func(hc *HealthChecks) *AUpstreams {
+		ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+		t.Cleanup(cancel)
+		h := &Handler{
+			DynamicUpstreamsRaw: []byte(`{"source":"a","name":"wire.test","port":"5700"}`),
+			HealthChecks:        hc,
+		}
+		if err := h.Provision(ctx); err != nil {
+			t.Fatalf("provision: %v", err)
+		}
+		au, ok := h.dynamicUpstreams.(*AUpstreams)
+		if !ok {
+			t.Fatalf("dynamic source is %T, want *AUpstreams", h.dynamicUpstreams)
+		}
+		return au
+	}
+
+	policy := &PassiveHealthChecks{MaxFails: 3}
+	if got := provision(&HealthChecks{Passive: policy}).resolved.passive; got != policy {
+		t.Errorf("passive policy = %v, want the handler's policy", got)
+	}
+	// no health checks configured: provisioning succeeds and no policy is set
+	if got := provision(nil).resolved.passive; got != nil {
+		t.Errorf("passive policy = %v, want nil", got)
 	}
 }
 
