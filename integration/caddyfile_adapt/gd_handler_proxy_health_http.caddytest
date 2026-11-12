@@ -1,0 +1,77 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy {
+					health_port 8008
+					health_uri /primary
+					health_status 2xx
+					health_method POST
+					health_request_body probe
+					health_body primary
+					health_follow_redirects
+					health_headers {
+						Host patroni.internal
+						X-Role leader
+					}
+					upstream upstream.local:5432 {
+						tls
+						tls_insecure_skip_verify
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"body": "probe",
+											"expect_body": "primary",
+											"expect_status": 2,
+											"follow_redirects": true,
+											"headers": {
+												"Host": [
+													"patroni.internal"
+												],
+												"X-Role": [
+													"leader"
+												]
+											},
+											"method": "POST",
+											"port": 8008,
+											"uri": "/primary"
+										}
+									},
+									"upstreams": [
+										{
+											"dial": [
+												"upstream.local:5432"
+											],
+											"tls": {
+												"insecure_skip_verify": true
+											}
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}

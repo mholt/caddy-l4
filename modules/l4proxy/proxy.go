@@ -23,7 +23,9 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -143,6 +145,11 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			}
 			if h.HealthChecks.Active.Interval == 0 {
 				h.HealthChecks.Active.Interval = caddy.Duration(30 * time.Second)
+			}
+
+			// validate the HTTP probe (if any) and build its transport
+			if err := h.HealthChecks.Active.provision(h); err != nil {
+				return fmt.Errorf("active health checks: %v", err)
 			}
 
 			go h.activeHealthChecker()
@@ -566,6 +573,11 @@ func (h *Handler) countFailure(p *peer) {
 
 // Cleanup cleans up the resources made by h during provisioning.
 func (h *Handler) Cleanup() error {
+	// release the keep-alive connections of the HTTP health check probe
+	if h.HealthChecks != nil && h.HealthChecks.Active != nil {
+		h.HealthChecks.Active.closeIdleConnections()
+	}
+
 	// remove hosts from our config from the pool
 	for _, upstream := range h.Upstreams {
 		for _, dialAddr := range upstream.Dial {
@@ -585,6 +597,15 @@ func (h *Handler) Cleanup() error {
 //		health_fall <int>
 //		health_rise <int>
 //		close_if_unhealthy
+//		health_uri <path>
+//		health_status <code|class>
+//		health_headers {
+//			<name> [<values...>]
+//		}
+//		health_method <method>
+//		health_request_body <body>
+//		health_body <regexp>
+//		health_follow_redirects
 //
 //		# passive health check options
 //		fail_duration <duration>
@@ -616,6 +637,9 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	var (
 		hasHealthInterval, hasHealthPort, hasHealthTimeout  bool // active health check options
 		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
+		hasHealthURI, hasHealthStatus, hasHealthHeaders     bool // active HTTP health check options
+		hasHealthMethod, hasHealthRequestBody               bool // active HTTP health check options
+		hasHealthBody                                       bool // active HTTP health check options
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol, hasHalfCloseTimeout               bool
@@ -713,6 +737,85 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				h.HealthChecks.Active = &ActiveHealthChecks{}
 			}
 			h.HealthChecks.Active.Rise, hasHealthRise = int(val), true
+		case "health_uri":
+			if hasHealthURI {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if _, err := validateHealthURI(d.Val()); err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			h.activeHealthChecks().URI, hasHealthURI = d.Val(), true
+		case "health_status":
+			if hasHealthStatus {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			status, err := parseStatusCode(d.Val())
+			if err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			if h.HealthChecks == nil {
+				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
+			} else if h.HealthChecks.Active == nil {
+				h.HealthChecks.Active = &ActiveHealthChecks{}
+			}
+			h.HealthChecks.Active.ExpectStatus, hasHealthStatus = status, true
+		case "health_headers":
+			if hasHealthHeaders {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			healthHeaders := make(http.Header)
+			for nesting := d.Nesting(); d.NextBlock(nesting); {
+				key := d.Val()
+				values := d.RemainingArgs()
+				if len(values) == 0 {
+					values = append(values, "")
+				}
+				healthHeaders[key] = append(healthHeaders[key], values...)
+			}
+			h.activeHealthChecks().Headers, hasHealthHeaders = healthHeaders, true
+		case "health_method":
+			if hasHealthMethod {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			h.activeHealthChecks().Method, hasHealthMethod = d.Val(), true
+		case "health_request_body":
+			if hasHealthRequestBody {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			h.activeHealthChecks().Body, hasHealthRequestBody = d.Val(), true
+		case "health_body":
+			if hasHealthBody {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if _, err := regexp.Compile(d.Val()); err != nil {
+				return d.Errf("parsing %s option '%s': compiling regular expression: %v", wrapper, optionName, err)
+			}
+			h.activeHealthChecks().ExpectBody, hasHealthBody = d.Val(), true
+		case "health_follow_redirects":
+			if d.CountRemainingArgs() != 0 {
+				return d.ArgErr()
+			}
+			h.activeHealthChecks().FollowRedirects = true
 		case "fail_duration":
 			if hasFailDuration {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
@@ -881,6 +984,35 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // allows the state of remote hosts to be preserved
 // through config reloads.
 var peers = caddy.NewUsagePool()
+
+// activeHealthChecks returns h's active health check configuration,
+// creating it if needed.
+func (h *Handler) activeHealthChecks() *ActiveHealthChecks {
+	if h.HealthChecks == nil {
+		h.HealthChecks = &HealthChecks{}
+	}
+	if h.HealthChecks.Active == nil {
+		h.HealthChecks.Active = &ActiveHealthChecks{}
+	}
+	return h.HealthChecks.Active
+}
+
+// parseStatusCode parses the health_status Caddyfile value. It accepts a full
+// status code ("200") or a status class in "Nxx" form ("2xx"), the latter
+// returned as the single class digit (e.g. 2), matching ExpectStatus semantics.
+func parseStatusCode(s string) (int, error) {
+	if len(s) == 3 && (s[1] == 'x' || s[1] == 'X') && (s[2] == 'x' || s[2] == 'X') {
+		if s[0] >= '1' && s[0] <= '5' {
+			return int(s[0] - '0'), nil
+		}
+		return 0, fmt.Errorf("invalid status class %q", s)
+	}
+	code, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid status code %q", s)
+	}
+	return code, nil
+}
 
 // Interface guards
 var (
@@ -1091,6 +1223,25 @@ func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, 
 	for _, la := range localAddrs {
 		d := &net.Dialer{LocalAddr: la}
 		conn, err := d.Dial(network, addr)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// dialWithLocalAddrsContext is dialWithLocalAddrs bounded by ctx.
+func dialWithLocalAddrsContext(ctx context.Context, localAddrs []net.Addr, network, addr string) (net.Conn, error) {
+	if len(localAddrs) == 0 {
+		var d net.Dialer
+		return d.DialContext(ctx, network, addr)
+	}
+
+	var lastErr error
+	for _, la := range localAddrs {
+		d := &net.Dialer{LocalAddr: la}
+		conn, err := d.DialContext(ctx, network, addr)
 		if err == nil {
 			return conn, nil
 		}

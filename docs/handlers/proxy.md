@@ -62,6 +62,39 @@ Active health check options include `health_interval`, `health_port` and `health
 - `health_rise` is the number of consecutive successful active health checks required to mark an unhealthy upstream
   healthy again (by default, `1`).
 
+By default an active health check is a raw TCP dial. It can instead probe over HTTP, which lets the proxy follow an
+application-level signal (e.g. a primary-election endpoint such as Patroni's `/primary`) rather than mere port
+liveness. The HTTP probe is enabled by setting `health_uri`. Its fields and Caddyfile options are those of Caddy's
+`reverse_proxy` active health checks (see `caddyhttp/reverseproxy/healthchecks.go`), of which the request building and
+response matching are ported into `l4proxy`; they correspond to the fields of the `l4proxy.ActiveHealthChecks`
+structure as follows:
+
+- `health_uri` (`uri`) is the request path and query (e.g. `/primary`), which must start with `/`. When set, the check
+  is performed over HTTP (on `health_port` if configured, otherwise the dial port) instead of a raw TCP dial;
+
+- `health_status` (`expect_status`) is the status code considered healthy (by default, any `2xx`). A class such as `2xx`
+  matches any status of that class;
+
+- `health_body` (`expect_body`) is a regular expression the response body must match for the upstream to be healthy;
+
+- `health_method` (`method`) is the HTTP method (by default, `GET`);
+
+- `health_request_body` (`body`) is the body to send with the request;
+
+- `health_headers` (`headers`) is a block of request headers to set, one `<name> [<values...>]` per line. A `Host`
+  entry sets the request's `Host`;
+
+- `health_follow_redirects` (`follow_redirects`) follows HTTP redirects, which is off by default;
+
+- `max_size` (JSON only) limits how much of the response body is downloaded.
+
+There is no option to enable TLS or to skip certificate verification for the probe. The probe uses HTTPS if, and only
+if, the upstream has TLS enabled (`tls` in a Caddyfile upstream block), and then trusts the upstream exactly like
+proxied connections do: the upstream's `tls_*` options, such as `tls_insecure_skip_verify`, `tls_trust_pool` and
+`tls_server_name`, apply. The probe also dials like proxied connections do, honoring `local_address` and
+`resolver_preference`. Its result is processed like that of a TCP check: `health_fall`, `health_rise`,
+`close_if_unhealthy` and the upstream health metrics all apply. The HTTP probe requires TCP upstreams.
+
 **Passive health checks** monitor proxied connections for errors or timeouts. To minimally enable passive health checks,
 set `passive` field equal to an empty structure inside `health_checks` in a JSON configuration or include any passive
 health check option into a Caddyfile.
