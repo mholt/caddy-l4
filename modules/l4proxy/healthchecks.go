@@ -216,10 +216,16 @@ func (a *ActiveHealthChecks) provision(h *Handler) error {
 	// that local_address and resolver_preference apply, and TLS comes from the
 	// upstream; see healthCheckDialContext and healthCheckDialTLSContext.
 	a.transport = &http.Transport{
-		Proxy:           nil,
-		DialContext:     h.healthCheckDialContext,
-		DialTLSContext:  h.healthCheckDialTLSContext,
-		IdleConnTimeout: 90 * time.Second,
+		Proxy:          nil,
+		DialContext:    h.healthCheckDialContext,
+		DialTLSContext: h.healthCheckDialTLSContext,
+		// Keep-alives are off on purpose: http.Transport pools connections by
+		// scheme and host:port only, but TLS is applied per upstream in
+		// healthCheckDialTLSContext. Two upstreams sharing a dial address with
+		// different TLS settings must not reuse a connection handshaked with
+		// the other's configuration, so every probe dials afresh. Checks are
+		// infrequent, so the lost reuse is cheap.
+		DisableKeepAlives: true,
 	}
 	a.httpClient = &http.Client{
 		Timeout:   timeout,

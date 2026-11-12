@@ -502,18 +502,68 @@ func TestHTTPCheckTransport(t *testing.T) {
 	for range 3 {
 		f.check(t)
 	}
-	if n := conns.Load(); n != 1 {
-		t.Errorf("3 checks opened %d connections, want 1 (reused by one transport)", n)
+	if a.httpClient.Transport != http.RoundTripper(a.transport) {
+		t.Error("the transport changed between checks")
+	}
+	// Keep-alives are off: no probe connection may linger or be pooled.
+	if n := conns.Load(); n != 3 {
+		t.Errorf("3 checks opened %d connections, want 3 (one fresh connection per probe)", n)
 	}
 	if err := f.h.Cleanup(); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for closed.Load() == 0 && time.Now().Before(deadline) {
+	for closed.Load() < 3 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if closed.Load() != 1 {
-		t.Errorf("Cleanup left the idle connection open (closed=%d)", closed.Load())
+	if closed.Load() != 3 {
+		t.Errorf("probe connections left open after Cleanup (closed=%d)", closed.Load())
+	}
+}
+
+// Two upstreams sharing a dial address but differing in TLS must not share a
+// probe connection: the second probe must apply its own TLS configuration.
+func TestHTTPCheckDoesNotPoolAcrossUpstreamTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+
+	insecure := &Upstream{TLS: &reverseproxy.TLSConfig{InsecureSkipVerify: true}}
+	var err error
+	if insecure.tlsConfig, err = insecure.TLS.MakeTLSClientConfig(caddy.Context{}); err != nil {
+		t.Fatal(err)
+	}
+	f := newHTTPCheckFixture(t, srv.URL, &ActiveHealthChecks{URI: "/"}, insecure)
+	f.check(t)
+	if !f.p.healthy() {
+		t.Fatal("insecure upstream should be healthy")
+	}
+
+	strict := &Upstream{TLS: &reverseproxy.TLSConfig{}}
+	if strict.tlsConfig, err = strict.TLS.MakeTLSClientConfig(caddy.Context{}); err != nil {
+		t.Fatal(err)
+	}
+	addr := *f.p.address
+	pStrict := &peer{address: &addr, dialAddr: f.p.dialAddr}
+	strict.Dial = insecure.Dial
+	strict.peers = []*peer{pStrict}
+	if err := f.h.doActiveHealthCheck(strict, pStrict); err != nil {
+		t.Fatal(err)
+	}
+	if pStrict.healthy() {
+		t.Error("strict upstream reused a connection handshaked with another upstream's TLS settings")
+	}
+}
+
+func TestParseStatusCode(t *testing.T) {
+	for in, want := range map[string]int{"200": 200, "2xx": 2, "5XX": 5, "404": 404} {
+		if got, err := parseStatusCode(in); err != nil || got != want {
+			t.Errorf("parseStatusCode(%q) = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"6xx", "0xx", "abc", "", "2x", "20x"} {
+		if _, err := parseStatusCode(bad); err == nil {
+			t.Errorf("parseStatusCode(%q) accepted", bad)
+		}
 	}
 }
 
