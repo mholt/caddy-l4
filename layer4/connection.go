@@ -185,6 +185,29 @@ func (cx *Connection) Write(p []byte) (n int, err error) {
 	return
 }
 
+// TrafficSnapshot returns the number of bytes handed to the handler chain so far
+// (read) and written to the connection so far (written). It enables handlers
+// (e.g. a metrics handler) to measure the traffic of a stage as the difference
+// between two snapshots.
+//
+// Bytes prefetched during matching are counted when they are read from the
+// socket, not when a handler later replays them from the buffer, so the bytes
+// still buffered and not yet replayed are subtracted from read.
+//
+// It is not safe to call concurrently with active reads or writes; call it
+// before and after next.Handle, when the connection is not in use by this goroutine.
+func (cx *Connection) TrafficSnapshot() (read, written uint64) {
+	read = cx.bytesRead
+	if pending := len(cx.buf) - cx.offset; pending > 0 {
+		if p := uint64(pending); p < read { //nolint:gosec // disable G115
+			read -= p
+		} else {
+			read = 0
+		}
+	}
+	return read, cx.bytesWritten
+}
+
 // Wrap wraps conn in a new Connection based on cx (reusing
 // cx's existing buffer and context). This is useful after
 // a connection is wrapped by a package that does not support
