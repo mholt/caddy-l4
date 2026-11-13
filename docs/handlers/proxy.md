@@ -177,7 +177,8 @@ Each `upstream` has the following fields:
 Three fields support [placeholders](https://caddyserver.com/docs/conventions#placeholders).
 
 - `dial` (same as arguments after `upstream` and `proxy`) resolves placeholders two times: known once are replaced
-  at provision, others are replaced at handle. E.g. `{l4.tls.server_name}:443` enables dynamic TLS SNI based upstreams.
+  at provision, others are replaced at handle. E.g. `{l4.tls.server_name}:443` enables dynamic TLS SNI based upstreams,
+  and `10.0.0.1:{l4.conn.local_port}` proxies a listener port range port-for-port (see the example below).
 
 - `local_address` resolves placeholders two times as well: known ones are replaced at provision, others are replaced
   per-connection at handle.
@@ -552,3 +553,49 @@ JSON equivalent of the two proxies above. Note that `local_address` is an **arra
     }
 }
 ```
+
+#### Proxying a port range
+
+A server listening on a port range (e.g. `udp/:50000-50100`) accepts connections on every port of the range.
+To proxy each port to the same port of the upstream, use the `{l4.conn.local_port}` placeholder in `dial`.
+It is resolved per connection, so one server replaces a server per port.
+
+```caddyfile
+{
+    layer4 {
+        tcp/:7881 {
+            route {
+                proxy 10.0.1.68:7881
+            }
+        }
+        udp/:50000-50100 {
+            route {
+                proxy udp/10.0.1.68:{l4.conn.local_port}
+            }
+        }
+    }
+}
+```
+
+JSON equivalent:
+```json
+{
+    "apps": {
+        "layer4": {
+            "servers": {
+                "srv0": {
+                    "listen": ["tcp/:7881"],
+                    "routes": [{"handle": [{"handler": "proxy", "upstreams": [{"dial": ["10.0.1.68:7881"]}]}]}]
+                },
+                "srv1": {
+                    "listen": ["udp/:50000-50100"],
+                    "routes": [{"handle": [{"handler": "proxy", "upstreams": [{"dial": ["udp/10.0.1.68:{l4.conn.local_port}"]}]}]}]
+                }
+            }
+        }
+    }
+}
+```
+
+All ports of the range **share a single dynamic upstream**: `max_connections` applies to the range as a whole,
+and active health checks are not performed for dial addresses with runtime placeholders.
