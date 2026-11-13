@@ -69,6 +69,23 @@ described below.
   inside `upstream` of `proxy` handler, and all options inside `connection_policy` of `tls` handler, that don't support
   runtime placeholders at all.
 
+The following connection placeholders are set by the Layer 4 app for every connection:
+
+| Placeholder              | Description                                                             | Example         |
+|--------------------------|-------------------------------------------------------------------------|-----------------|
+| `{l4.conn.local_addr}`   | Local address of the connection                                         | `10.0.0.1:7881` |
+| `{l4.conn.local_host}`   | Host part of the local address (IPv6 without brackets)                  | `10.0.0.1`      |
+| `{l4.conn.local_port}`   | Port part of the local address                                          | `7881`          |
+| `{l4.conn.remote_addr}`  | Remote (client) address of the connection                               | `192.0.2.7:61234` |
+| `{l4.conn.remote_host}`  | Host part of the remote address (IPv6 without brackets)                 | `192.0.2.7`     |
+| `{l4.conn.remote_port}`  | Port part of the remote address                                         | `61234`         |
+| `{l4.conn.wrap_time}`    | Time when the connection was accepted                                   |                 |
+
+For UDP, the local address is the address of the listening socket, so `{l4.conn.local_host}` may be
+a wildcard address (e.g. `::`) when listening on all interfaces, while `{l4.conn.local_port}` is always
+the port the packet arrived at. The host and port placeholders are unset for addresses without a port,
+e.g. Unix sockets.
+
 Note: runtime placeholders support depends on handler/matcher implementations. Given some matchers and handlers
 are outside of this repository, it's up to their developers to support or restrict usage of runtime placeholders.
 For the matchers and handlers included in the package, placeholder support is explicitly described in the docs.
