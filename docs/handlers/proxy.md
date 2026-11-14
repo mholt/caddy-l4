@@ -84,7 +84,9 @@ structure as follows:
 - `health_headers` (`headers`) is a block of request headers to set, one `<name> [<values...>]` per line. A `Host`
   entry sets the request's `Host`;
 
-- `health_follow_redirects` (`follow_redirects`) follows HTTP redirects, which is off by default;
+- `health_follow_redirects` (`follow_redirects`) follows HTTP redirects, which is off by default. A redirect target is
+  dialed with the settings of the upstream being checked (`local_address`, `resolver_preference` and TLS, including
+  `tls_server_name`), so redirects to a different host may not behave as expected;
 
 - `max_size` (JSON only) limits how much of the response body is downloaded.
 

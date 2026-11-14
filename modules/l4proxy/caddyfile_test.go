@@ -36,6 +36,8 @@ func TestUnmarshalCaddyfileErrors(t *testing.T) {
 		"duplicate half_close_timeout": "proxy localhost:1 {\n\thalf_close_timeout 1s\n\thalf_close_timeout 2s\n}",
 		"bad half_close_timeout":       "proxy localhost:1 {\n\thalf_close_timeout nope\n}",
 		"unknown directive":            "proxy localhost:1 {\n\tnope 1\n}",
+
+		"duplicate health_follow_redirects": "proxy localhost:1 {\n\thealth_follow_redirects\n\thealth_follow_redirects\n}",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {

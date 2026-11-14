@@ -573,7 +573,8 @@ func (h *Handler) countFailure(p *peer) {
 
 // Cleanup cleans up the resources made by h during provisioning.
 func (h *Handler) Cleanup() error {
-	// release the keep-alive connections of the HTTP health check probe
+	// release any idle connections of the HTTP health check probe (keep-alives
+	// are currently disabled, so this is a safeguard should they be enabled)
 	if h.HealthChecks != nil && h.HealthChecks.Active != nil {
 		h.HealthChecks.Active.closeIdleConnections()
 	}
@@ -639,7 +640,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		hasHealthFall, hasHealthRise, hasCloseIfUnhealthy   bool // active health check thresholds
 		hasHealthURI, hasHealthStatus, hasHealthHeaders     bool // active HTTP health check options
 		hasHealthMethod, hasHealthRequestBody               bool // active HTTP health check options
-		hasHealthBody                                       bool // active HTTP health check options
+		hasHealthBody, hasHealthFollowRedirects             bool // active HTTP health check options
 		hasFailDuration, hasMaxFails, hasUnhealthyConnCount bool // passive health check options
 		hasLBPolicy, hasLBTryDuration, hasLBTryInterval     bool // load balancing options
 		hasProxyProtocol, hasHalfCloseTimeout               bool
@@ -761,12 +762,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if err != nil {
 				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
 			}
-			if h.HealthChecks == nil {
-				h.HealthChecks = &HealthChecks{Active: &ActiveHealthChecks{}}
-			} else if h.HealthChecks.Active == nil {
-				h.HealthChecks.Active = &ActiveHealthChecks{}
-			}
-			h.HealthChecks.Active.ExpectStatus, hasHealthStatus = status, true
+			h.activeHealthChecks().ExpectStatus, hasHealthStatus = status, true
 		case "health_headers":
 			if hasHealthHeaders {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
@@ -812,10 +808,13 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			}
 			h.activeHealthChecks().ExpectBody, hasHealthBody = d.Val(), true
 		case "health_follow_redirects":
+			if hasHealthFollowRedirects {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
 			if d.CountRemainingArgs() != 0 {
 				return d.ArgErr()
 			}
-			h.activeHealthChecks().FollowRedirects = true
+			h.activeHealthChecks().FollowRedirects, hasHealthFollowRedirects = true, true
 		case "fail_duration":
 			if hasFailDuration {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)

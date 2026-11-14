@@ -240,7 +240,9 @@ func (a *ActiveHealthChecks) provision(h *Handler) error {
 	return nil
 }
 
-// closeIdleConnections releases the keep-alive connections of the HTTP probe.
+// closeIdleConnections releases any idle connections of the HTTP probe. The
+// transport disables keep-alives, so there are none today; this is kept as a
+// safeguard in case connection reuse is ever enabled.
 func (a *ActiveHealthChecks) closeIdleConnections() {
 	if a.transport != nil {
 		a.transport.CloseIdleConnections()
