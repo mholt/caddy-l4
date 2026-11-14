@@ -67,6 +67,12 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 func (h *Handler) Handle(cx *layer4.Connection, next layer4.Handler) error {
 	startRead, startWritten := cx.TrafficSnapshot()
 	err := next.Handle(cx)
+	// A hijacked connection is still in use by another goroutine (e.g. Caddy's
+	// HTTP server), so its counters are neither final nor safe to read: record
+	// nothing, so connections and bytes describe the same set of connections.
+	if errors.Is(err, layer4.ErrHijacked) {
+		return err
+	}
 	// The chain has finished, so the byte counters are final and no longer being
 	// mutated concurrently; it is safe to read them here.
 	endRead, endWritten := cx.TrafficSnapshot()

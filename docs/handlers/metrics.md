@@ -31,10 +31,8 @@ spike. Keep this in mind when graphing or alerting on these counters.
 
 ## Known limitation
 
-The totals are read when the handler's downstream returns. A `metrics` handler
-placed in front of a handler that hijacks the connection (for example, some
-`listener_wrappers` that take the connection over) may therefore under-count.
-Place `metrics` after such handlers.
+Connections handed off to Caddy's HTTP server from `listener_wrappers` are not
+recorded; use Caddy's HTTP metrics for that traffic.
 
 ## Exported metrics
 

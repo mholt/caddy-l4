@@ -158,8 +158,10 @@ func (l *listener) loop() {
 	}
 }
 
-// errHijacked is used when a handler takes over the connection, it's lifetime is not managed by handle
-var errHijacked = errors.New("hijacked connection")
+// ErrHijacked is returned when a handler takes over the connection: its lifetime
+// is no longer managed by the caller, and another goroutine may still be using it
+// once the handler returns, so its state (such as byte counters) must not be read.
+var ErrHijacked = errors.New("hijacked connection")
 
 func (l *listener) handle(conn net.Conn) {
 	var err error
@@ -172,7 +174,7 @@ func (l *listener) handle(conn net.Conn) {
 		// A hijacked connection keeps referencing buf after handle returns (e.g. it may still
 		// hold prefetched bytes not yet read by the consumer of the wrapped listener), so buf
 		// must not go back to the pool; the garbage collector reclaims it with the connection.
-		if !errors.Is(err, errHijacked) {
+		if !errors.Is(err, ErrHijacked) {
 			_ = conn.Close()
 			bufPool.Put(buf)
 		}
@@ -184,7 +186,11 @@ func (l *listener) handle(conn net.Conn) {
 	start := time.Now()
 	err = l.compiledRoute.Handle(cx)
 	duration := time.Since(start)
-	if err != nil && !errors.Is(err, errHijacked) {
+	if errors.Is(err, ErrHijacked) {
+		// the connection is in use by another goroutine; its counters must not be read
+		return
+	}
+	if err != nil {
 		l.logger.Error("handling connection", zap.Error(err))
 	}
 
@@ -221,7 +227,7 @@ func (l *listener) pipeConnection(conn *Connection) error {
 	} else {
 		l.connChan <- conn
 	}
-	return errHijacked
+	return ErrHijacked
 }
 
 // tlsConnection implements ConnectionState interface to use it with h2

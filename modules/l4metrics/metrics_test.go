@@ -243,6 +243,45 @@ func TestHandlePropagatesError(t *testing.T) {
 	}
 }
 
+// TestHandleHijackedRecordsNothing checks that a connection handed off to
+// another goroutine is not recorded at all (no connection, no bytes), and that
+// Handle does not read the connection's counters while that goroutine uses it
+// (run with -race).
+func TestHandleHijackedRecordsNothing(t *testing.T) {
+	h := &Handler{Tag: "t", metrics: newMetrics(prometheus.NewRegistry(), "t")}
+
+	client, server := net.Pipe()
+	defer client.Close()
+	cx := layer4.WrapConnection(server, []byte{}, zap.NewNop())
+
+	readerDone := make(chan struct{})
+	next := layer4.HandlerFunc(func(cx *layer4.Connection) error {
+		// hand the connection to another goroutine, as pipeConnection does
+		go func() {
+			defer close(readerDone)
+			_, _ = io.ReadFull(cx, make([]byte, 4))
+		}()
+		return layer4.ErrHijacked
+	})
+
+	if err := h.Handle(cx, next); !errors.Is(err, layer4.ErrHijacked) {
+		t.Fatalf("Handle error = %v, want ErrHijacked", err)
+	}
+	// the other goroutine keeps mutating the counters after Handle returned
+	_, _ = client.Write([]byte("ping"))
+	<-readerDone
+
+	for name, c := range map[string]prometheus.Counter{
+		"connections_total":    h.metrics.connectionsTotal,
+		"received_bytes_total": h.metrics.receivedBytes,
+		"sent_bytes_total":     h.metrics.sentBytes,
+	} {
+		if got := testutil.ToFloat64(c); got != 0 {
+			t.Errorf("%s = %v, want 0 for a hijacked connection", name, got)
+		}
+	}
+}
+
 func TestUnmarshalCaddyfile(t *testing.T) {
 	t.Run("tag", func(t *testing.T) {
 		d := caddyfile.NewTestDispenser(`metrics edge`)
