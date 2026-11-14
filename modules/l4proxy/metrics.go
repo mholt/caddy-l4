@@ -15,9 +15,9 @@
 package l4proxy
 
 import (
-	"errors"
-
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/mholt/caddy-l4/layer4"
 )
 
 // proxyMetrics holds the Prometheus collectors for a proxy handler. They are
@@ -29,43 +29,24 @@ type proxyMetrics struct {
 	upstreamHealthy  *prometheus.GaugeVec
 }
 
-// registerOrExisting registers c on reg, or returns the already-registered
-// equivalent collector if an identical one is present. Several proxy handlers
-// in one config share the same instance registry, so the second and subsequent
-// Provision calls must reuse the collectors instead of panicking on a duplicate
-// registration (see issue #445).
-func registerOrExisting[C prometheus.Collector](reg *prometheus.Registry, c C) C {
-	if err := reg.Register(c); err != nil {
-		if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
-			if existing, ok := are.ExistingCollector.(C); ok {
-				return existing
-			}
-		}
-		// Any other registration error means the metric is unusable; fall back to
-		// the unregistered collector so recording is a harmless no-op rather than
-		// crashing the whole server.
-	}
-	return c
-}
-
 // newProxyMetrics creates and registers the proxy metrics on reg, reusing any
 // collectors already registered there by another proxy handler.
 func newProxyMetrics(reg *prometheus.Registry) *proxyMetrics {
 	const ns, sub = "caddy", "layer4_proxy"
 	return &proxyMetrics{
-		connectionsTotal: registerOrExisting(reg, prometheus.NewCounterVec(prometheus.CounterOpts{
+		connectionsTotal: layer4.RegisterOrExisting(reg, prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "connections_total",
 			Help:      "Total number of connections proxied, labeled by upstream.",
 		}, []string{"upstream"})),
-		activeConns: registerOrExisting(reg, prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		activeConns: layer4.RegisterOrExisting(reg, prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "active_connections",
 			Help:      "Number of connections currently being proxied, labeled by upstream.",
 		}, []string{"upstream"})),
-		upstreamHealthy: registerOrExisting(reg, prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		upstreamHealthy: layer4.RegisterOrExisting(reg, prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: ns,
 			Subsystem: sub,
 			Name:      "upstream_healthy",
