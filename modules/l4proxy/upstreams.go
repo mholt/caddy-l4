@@ -103,11 +103,15 @@ func (su *SRVUpstreams) Provision(ctx caddy.Context) error {
 		su.Refresh = caddy.Duration(time.Minute)
 	}
 	// The cache holds one result per source, so the lookup name must not vary
-	// per connection: placeholders are rejected rather than silently ignored.
-	for field, v := range map[string]string{"service": su.Service, "proto": su.Proto, "name": su.Name} {
-		if hasPlaceholder(v) {
-			return fmt.Errorf("srv upstreams: %s does not support placeholders, got %q", field, v)
+	// per connection: global placeholders are filled in once here, and any
+	// other placeholder is rejected rather than silently ignored.
+	repl := caddy.NewReplacer()
+	for field, v := range map[string]*string{"service": &su.Service, "proto": &su.Proto, "name": &su.Name} {
+		expanded, err := expandGlobalPlaceholders(repl, "srv", field, *v)
+		if err != nil {
+			return err
 		}
+		*v = expanded
 	}
 	// Validate proto early so a typo is caught at provision rather than at the
 	// first lookup.
@@ -164,8 +168,8 @@ func (su *SRVUpstreams) GetUpstreams(_ *caddy.Replacer) (UpstreamPool, error) {
 }
 
 // lookupAddr returns the RFC 2782 address plus the individual service/proto/name
-// used for the lookup (placeholders are rejected at provision, so the fields are
-// used as configured). When both Service and Proto are empty, Name is treated as
+// used for the lookup (placeholders are filled in or rejected at provision, so
+// the fields are used as they are). When both Service and Proto are empty, Name is treated as
 // the full domain to look up.
 func (su *SRVUpstreams) lookupAddr() (addr, service, proto, name string) {
 	name = su.Name
@@ -269,6 +273,19 @@ func lookupContext() (context.Context, context.CancelFunc) {
 // hasPlaceholder reports whether s contains a placeholder delimiter.
 func hasPlaceholder(s string) bool {
 	return strings.ContainsAny(s, "{}")
+}
+
+// expandGlobalPlaceholders fills in the global placeholders in a source field
+// (e.g. {env.*} or {system.hostname}) once, at provision. Their values do not
+// vary per connection, so they are compatible with the per-source cache. Any
+// placeholder left over, such as a per-connection one like
+// {l4.tls.server_name}, is rejected with an error.
+func expandGlobalPlaceholders(repl *caddy.Replacer, label, field, v string) (string, error) {
+	expanded := repl.ReplaceKnown(v, "")
+	if hasPlaceholder(expanded) {
+		return "", fmt.Errorf("%s upstreams: %s supports only global placeholders such as {env.*}, not per-connection placeholders, got %q", label, field, v)
+	}
+	return expanded, nil
 }
 
 // passivePolicyAware is implemented by sources that can hand the proxy's
@@ -431,14 +448,18 @@ func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
 	if u.Refresh == 0 {
 		u.Refresh = caddy.Duration(time.Minute)
 	}
+	// One cached result per source: the name and port must not vary per
+	// connection, so only global placeholders are allowed, filled in once here.
+	repl := caddy.NewReplacer()
+	for field, v := range map[string]*string{"name": &u.Name, "port": &u.Port} {
+		expanded, err := expandGlobalPlaceholders(repl, recordLabel(network), field, *v)
+		if err != nil {
+			return err
+		}
+		*v = expanded
+	}
 	if u.Port == "" {
 		return fmt.Errorf("%s upstreams: port is required", recordLabel(network))
-	}
-	// One cached result per source: the name and port must not vary per connection.
-	for field, v := range map[string]string{"name": u.Name, "port": u.Port} {
-		if hasPlaceholder(v) {
-			return fmt.Errorf("%s upstreams: %s does not support placeholders, got %q", recordLabel(network), field, v)
-		}
 	}
 	if u.lookupIP == nil {
 		u.lookupIP = net.DefaultResolver.LookupIP
@@ -450,7 +471,7 @@ func (u *ipUpstreams) provision(ctx caddy.Context, network string) error {
 // (using cached results when fresh) and returns one upstream per address, all
 // on the configured port.
 func (u *ipUpstreams) GetUpstreams(_ *caddy.Replacer) (UpstreamPool, error) {
-	// placeholders are rejected at provision, so name and port are used as-is
+	// placeholders are filled in or rejected at provision, so name and port are used as-is
 	name, port := u.Name, u.Port
 
 	if pool, ok := u.resolved.fresh(time.Duration(u.Refresh)); ok {

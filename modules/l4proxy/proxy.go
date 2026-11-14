@@ -632,6 +632,7 @@ func (h *Handler) Cleanup() error {
 //		half_close_timeout <duration>
 //
 //		# discover upstreams dynamically instead of listing them
+//		# (at most one dynamic source per proxy)
 //		dynamic <source> [<args...>] {
 //			...
 //		}
@@ -883,7 +884,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			_, h.ProxyProtocol, hasProxyProtocol = d.NextArg(), d.Val(), true
 		case "dynamic":
 			if h.DynamicUpstreamsRaw != nil {
-				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+				return d.Errf("duplicate %s option '%s': only one dynamic upstream source is supported", wrapper, optionName)
 			}
 			if !d.NextArg() {
 				return d.ArgErr()

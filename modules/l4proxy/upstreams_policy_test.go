@@ -38,11 +38,12 @@ func TestSourcesRejectPlaceholders(t *testing.T) {
 	cases := map[string]caddy.Provisioner{
 		"srv name":    &SRVUpstreams{Name: "{l4.tls.server_name}.svc"},
 		"srv service": &SRVUpstreams{Name: "x", Service: "{svc}"},
-		"srv proto":   &SRVUpstreams{Name: "x", Proto: "{env.P}"},
+		"srv proto":   &SRVUpstreams{Name: "x", Proto: "{l4.proto}"},
 		"a name":      newA("{l4.tls.server_name}", "5432"),
-		"a port":      newA("x", "{env.PORT}"),
+		"a port":      newA("x", "{l4.port}"),
 		"aaaa name":   newAAAA("{host}", "5432"),
-		"aaaa port":   newAAAA("x", "{env.PORT}"),
+		"aaaa port":   newAAAA("x", "{l4.port}"),
+		"mixed":       newA("{env.L4_TEST_DOMAIN}.{l4.tls.server_name}", "5432"),
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -51,6 +52,46 @@ func TestSourcesRejectPlaceholders(t *testing.T) {
 				t.Fatalf("expected a placeholder error, got %v", err)
 			}
 		})
+	}
+}
+
+// Global placeholders such as {env.*} do not vary per connection, so they are
+// filled in once at provision instead of being rejected.
+func TestSourcesExpandGlobalPlaceholders(t *testing.T) {
+	t.Setenv("L4_TEST_SERVICE", "postgres")
+	t.Setenv("L4_TEST_PROTO", "tcp")
+	t.Setenv("L4_TEST_DOMAIN", "db.internal")
+	t.Setenv("L4_TEST_PORT", "5432")
+
+	su := &SRVUpstreams{Service: "{env.L4_TEST_SERVICE}", Proto: "{env.L4_TEST_PROTO}", Name: "{env.L4_TEST_DOMAIN}"}
+	if err := su.Provision(caddy.Context{}); err != nil {
+		t.Fatalf("srv: unexpected error: %v", err)
+	}
+	if addr, _, _, _ := su.lookupAddr(); addr != "_postgres._tcp.db.internal" {
+		t.Errorf("srv: addr = %q, want _postgres._tcp.db.internal", addr)
+	}
+
+	au := &AUpstreams{}
+	au.Name, au.Port = "a.{env.L4_TEST_DOMAIN}", "{env.L4_TEST_PORT}"
+	if err := au.Provision(caddy.Context{}); err != nil {
+		t.Fatalf("a: unexpected error: %v", err)
+	}
+	if au.Name != "a.db.internal" || au.Port != "5432" {
+		t.Errorf("a: name = %q, port = %q, want a.db.internal, 5432", au.Name, au.Port)
+	}
+
+	// an environment variable that expands to an invalid proto is still caught
+	t.Setenv("L4_TEST_PROTO", "sctp")
+	bad := &SRVUpstreams{Name: "x", Proto: "{env.L4_TEST_PROTO}"}
+	if err := bad.Provision(caddy.Context{}); err == nil {
+		t.Error("srv: expected an error for a proto that expands to sctp")
+	}
+
+	// a port that expands to nothing is reported as missing
+	empty := &AUpstreams{}
+	empty.Name, empty.Port = "x", "{env.L4_TEST_UNSET_PORT}"
+	if err := empty.Provision(caddy.Context{}); err == nil || !strings.Contains(err.Error(), "port is required") {
+		t.Errorf("a: expected a missing-port error, got %v", err)
 	}
 }
 

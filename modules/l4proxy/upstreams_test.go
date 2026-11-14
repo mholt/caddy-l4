@@ -145,6 +145,7 @@ func TestUnmarshalCaddyfileDynamicErrors(t *testing.T) {
 		"missing source": "proxy {\n\tdynamic\n}",
 		"unknown source": "proxy {\n\tdynamic nope\n}",
 		"bad srv option": "proxy {\n\tdynamic srv {\n\t\tbogus x\n\t}\n}",
+		"two sources":    "proxy {\n\tdynamic a {\n\t\tname x\n\t\tport 1\n\t}\n\tdynamic aaaa {\n\t\tname x\n\t\tport 1\n\t}\n}",
 	}
 	for name, input := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -480,7 +481,7 @@ func TestSRVProvisionValidatesProto(t *testing.T) {
 		{"tcp", false},
 		{"udp", false},
 		{"", false},
-		{"{env.PROTO}", true}, // placeholders are rejected
+		{"{l4.proto}", true}, // per-connection placeholders are rejected
 		{"sctp", true},
 		{"TCP", true}, // case-sensitive
 	}

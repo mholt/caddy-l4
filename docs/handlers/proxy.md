@@ -44,7 +44,9 @@ The handler has the following optional fields:
 
 - `dynamic_upstreams` may contain an upstream-source module that discovers the upstreams at runtime instead of listing
   them statically, so the backend set need not be restated in config when DNS already publishes it. In a Caddyfile it
-  is `dynamic <source> { ... }`. Three DNS sources are provided:
+  is `dynamic <source> { ... }`. **Only one dynamic source can be configured per proxy handler**: a second `dynamic`
+  option is rejected, and `dynamic_upstreams` in JSON holds a single source, not a list. Three DNS sources are
+  provided:
   - `srv` resolves SRV records. Options: `service`, `proto`, `name` (or just `name` for the full domain), `refresh`
     (default `1m`), `grace_period` (serve stale results for this long on lookup failure), `dial_network`.
   - `a` resolves A records (IPv4) for a `name` on a configured `port`. Options: `name`, `port`, `refresh`,
@@ -53,10 +55,13 @@ The handler has the following optional fields:
     record type, so `a` returns only IPv4 and `aaaa` only IPv6; pick one record type per proxy.
 
   When `dynamic_upstreams` is configured, the static `upstreams` list may be empty. A few behaviours are worth knowing:
-  - **Only one dynamic source is supported per proxy.** To serve both IPv4 and IPv6 backends, use `srv` (or a single
-    `a` or `aaaa` source); `a` and `aaaa` cannot be combined in the same proxy.
-  - **Source fields do not accept placeholders.** `service`, `proto`, `name` and `port` are fixed at provision time
-    (a placeholder is rejected with an error), because results are cached once per source.
+  - **`a` and `aaaa` cannot be combined.** Because a proxy takes only one dynamic source, a single proxy cannot
+    discover both the IPv4 and the IPv6 addresses of a name. For a dual-stack backend set, publish SRV records and use
+    `srv`, whose targets may resolve to both address families.
+  - **Source fields accept only global placeholders.** `service`, `proto`, `name` and `port` may use placeholders
+    that are the same for every connection, such as `{env.*}`. These are filled in once, when the config is loaded.
+    Per-connection placeholders (e.g. `{l4.tls.server_name}`) are rejected with an error, because results are cached
+    once per source.
   - **Discovered upstreams use TCP by default.** For a UDP listener, set `dial_network udp` on the source.
   - **Lookup failures fall back to the static list.** If a refresh fails (and `grace_period` is not keeping an earlier
     result alive), the handler proxies to the statically-configured `upstreams` instead. That list is usually empty with
