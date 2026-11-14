@@ -1,0 +1,54 @@
+{
+	layer4 {
+		:5432 {
+			route {
+				proxy {
+					dynamic srv {
+						service postgres
+						proto tcp
+						name db.internal
+					}
+					health_interval 5s
+					health_fall 2
+					health_rise 3
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						":5432"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"dynamic_upstreams": {
+										"name": "db.internal",
+										"proto": "tcp",
+										"service": "postgres",
+										"source": "srv"
+									},
+									"handler": "proxy",
+									"health_checks": {
+										"active": {
+											"fall": 2,
+											"interval": 5000000000,
+											"rise": 3
+										}
+									}
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
