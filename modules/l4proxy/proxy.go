@@ -23,6 +23,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -36,6 +37,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/pires/go-proxyproto"
 	"go.uber.org/zap"
+	"golang.org/x/net/proxy"
 
 	"github.com/mholt/caddy-l4/layer4"
 	"github.com/mholt/caddy-l4/modules/l4proxyprotocol"
@@ -298,9 +300,15 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 			}
 		}
 		localAddrs := buildLocalAddrs(resolvedLocalAddrs, dialNetwork, destFam, h.logger)
+		// The URL format was validated at config load time
+		proxyURL, _ := url.Parse(upstream.DialProxy)
+		dialers, err := getUpstreamDialers(proxyURL, localAddrs)
+		if err != nil {
+			return nil, err
+		}
 
 		if upstream.TLS == nil {
-			up, err = dialWithLocalAddrs(localAddrs, dialNetwork, hostPort)
+			up, err = dialFirst(dialers, dialNetwork, hostPort)
 		} else {
 			// The prepared config could be nil, if the user enabled but did not customize TLS
 			tlsCfg := upstream.tlsConfig
@@ -332,7 +340,7 @@ func (h *Handler) dialPeers(upstream *Upstream, repl *caddy.Replacer, down *laye
 				newTLSCfg.ServerName = valServerName
 				tlsCfg = newTLSCfg
 			}
-			up, err = tlsDialWithLocalAddrs(localAddrs, dialNetwork, hostPort, tlsCfg)
+			up, err = tlsDialFirst(dialers, dialNetwork, hostPort, tlsCfg)
 		}
 		h.logger.Debug("dial upstream",
 			zap.String("remote", down.RemoteAddr().String()),
@@ -964,6 +972,35 @@ func buildLocalAddrs(localAddrs []string, upstreamNetwork string, destFamily int
 	return result
 }
 
+func getUpstreamDialers(proxyURL *url.URL, localAddrs []net.Addr) ([]proxy.Dialer, error) {
+	var dialers []net.Dialer
+	if len(localAddrs) == 0 {
+		dialers = []net.Dialer{{}}
+	} else {
+		dialers = make([]net.Dialer, len(localAddrs))
+		for i, la := range localAddrs {
+			dialers[i] = net.Dialer{LocalAddr: la}
+		}
+	}
+
+	proxyDialers := make([]proxy.Dialer, len(dialers))
+
+	for i := range dialers {
+		d := &dialers[i]
+		if proxyURL != nil {
+			proxyDialer, err := proxy.FromURL(proxyURL, d)
+			if err != nil {
+				return nil, err
+			}
+			proxyDialers[i] = proxyDialer
+		} else {
+			proxyDialers[i] = d
+		}
+	}
+
+	return proxyDialers, nil
+}
+
 func resolveDestFamily(network, hostPort, pref string) (int, error) {
 	if caddy.IsUnixNetwork(network) {
 		return 0, nil
@@ -1082,14 +1119,9 @@ func narrowNetworkForFamily(netw string, destFam int) string {
 	}
 }
 
-func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, error) {
-	if len(localAddrs) == 0 {
-		return net.Dial(network, addr)
-	}
-
+func dialFirst(dialers []proxy.Dialer, network, addr string) (net.Conn, error) {
 	var lastErr error
-	for _, la := range localAddrs {
-		d := &net.Dialer{LocalAddr: la}
+	for _, d := range dialers {
 		conn, err := d.Dial(network, addr)
 		if err == nil {
 			return conn, nil
@@ -1099,19 +1131,23 @@ func dialWithLocalAddrs(localAddrs []net.Addr, network, addr string) (net.Conn, 
 	return nil, lastErr
 }
 
-func tlsDialWithLocalAddrs(localAddrs []net.Addr, network, addr string, cfg *tls.Config) (net.Conn, error) {
-	if len(localAddrs) == 0 {
-		return tls.Dial(network, addr, cfg)
-	}
-
+func tlsDialFirst(dialers []proxy.Dialer, network, addr string, cfg *tls.Config) (net.Conn, error) {
 	var lastErr error
-	for _, la := range localAddrs {
-		d := &net.Dialer{LocalAddr: la}
-		conn, err := tls.DialWithDialer(d, network, addr, cfg)
-		if err == nil {
-			return conn, nil
+	for _, dialer := range dialers {
+		conn, err := dialer.Dial(network, addr)
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		lastErr = err
+
+		tlsConn := tls.Client(conn, cfg)
+		if err := tlsConn.Handshake(); err != nil {
+			conn.Close()
+			lastErr = err
+			continue
+		}
+
+		return tlsConn, nil
 	}
 	return nil, lastErr
 }
