@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,10 @@ type Upstream struct {
 	// the host part, i.e. before `:`, and the port part, i.e. after `:`.
 	// No port ranges are currently supported (each address must be exactly 1 socket).
 	Dial []string `json:"dial,omitempty"`
+
+	// A Proxy to use to establishing connection to the upstream. The URLs supported are those of
+	// golang.org/x/net/proxy.
+	DialProxy string `json:"dial_proxy,omitempty"`
 
 	// Local address(es) to bind to when dialing the upstream. Applies only to TCP/UDP upstreams;
 	// setting this for a Unix socket upstream (unix, unixpacket, unixgram) is an error at provision
@@ -291,6 +296,7 @@ func (u *Upstream) totalConns() int {
 //
 //	upstream [<address:port>] {
 //		dial <address:port> [<address:port>]
+//		dial_proxy <url>
 //		local_addr <address[:port]> [<address[:port]>]
 //		resolver_preference <ipv4_only|ipv6_only|ipv4_first|ipv6_first>
 //		max_connections <int>
@@ -314,7 +320,7 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	shortcutArgs := d.RemainingArgs()
 
 	var (
-		hasMaxConnections, hasTLS               bool
+		hasMaxConnections, hasTLS, hasDialProxy bool
 		hasTLSTrustPool, hasTLSClientAuth       bool
 		hasTLSInsecureSkipVerify, hasTLSTimeout bool
 		hasTLSRenegotiation, hasTLSServerName   bool
@@ -328,6 +334,18 @@ func (u *Upstream) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			shortcutArgs = append(shortcutArgs, d.RemainingArgs()...)
+		case "dial_proxy":
+			if hasDialProxy {
+				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
+			}
+			if d.CountRemainingArgs() != 1 {
+				return d.ArgErr()
+			}
+			d.NextArg()
+			if _, err := url.Parse(d.Val()); err != nil {
+				return d.Errf("parsing %s option '%s': %v", wrapper, optionName, err)
+			}
+			u.DialProxy, hasDialProxy = d.Val(), true
 		case "resolver_preference":
 			if hasResolverPreference {
 				return d.Errf("duplicate %s option '%s'", wrapper, optionName)
