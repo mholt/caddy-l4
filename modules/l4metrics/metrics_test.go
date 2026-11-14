@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
@@ -245,31 +246,50 @@ func TestHandlePropagatesError(t *testing.T) {
 
 // TestHandleHijackedRecordsNothing checks that a connection handed off to
 // another goroutine is not recorded at all (no connection, no bytes), and that
-// Handle does not read the connection's counters while that goroutine uses it
-// (run with -race).
+// Handle does not read the connection's counters while that goroutine uses it:
+// the reader goroutine keeps reading (and so incrementing the counters) while
+// Handle returns, so under -race a snapshot taken after the handoff is flagged.
 func TestHandleHijackedRecordsNothing(t *testing.T) {
 	h := &Handler{Tag: "t", metrics: newMetrics(prometheus.NewRegistry(), "t")}
 
 	client, server := net.Pipe()
-	defer client.Close()
 	cx := layer4.WrapConnection(server, []byte{}, zap.NewNop())
 
-	readerDone := make(chan struct{})
+	var wg sync.WaitGroup
+	started := make(chan struct{})
 	next := layer4.HandlerFunc(func(cx *layer4.Connection) error {
-		// hand the connection to another goroutine, as pipeConnection does
-		go func() {
-			defer close(readerDone)
-			_, _ = io.ReadFull(cx, make([]byte, 4))
+		// hand the connection to goroutines that are already moving data, as
+		// the HTTP server does after pipeConnection
+		wg.Add(2)
+		go func() { // the peer: writes until the pipe is closed
+			defer wg.Done()
+			for {
+				if _, err := client.Write([]byte{'x'}); err != nil {
+					return
+				}
+			}
 		}()
+		go func() { // the consumer: reads (and counts) until the pipe is closed
+			defer wg.Done()
+			var once sync.Once
+			b := make([]byte, 1)
+			for {
+				if _, err := cx.Read(b); err != nil {
+					return
+				}
+				once.Do(func() { close(started) })
+			}
+		}()
+		<-started // data is flowing before we return
 		return layer4.ErrHijacked
 	})
 
 	if err := h.Handle(cx, next); !errors.Is(err, layer4.ErrHijacked) {
 		t.Fatalf("Handle error = %v, want ErrHijacked", err)
 	}
-	// the other goroutine keeps mutating the counters after Handle returned
-	_, _ = client.Write([]byte("ping"))
-	<-readerDone
+	_ = client.Close()
+	_ = server.Close()
+	wg.Wait()
 
 	for name, c := range map[string]prometheus.Counter{
 		"connections_total":    h.metrics.connectionsTotal,
