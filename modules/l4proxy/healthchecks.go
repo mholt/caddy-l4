@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -292,18 +293,46 @@ func (h *Handler) activeHealthChecker() {
 	}
 }
 
-// doActiveHealthCheckForAllHosts immediately performs a
-// health checks for all upstream hosts configured by h.
+// doActiveHealthCheckForAllHosts immediately performs health checks for all
+// upstream hosts known to h: the statically-configured ones and, if a dynamic
+// upstreams source is configured, the peers it currently discovers. Each pass
+// asks the source for its pool, so the checked set follows DNS changes, and the
+// outcome of each probe goes through the same recordActiveCheck path as for a
+// static peer (health_rise/health_fall, close_if_unhealthy, metrics).
 func (h *Handler) doActiveHealthCheckForAllHosts() {
-	for _, upstream := range h.Upstreams {
-		go func(upstream *Upstream) {
+	upstreams := h.Upstreams
+
+	if h.dynamicUpstreams != nil {
+		// Discovery here is connection-independent, so use a bare replacer;
+		// sources are validated at provision to take global placeholders only.
+		dynamic, err := h.dynamicUpstreams.GetUpstreams(caddy.NewReplacer())
+		if err != nil {
+			h.HealthChecks.Active.logger.Error("getting dynamic upstreams for active health check",
+				zap.Error(err))
+		} else {
+			upstreams = slices.Concat(h.Upstreams, dynamic)
+		}
+	}
+
+	// a peer can be reachable through several upstreams (peers are pooled per
+	// dial address); probe it once per pass so rise/fall are not double-counted
+	seen := make(map[*peer]struct{})
+	for _, upstream := range upstreams {
+		var todo []*peer
+		for _, p := range upstream.peers {
+			if _, dup := seen[p]; !dup {
+				seen[p] = struct{}{}
+				todo = append(todo, p)
+			}
+		}
+		go func(upstream *Upstream, todo []*peer) {
 			defer func() {
 				if err := recover(); err != nil {
 					log.Printf("[PANIC] active health check: %v\n%s", err, debug.Stack())
 				}
 			}()
 
-			for _, p := range upstream.peers {
+			for _, p := range todo {
 				err := h.doActiveHealthCheck(upstream, p)
 				if err != nil {
 					h.HealthChecks.Active.logger.Error("active health check failed",
@@ -311,7 +340,7 @@ func (h *Handler) doActiveHealthCheckForAllHosts() {
 						zap.Error(err))
 				}
 			}
-		}(upstream)
+		}(upstream, todo)
 	}
 }
 

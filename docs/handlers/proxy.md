@@ -73,8 +73,13 @@ The handler has the following optional fields:
     so a slow resolver delays new connections through that one source (not other proxies) until it returns.
   - **Discovered upstreams are bare.** Per-upstream settings — `tls` (so there is no TLS to the backend),
     `max_connections`, `weight`, `local_address`, and the PROXY-protocol options — apply only to statically-listed
-    upstreams, not to discovered ones. SRV record priority and weight are not used. Active health checks also run on
-    statically-configured upstreams only; passive health checking and connection counting still apply to dynamic ones.
+    upstreams, not to discovered ones. SRV record priority and weight are not used.
+  - **Active health checks also run on discovered upstreams.** Every `health_interval` the checker asks the source for
+    its current peers (re-resolving DNS when the source's `refresh` has elapsed) and probes each one, in addition to
+    the static `upstreams`, with the same `health_rise`/`health_fall` semantics. A discovered cluster can therefore be
+    health-gated, for example to route only to the node whose HTTP health check passes. Since discovered upstreams
+    have no `tls`, HTTP probes to them use plain `http`, and `health_port` still overrides the probed port. Passive
+    health checking and connection counting apply to dynamic upstreams as well.
 
 **Active health checks** occur independently in a background goroutine. They run in the background on a timer.
 To minimally enable active health checks, set `active` field equal to an empty structure inside `health_checks` in
