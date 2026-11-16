@@ -64,7 +64,28 @@ func WrapConnection(underlying net.Conn, buf []byte, logger *zap.Logger) *Connec
 			return cx.GetVar(key[len(varsReplPrefix):]), true
 		}
 
-		return nil, false
+		// host and port parts of the connection addresses, e.g. to proxy
+		// a port range with `dial 10.0.0.1:{l4.conn.local_port}`
+		var addr net.Addr
+		switch key {
+		case connLocalHostReplKey, connLocalPortReplKey:
+			addr = underlying.LocalAddr()
+		case connRemoteHostReplKey, connRemotePortReplKey:
+			addr = underlying.RemoteAddr()
+		default:
+			return nil, false
+		}
+		if addr == nil {
+			return nil, false
+		}
+		host, port, err := net.SplitHostPort(addr.String())
+		if err != nil {
+			return nil, false // e.g. unix sockets and pipes have no port
+		}
+		if key == connLocalHostReplKey || key == connRemoteHostReplKey {
+			return host, true
+		}
+		return port, true
 	})
 
 	return cx
@@ -353,6 +374,10 @@ const (
 
 	connLocalAddrReplKey  = connReplPrefix + "local_addr"
 	connRemoteAddrReplKey = connReplPrefix + "remote_addr"
+	connLocalHostReplKey  = connReplPrefix + "local_host"
+	connLocalPortReplKey  = connReplPrefix + "local_port"
+	connRemoteHostReplKey = connReplPrefix + "remote_host"
+	connRemotePortReplKey = connReplPrefix + "remote_port"
 	ConnWrapTimeReplKey   = connReplPrefix + "wrap_time"
 
 	TLSConnectionStatesVarName = "tls_connection_states"

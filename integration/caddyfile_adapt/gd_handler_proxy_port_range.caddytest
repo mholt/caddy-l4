@@ -1,0 +1,95 @@
+{
+	layer4 {
+		tcp/:7881 {
+			route {
+				proxy 10.0.1.68:{l4.conn.local_port}
+			}
+		}
+		udp/:3478 {
+			route {
+				proxy udp/10.0.1.68:{l4.conn.local_port}
+			}
+		}
+		udp/:50000-50100 {
+			route {
+				proxy {
+					upstream {
+						dial udp/10.0.1.68:{l4.conn.local_port}
+					}
+				}
+			}
+		}
+	}
+}
+----------
+{
+	"apps": {
+		"layer4": {
+			"servers": {
+				"srv0": {
+					"listen": [
+						"tcp/:7881"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"10.0.1.68:{l4.conn.local_port}"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv1": {
+					"listen": [
+						"udp/:3478"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"udp/10.0.1.68:{l4.conn.local_port}"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				"srv2": {
+					"listen": [
+						"udp/:50000-50100"
+					],
+					"routes": [
+						{
+							"handle": [
+								{
+									"handler": "proxy",
+									"upstreams": [
+										{
+											"dial": [
+												"udp/10.0.1.68:{l4.conn.local_port}"
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			}
+		}
+	}
+}
